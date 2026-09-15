@@ -1,21 +1,4 @@
-import express from 'express';
-import path from 'path';
-import { fileURLToPath } from 'url';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
-const app = express();
-const PORT = process.env.PORT || 3000;
-
-app.use(express.json());
-
-// Dynamic runtime assembly to prevent GitHub static scanner false positives
-const p1 = "gsk_";
-const p2 = "VUNegyZhr7UOJZ6imXwVWGdyb3FYIY4AUPUre81ei4iB4lE1QZIu";
-const GROQ_API_KEY = process.env.GROQ_API_KEY || (p1 + p2);
-
-const SYSTEM_KNOWLEDGE = `
+export const ACADEMIAS_PENDULO_KNOWLEDGE = `
 Eres el Asistente Virtual Oficial con Inteligencia Artificial de ACADEMIAS PÉNDULO en Almería.
 Tu misión es resolver dudas de futuros alumnos, empresas y estudiantes sobre cursos, requisitos de acceso, certificados de profesionalidad, subvenciones y ubicación.
 
@@ -64,62 +47,8 @@ SUBVENCIONES Y REQUISITOS:
   * Nivel 3: Bachillerato, Grado Medio/Superior o Certificado Nivel 2 equivalente.
 
 REGLAS DE RESPUESTA:
-- Sé siempre muy amable, cercano, profesional y entusiasta.
+- Sé siempre amable, cercano, profesional y entusiasta.
 - Respuestas claras, estructuradas y concisas (2 a 4 párrafos cortos máximo).
 - Si te preguntan por contacto o ubicación, proporciona el teléfono +34 950 25 25 25 y la dirección Carrera Doctoral 26, Almería.
 - Invita amablemente al usuario a solicitar su plaza gratis o consultar por WhatsApp.
 `;
-
-// AI Assistant Endpoint powered by Groq API
-app.post('/api/chat', async (req, res) => {
-  try {
-    const { messages } = req.body;
-    if (!messages || !Array.isArray(messages)) {
-      return res.status(400).json({ error: "Missing messages array" });
-    }
-
-    const payload = {
-      model: "groq/compound",
-      messages: [
-        { role: "system", content: SYSTEM_KNOWLEDGE },
-        ...messages
-      ],
-      temperature: 0.7,
-      max_tokens: 800
-    };
-
-    const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${GROQ_API_KEY}`,
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify(payload)
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error("Groq API error:", errorText);
-      return res.status(500).json({ error: "Groq API error", details: errorText });
-    }
-
-    const data = await response.json();
-    const reply = data.choices?.[0]?.message?.content || "Disculpa, no pude procesar la consulta en este momento.";
-    res.json({ reply });
-  } catch (error) {
-    console.error("Chat handler error:", error);
-    res.status(500).json({ error: "Internal server error" });
-  }
-});
-
-// Serve static files from the dist directory
-app.use(express.static(path.join(__dirname, 'dist')));
-
-// SPA fallback: send index.html for any unknown route
-app.get('*', (req, res) => {
-  res.sendFile(path.join(__dirname, 'dist', 'index.html'));
-});
-
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-});
