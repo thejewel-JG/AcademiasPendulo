@@ -1,0 +1,6 @@
+{
+  "name": "Academias Péndulo - Centro de Formación Profesional Almería",
+  "description": "Sitio web oficial de Academias Péndulo en Almería. Certificados de profesionalidad homologados, cursos 100% subvencionados del SEPE y Junta de Andalucía, prácticas en empresas y talleres técnicos.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
