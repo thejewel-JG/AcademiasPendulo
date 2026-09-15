@@ -92,13 +92,13 @@ export const Navbar: React.FC<NavbarProps> = ({
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex items-center justify-between">
           
           {/* Brand Logo - ACADEMIAS en negro, PÉNDULO en rojo */}
-          <a href="#" className="flex items-center gap-2.5 group">
+          <a href="#" className="flex items-center gap-2 group shrink-0">
             <div className="flex items-center gap-2">
               {CENTER_INFO.logoUrl ? (
                 <img 
                   src={CENTER_INFO.logoUrl} 
                   alt="Academia Péndulo Logo" 
-                  className="w-9 h-9 sm:w-10 sm:h-10 rounded-lg object-cover border border-gray-200 shadow-xs group-hover:scale-105 transition-transform" 
+                  className="w-8 h-8 sm:w-10 sm:h-10 rounded-lg object-cover border border-gray-200 shadow-xs group-hover:scale-105 transition-transform" 
                 />
               ) : (
                 <svg className="w-8 h-8 text-[#DC2626]" viewBox="0 0 100 100" fill="currentColor">
@@ -107,10 +107,10 @@ export const Navbar: React.FC<NavbarProps> = ({
                 </svg>
               )}
               <div className="flex flex-col">
-                <span className="font-display font-black text-base sm:text-xl tracking-tight text-gray-900 leading-none">
+                <span className="font-display font-black text-sm sm:text-xl tracking-tight text-gray-900 leading-none">
                   ACADEMIAS <span className="text-[#DC2626] font-extrabold">PÉNDULO</span>
                 </span>
-                <span className="text-[9px] sm:text-[10px] text-gray-500 font-bold tracking-wider">Centro N.º 0400030892</span>
+                <span className="text-[8px] sm:text-[10px] text-gray-500 font-bold tracking-wider">Centro N.º 0400030892</span>
               </div>
             </div>
           </a>
@@ -218,32 +218,43 @@ export const Navbar: React.FC<NavbarProps> = ({
             </a>
           </div>
 
-          {/* Right Action: Search Icon + Mobile Menu */}
-          <div className="flex flex-shrink-0 items-center gap-2">
+          {/* Right Action: Campus Button + Search Icon + Mobile Menu */}
+          <div className="flex shrink-0 items-center gap-1 sm:gap-2">
+            {/* Desktop / Tablet Campus Button */}
             <button 
               onClick={onOpenCampus} 
-              className="px-4 py-2 bg-[#DC2626] hover:bg-[#B91C1C] text-white font-bold text-xs uppercase tracking-wider rounded-xl shadow-xs transition-all hover:scale-105 active:scale-95 cursor-pointer flex items-center gap-1.5"
+              className="hidden sm:flex px-4 py-2 bg-[#DC2626] hover:bg-[#B91C1C] text-white font-bold text-xs uppercase tracking-wider rounded-xl shadow-xs transition-all hover:scale-105 active:scale-95 cursor-pointer items-center gap-1.5"
             >
               <GraduationCap className="w-4 h-4" />
               <span>Campus Virtual</span>
             </button>
 
+            {/* Mobile Compact Icon-Only Campus Button */}
+            <button 
+              onClick={onOpenCampus} 
+              className="sm:hidden flex items-center justify-center p-2 bg-[#DC2626] hover:bg-[#B91C1C] text-white rounded-xl shadow-xs transition-all active:scale-95 cursor-pointer"
+              title="Campus Virtual"
+              aria-label="Campus Virtual"
+            >
+              <GraduationCap className="w-4 h-4" />
+            </button>
+
             <button 
               onClick={onOpenConsultation}
-              className="text-gray-700 hover:text-[#DC2626] p-2.5 transition-colors rounded-xl hover:bg-gray-100 min-w-[48px] min-h-[48px] flex items-center justify-center"
+              className="text-gray-700 hover:text-[#DC2626] p-2 transition-colors rounded-xl hover:bg-gray-100 min-w-[40px] min-h-[40px] sm:min-w-[48px] sm:min-h-[48px] flex items-center justify-center"
               title="Buscar cursos"
               aria-label="Buscar cursos"
             >
-              <Search className="w-5 h-5" />
+              <Search className="w-4 h-4 sm:w-5 sm:h-5" />
             </button>
 
-            {/* Mobile Hamburger Menu Button (48x48px Touch Target) */}
+            {/* Mobile Hamburger Menu Button */}
             <button
               onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-              className="lg:hidden p-2.5 text-gray-900 hover:bg-gray-100 rounded-xl min-w-[48px] min-h-[48px] flex items-center justify-center transition-colors"
+              className="lg:hidden p-2 text-gray-900 hover:bg-gray-100 rounded-xl min-w-[40px] min-h-[40px] sm:min-w-[48px] sm:min-h-[48px] flex items-center justify-center transition-colors"
               aria-label={mobileMenuOpen ? "Cerrar menú" : "Abrir menú de navegación"}
             >
-              {mobileMenuOpen ? <X className="w-6 h-6 text-red-600" /> : <Menu className="w-6 h-6" />}
+              {mobileMenuOpen ? <X className="w-5 h-5 sm:w-6 sm:h-6 text-red-600" /> : <Menu className="w-5 h-5 sm:w-6 sm:h-6" />}
             </button>
           </div>
 
