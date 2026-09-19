@@ -2,11 +2,11 @@ import {
   UserProfile,
   CampusCourse,
   Enrollment,
-  ModuleSection,
   QuestionThread,
   SecretaryRequest,
   Announcement,
 } from '../types/campus';
+import { COURSES } from './coursesData';
 
 export const MOCK_USERS: UserProfile[] = [
   {
@@ -30,167 +30,83 @@ export const MOCK_USERS: UserProfile[] = [
     fechaAlta: '2025-09-01',
   },
   {
+    id: 'usr-teacher-2',
+    nombre: 'Manuel',
+    apellidos: 'Ramos Gil',
+    email: 'mramos@academiaspendulo.com',
+    telefono: '655 11 22 33',
+    role: 'PROFESOR',
+    activo: true,
+    fechaAlta: '2025-10-01',
+  },
+  {
     id: 'usr-admin-1',
     nombre: 'Elena',
     apellidos: 'Sánchez Ruiz',
     email: 'admin@pendulo.es',
-    telefono: '950 00 00 00',
+    telefono: '950 25 25 25',
     role: 'ADMINISTRACION',
     activo: true,
     fechaAlta: '2025-01-01',
   },
 ];
 
-export const MOCK_COURSES: CampusCourse[] = [
-  {
-    id: 'TMVG0004',
-    codigo: 'TMVG0004',
-    nombre: 'Mantenimiento de Vehículos Híbridos y Eléctricos',
-    descripcion:
-      'Capacitación técnica avanzada en protocolos de alta tensión, diagnóstico de baterías y tracción de vehículos híbridos y 100% eléctricos.',
-    imagen:
-      'https://images.unsplash.com/photo-1558441719-234b1a403d15?auto=format&fit=crop&w=1000&q=80',
-    profesorNombre: 'Prof. Carlos Martínez López',
-    profesorId: 'usr-teacher-1',
-    modulos: [
-      {
-        id: 'mod1',
-        cursoId: 'TMVG0004',
-        titulo: 'Módulo 1: Seguridad y Desconexión en Alta Tensión',
-        orden: 1,
-        lecciones: [
-          {
-            id: 'les_1_1',
-            moduloId: 'mod1',
-            titulo: '1.1 Ropa de protección EPI y herramientas aisladas a 1000V',
-            descripcion: 'Equipos requeridos para la manipulación segura de sistemas de propulsión eléctrica.',
-            duracion: '45 min',
-            orden: 1,
-            videoUrl: 'https://www.youtube.com/embed/dQw4w9WgXcQ',
-            contenidoHtml: `
-              <h4>Requisitos de Seguridad según Normativa UNE/EN</h4>
-              <p>Antes de intervenir cualquier vehículo electrificado es preceptivo aplicar las 5 reglas de oro para la consignación eléctrica:</p>
-              <ul>
-                <li>Desconectar la batería de 12V de servicio.</li>
-                <li>Extraer el MSD (Service Disconnect Plug) de alta tensión.</li>
-                <li>Esperar el tiempo de descarga de condensadores (mínimo 5 minutos).</li>
-                <li>Verificar ausencia de tensión con multímetro de categoría CAT IV 1000V.</li>
-                <li>Señalizar el área de trabajo de taller.</li>
-              </ul>
-            `,
-            recursos: [
-              {
-                id: 'res_1_1',
-                cursoId: 'TMVG0004',
-                moduloId: 'mod1',
-                titulo: 'Manual Oficial de Protocolos de Alta Tensión PDF',
-                descripcion: 'Documento normativo homologado para talleres de automoción.',
-                tipo: 'PDF',
-                urlPrivada: 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf',
-                tamano: '3.4 MB',
-                permitirDescarga: true,
-                publicado: true,
-                creadoPor: 'Carlos Martínez López',
-                fechaCreacion: '2026-03-01T10:00:00Z',
-              },
-            ],
-          },
-          {
-            id: 'les_1_2',
-            moduloId: 'mod1',
-            titulo: '1.2 Procedimiento de corte de servicio MSD (Manual Service Disconnect)',
-            descripcion: 'Pasos para el deslastrado del conector de servicio en baterías Li-Ion.',
-            duracion: '30 min',
-            orden: 2,
-            videoUrl: 'https://www.youtube.com/embed/dQw4w9WgXcQ',
-            contenidoHtml: `
-              <p>El conector de servicio interrumpe físicamente la serie de celdas en el centro del pack de baterías, dividiendo el voltaje de tracción a la mitad.</p>
-            `,
-            recursos: [],
-          },
-          {
-            id: 'les_1_3',
-            moduloId: 'mod1',
-            titulo: '1.3 Verificación de ausencia de tensión en Inversor / Convertidor DC-DC',
-            descripcion: 'Medición de voltaje residual entre las fases U, V, W y la masa del chasis.',
-            duracion: '50 min',
-            orden: 3,
-            videoUrl: 'https://www.youtube.com/embed/dQw4w9WgXcQ',
-            contenidoHtml: `
-              <p>Pruebas de aislamiento dieléctrico mediante megaóhmetro a 500V DC.</p>
-            `,
-            recursos: [
-              {
-                id: 'res_1_3',
-                cursoId: 'TMVG0004',
-                moduloId: 'mod1',
-                titulo: 'Guía de Diagnóstico Inversor Toyota Prius PDF',
-                descripcion: 'Esquema de conexiones y prueba de semiconductores IGBT.',
-                tipo: 'PDF',
-                urlPrivada: 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf',
-                tamano: '5.1 MB',
-                permitirDescarga: false,
-                publicado: true,
-                creadoPor: 'Carlos Martínez López',
-                fechaCreacion: '2026-03-05T12:00:00Z',
-              },
-            ],
-          },
-        ],
-      },
-      {
-        id: 'mod2',
-        cursoId: 'TMVG0004',
-        titulo: 'Módulo 2: Baterías de Tracción Litio-Ion y BMS',
-        orden: 2,
-        lecciones: [
-          {
-            id: 'les_2_1',
-            moduloId: 'mod2',
-            titulo: '2.1 Arquitectura del Battery Management System (BMS)',
-            descripcion: 'Equilibrado de celdas, monitorización de temperatura y estado de salud (SoH).',
-            duracion: '60 min',
-            orden: 1,
-            contenidoHtml: `
-              <p>Análisis de tramas CAN Bus enviadas por el máster del BMS hacia la unidad del motor.</p>
-            `,
-            recursos: [],
-          },
-        ],
-      },
-    ],
-  },
-  {
-    id: 'TMVG0209',
-    codigo: 'TMVG0209',
-    nombre: 'Mantenimiento del Sistema de Transmisión de Fuerza y Trenes de Rodaje',
-    descripcion: 'Ajuste, sustitución y reparación de embragues, cajas de cambio manuales y automáticas y trenes de suspensión.',
-    imagen:
-      'https://images.unsplash.com/photo-1486262715619-67b85e0b08d3?auto=format&fit=crop&w=1000&q=80',
-    profesorNombre: 'Prof. Carlos Martínez López',
-    profesorId: 'usr-teacher-1',
-    modulos: [
-      {
-        id: 'mod209_1',
-        cursoId: 'TMVG0209',
-        titulo: 'Módulo 1: Sistemas de Transmisión Manual y Doble Embrague',
-        orden: 1,
-        lecciones: [
-          {
-            id: 'les_209_1',
-            moduloId: 'mod209_1',
-            titulo: '1.1 Verificación y purgado de mando hidráulico de embrague',
-            descripcion: 'Procedimiento de purga de aire y sustitución de líquido DOT4.',
-            duracion: '40 min',
-            orden: 1,
-            contenidoHtml: '<p>Verificación de holguras en el volante de inercia bimasa.</p>',
-            recursos: [],
-          },
-        ],
-      },
-    ],
-  },
-];
+// Map ALL 33 official specialties from coursesData into Campus Virtual courses
+export const MOCK_COURSES: CampusCourse[] = COURSES.map((c, idx) => {
+  const teacherId = idx % 2 === 0 ? 'usr-teacher-1' : 'usr-teacher-2';
+  const teacherName = idx % 2 === 0 ? 'Prof. Carlos Martínez López' : 'Prof. Manuel Ramos Gil';
+
+  return {
+    id: c.code,
+    codigo: c.code,
+    nombre: c.title,
+    descripcion: c.fullDescription || c.shortDescription,
+    imagen: c.imageUrl,
+    profesorNombre: teacherName,
+    profesorId: teacherId,
+    modulos: (c.modules || []).map((m, mIdx) => ({
+      id: `mod_${c.code.toLowerCase()}_${mIdx + 1}`,
+      cursoId: c.code,
+      titulo: `Módulo ${mIdx + 1}: ${m.name}`,
+      orden: mIdx + 1,
+      lecciones: [
+        {
+          id: `les_${c.code.toLowerCase()}_${mIdx + 1}_1`,
+          moduloId: `mod_${c.code.toLowerCase()}_${mIdx + 1}`,
+          titulo: `1.1 Fundamentos y Normativa Práctica de ${c.title}`,
+          descripcion: `Protocolos de seguridad y operaciones de taller homologado para ${c.title}.`,
+          duracion: `${m.hours} horas`,
+          orden: 1,
+          videoUrl: 'https://www.youtube.com/embed/dQw4w9WgXcQ',
+          contenidoHtml: `
+            <h4>Programa Oficial de la Especialidad ${c.code}</h4>
+            <p>${c.fullDescription}</p>
+            <h5>Prácticas en Taller Homologado (Centro 0400030892):</h5>
+            <ul>
+              ${(c.equipmentHighlights || ['Equipamiento y maquetas homologadas CE']).map((h) => `<li>${h}</li>`).join('')}
+            </ul>
+          `,
+          recursos: [
+            {
+              id: `res_${c.code.toLowerCase()}_1`,
+              cursoId: c.code,
+              moduloId: `mod_${c.code.toLowerCase()}_${mIdx + 1}`,
+              titulo: `Dossier Técnico ${c.code} - ${c.title}.pdf`,
+              descripcion: `Manual y temario oficial de la especialidad autorizada por la Junta de Andalucía el 09/06/2026.`,
+              tipo: 'PDF',
+              urlPrivada: 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf',
+              tamano: '4.2 MB',
+              permitirDescarga: true,
+              publicado: true,
+              creadoPor: teacherName.replace('Prof. ', ''),
+              fechaCreacion: '2026-06-09T09:00:00Z',
+            },
+          ],
+        },
+      ],
+    })),
+  };
+});
 
 export const MOCK_ENROLLMENTS: Enrollment[] = [
   {
@@ -200,7 +116,7 @@ export const MOCK_ENROLLMENTS: Enrollment[] = [
     fechaMatricula: '2026-02-01',
     estado: 'active',
     progresoCalculado: 42,
-    ultimaLeccionId: 'les_1_3',
+    ultimaLeccionId: 'les_tmvg0004_1_1',
   },
   {
     id: 'enr-2',
@@ -209,7 +125,25 @@ export const MOCK_ENROLLMENTS: Enrollment[] = [
     fechaMatricula: '2026-03-01',
     estado: 'active',
     progresoCalculado: 15,
-    ultimaLeccionId: 'les_209_1',
+    ultimaLeccionId: 'les_tmvg0209_1_1',
+  },
+  {
+    id: 'enr-3',
+    estudianteId: 'usr-student-1',
+    cursoId: 'FCOS02',
+    fechaMatricula: '2026-06-09',
+    estado: 'active',
+    progresoCalculado: 60,
+    ultimaLeccionId: 'les_fcos02_1_1',
+  },
+  {
+    id: 'enr-4',
+    estudianteId: 'usr-student-1',
+    cursoId: 'TMVG0022',
+    fechaMatricula: '2026-06-09',
+    estado: 'active',
+    progresoCalculado: 25,
+    ultimaLeccionId: 'les_tmvg0022_1_1',
   },
 ];
 
@@ -217,7 +151,7 @@ export const MOCK_EMAIL_THREADS: any[] = [
   {
     id: 'th-1',
     external_thread_id: 'gmail-th-882194',
-    subject: 'Información sobre curso de Mecánica de Automoción',
+    subject: 'Consulta sobre plaza en TMVG0004 Mantenimiento de Vehículos Híbridos',
     status: 'PENDIENTE',
     related_request_id: 'req-001',
     related_course_id: 'TMVG0004',
@@ -231,9 +165,9 @@ export const MOCK_EMAIL_THREADS: any[] = [
         external_message_id: 'gmail-msg-001',
         sender_name: 'María López',
         sender_email: 'maria.lopez@email.es',
-        recipient_email: 'info@academiaspendulo.es',
-        subject: 'Información sobre curso de Mecánica de Automoción',
-        body: 'Hola buenos días, estoy interesada en matricularme en el certificado TMVG0004 de vehículos híbridos. Quisiera saber si disponen de vacantes para el turno de mañana.',
+        recipient_email: 'info@academiaspendulo.com',
+        subject: 'Consulta sobre plaza en TMVG0004 Mantenimiento de Vehículos Híbridos',
+        body: 'Hola buenas tardes, desearía consultar la disponibilidad de plaza para la especialidad autorizada TMVG0004 en las instalaciones de Carrera Doctoral 26.',
         received_at: '2026-09-14T00:35:00Z',
         direction: 'inbound',
         read: false,
@@ -243,7 +177,7 @@ export const MOCK_EMAIL_THREADS: any[] = [
   {
     id: 'th-2',
     external_thread_id: 'gmail-th-993012',
-    subject: 'RE: Solicitud de justificante de asistencia',
+    subject: 'RE: Certificado oficial de asistencia a talleres presenciales',
     status: 'RESPONDIDO',
     related_student_id: 'usr-student-1',
     related_course_id: 'TMVG0004',
@@ -257,9 +191,9 @@ export const MOCK_EMAIL_THREADS: any[] = [
         external_message_id: 'gmail-msg-002',
         sender_name: 'Alejandro García Pérez',
         sender_email: 'alumno@pendulo.es',
-        recipient_email: 'secretaria@academiaspendulo.es',
-        subject: 'Solicitud de justificante de asistencia',
-        body: 'Estimada Secretaría, necesitaría el justificante de asistencia correspondiente a las clases del Módulo 1.',
+        recipient_email: 'secretaria@academiaspendulo.com',
+        subject: 'Certificado oficial de asistencia a talleres presenciales',
+        body: 'Estimada Secretaría, desearía solicitar el certificado oficial del módulo superado en el taller de automoción.',
         received_at: '2026-09-13T10:15:00Z',
         direction: 'inbound',
         read: true,
@@ -269,10 +203,10 @@ export const MOCK_EMAIL_THREADS: any[] = [
         thread_id: 'th-2',
         external_message_id: 'gmail-msg-003',
         sender_name: 'Secretaría Academias Péndulo',
-        sender_email: 'secretaria@academiaspendulo.es',
+        sender_email: 'secretaria@academiaspendulo.com',
         recipient_email: 'alumno@pendulo.es',
-        subject: 'RE: Solicitud de justificante de asistencia',
-        body: 'Estimado Alejandro, adjuntamos en tu expediente de Secretaría Online el documento firmado digitalmente.',
+        subject: 'RE: Certificado oficial de asistencia a talleres presenciales',
+        body: 'Estimado Alejandro, dispones del documento de acreditación firmado en el área de Secretaría Online.',
         received_at: '2026-09-13T11:20:00Z',
         direction: 'outbound',
         read: true,
@@ -281,7 +215,6 @@ export const MOCK_EMAIL_THREADS: any[] = [
   },
 ];
 
-
 export const MOCK_QUESTIONS: QuestionThread[] = [
   {
     id: 'q-1',
@@ -289,28 +222,28 @@ export const MOCK_QUESTIONS: QuestionThread[] = [
     estudianteNombre: 'Alejandro García Pérez',
     profesorId: 'usr-teacher-1',
     cursoId: 'TMVG0004',
-    cursoNombre: 'Mantenimiento de Vehículos Híbridos y Eléctricos',
-    moduloUnidad: 'Módulo 1 / Unidad 1.3',
-    asunto: 'Duda sobre el tiempo de espera tras retirar el MSD',
+    cursoNombre: 'TMVG0004 - Mantenimiento de Vehículos Híbridos',
+    moduloUnidad: 'Módulo 1 / Unidad 1.1',
+    asunto: 'Duda sobre el protocolo de aislamiento CAT IV 1000V',
     estado: 'RESPONDIDA',
-    fechaCreacion: '2026-03-10T10:30:00Z',
-    fechaUltimaActualizacion: '2026-03-10T11:15:00Z',
+    fechaCreacion: '2026-06-10T10:30:00Z',
+    fechaUltimaActualizacion: '2026-06-10T11:15:00Z',
     mensajes: [
       {
         id: 'qmsg-1',
         autorId: 'usr-student-1',
         autorNombre: 'Alejandro García Pérez',
         autorRol: 'ALUMNO',
-        texto: 'Hola Profesor, en la lección 1.3 se indica esperar 5 minutos tras quitar el conector MSD. ¿Es necesario medir con el comprobador antes de tocar la pletina del inversor aunque pasen 10 minutos?',
-        fechaHora: '2026-03-10T10:30:00Z',
+        texto: 'Hola Profesor, en las prácticas de taller de vehículos híbridos, ¿es obligatoria la medición de ausencia de tensión antes de manipular la batería de tracción?',
+        fechaHora: '2026-06-10T10:30:00Z',
       },
       {
         id: 'qmsg-2',
         autorId: 'usr-teacher-1',
         autorNombre: 'Carlos Martínez López',
         autorRol: 'PROFESOR',
-        texto: 'Hola Alejandro. Sí, rotundamente sí. La medición de tensión con un multímetro CAT IV 1000V es OBLIGATORIA por normativa de prevención de riesgos antes de realizar cualquier contacto físico, independientemente del tiempo transcurrido.',
-        fechaHora: '2026-03-10T11:15:00Z',
+        texto: 'Hola Alejandro. Sí, es un requisito estricto de prevención de riesgos laborales. Debemos utilizar guantes aislantes dieléctricos y multímetro comprobado antes de tocar componentes de alta tensión.',
+        fechaHora: '2026-06-10T11:15:00Z',
       },
     ],
   },
@@ -323,53 +256,63 @@ export const MOCK_SECRETARY_REQUESTS: SecretaryRequest[] = [
     estudianteId: 'usr-student-1',
     estudianteNombre: 'Alejandro García Pérez',
     tipo: 'Solicitud de certificado',
-    asunto: 'Certificado de horas lectivas realizadas en TMVG0004',
-    descripcion: 'Requiero justificante oficial de asistencia y superación del Módulo 1 para la empresa.',
+    asunto: 'Certificado de horas presenciales en Especialidad TMVG0004',
+    descripcion: 'Solicitud de expedición de justificante oficial de horas realizadas en taller para el expediente personal.',
     estado: 'EN_TRAMITE',
-    fechaCreacion: '2026-03-12T09:00:00Z',
-    fechaUltimaActualizacion: '2026-03-12T14:20:00Z',
+    fechaCreacion: '2026-06-12T09:00:00Z',
+    fechaUltimaActualizacion: '2026-06-12T14:20:00Z',
     mensajes: [
       {
         id: 'secmsg-1',
         autorId: 'usr-student-1',
         autorNombre: 'Alejandro García Pérez',
         autorRol: 'ALUMNO',
-        texto: 'Adjunto solicitud firmada para la expedición de certificado intermedio.',
-        fechaHora: '2026-03-12T09:00:00Z',
+        texto: 'Adjunto solicitud formal para el certificado oficial de la especialidad.',
+        fechaHora: '2026-06-12T09:00:00Z',
       },
       {
         id: 'secmsg-2',
         autorId: 'usr-admin-1',
         autorNombre: 'Elena Sánchez (Secretaría)',
         autorRol: 'ADMINISTRACION',
-        texto: 'Solicitud recibida. Estamos procesando la firma digital de la certificación.',
-        fechaHora: '2026-03-12T14:20:00Z',
+        texto: 'Solicitud tramitada correctamente. El documento en PDF está en revisión por Jefatura de Estudios.',
+        fechaHora: '2026-06-12T14:20:00Z',
       },
     ],
   },
 ];
 
+// Clean & official announcements for Academias Péndulo
 export const MOCK_ANNOUNCEMENTS: Announcement[] = [
   {
     id: 'ann-1',
-    titulo: 'Convocatoria de Prácticas Presenciales en Taller Homologado',
+    titulo: 'Oferta Formativa Oficial: 33 Especialidades Autorizadas por la Junta de Andalucía',
     contenido:
-      'Se informa a todos los alumnos matriculados en la especialidad TMVG0004 que las sesiones prácticas en taller de alta tensión se desarrollarán el próximo sábado en el módulo central de Almería.',
-    autorNombre: 'Secretaría Académica',
+      'ACADEMIAS PÉNDULO (Centro Autorizado 0400030892) cuenta con 33 especialidades en su oferta formativa en la familia de Transporte y Mantenimiento de Vehículos y Formación Complementaria en sus instalaciones de Carrera Doctoral 26 (Almería).',
+    autorNombre: 'Secretaría Académica Péndulo',
     autorId: 'usr-admin-1',
-    cursoId: 'TMVG0004',
-    destinatarios: 'ALUMNOS',
-    fecha: '2026-03-11T12:00:00Z',
+    destinatarios: 'TODOS',
+    fecha: '2026-06-09T09:00:00Z',
   },
   {
     id: 'ann-2',
-    titulo: 'Mantenimiento del Servidor del Campus Virtual',
+    titulo: 'Prácticas en Taller Homologado y Equipamiento de Diagnosis Avanzada',
     contenido:
-      'El Campus estará en mantenimiento el domingo de 02:00 a 04:00 AM para la instalación de nuevas medidas de seguridad en el repositorio de temarios.',
-    autorNombre: 'Administración Péndulo',
+      'Las sesiones prácticas se realizan con equipamiento real: osciloscopios PicoScope, equipos de diagnosis Bosch KTS, sistemas de calibración ADAS multimarca y maquetas de alta tensión.',
+    autorNombre: 'Dirección Técnica',
+    autorId: 'usr-admin-1',
+    destinatarios: 'ALUMNOS',
+    fecha: '2026-06-10T10:00:00Z',
+  },
+  {
+    id: 'ann-3',
+    titulo: 'Horario de Atención de Secretaría Online y Telefónica',
+    contenido:
+      'Secretaría presta atención ininterrumpida de Lunes a Viernes de 08:30 a 20:30 h en Carrera Doctoral 26, Almería. Teléfono: +34 950 25 25 25 | WhatsApp: +34 950 04 04 04.',
+    autorNombre: 'Secretaría Académica Péndulo',
     autorId: 'usr-admin-1',
     destinatarios: 'TODOS',
-    fecha: '2026-03-09T08:00:00Z',
+    fecha: '2026-06-11T11:00:00Z',
   },
 ];
 
@@ -383,11 +326,11 @@ export const MOCK_CONTACT_REQUESTS: any[] = [
     phone: '655 44 33 22',
     course_id: 'TMVG0004',
     course_code: 'TMVG0004',
-    course_name: 'Mantenimiento de Vehículos Híbridos y Eléctricos',
+    course_name: 'Mantenimiento de Vehículos Híbridos',
     preferred_schedule: 'Mañanas (09:00 - 14:00)',
     employment_status: 'Empleado sector automoción',
-    comments: 'Solicito información para bonificación FUNDAE por empresa.',
-    message: 'Hola, me gustaría saber si la formación incluye prácticas con bancos de alta tensión.',
+    comments: 'Solicito información sobre las inscripciones autorizadas el 09/06/2026.',
+    message: 'Hola, me gustaría saber la fecha de inicio del próximo grupo en taller de Almería.',
     status: 'new',
     source: 'Formulario Web Principal',
   },
@@ -400,33 +343,14 @@ export const MOCK_CONTACT_REQUESTS: any[] = [
     phone: '611 22 33 44',
     course_id: 'TMVG0209',
     course_code: 'TMVG0209',
-    course_name: 'Mantenimiento del Sistema de Transmisión de Fuerza y Trenes de Rodaje',
+    course_name: 'Mantenimiento de los Sistemas Eléctricos y Electrónicos de Vehículos',
     preferred_schedule: 'Tardes (16:00 - 21:00)',
     employment_status: 'Desempleado',
-    comments: 'Interesado en turno de tarde.',
-    message: 'Quisiera saber las fechas de la próxima convocatoria presencial en Almería.',
+    comments: 'Interesado en la convocatoria del Certificado Nivel 2.',
+    message: 'Quisiera conocer el calendario presencial en Almería.',
     status: 'contacted',
     assigned_admin_name: 'Elena Sánchez',
-    internal_notes: 'Llamado el 13/09. Interesado en financiación en 3 cuotas. Documentación enviada.',
-    source: 'Modal Especialidad Formativa',
-  },
-  {
-    id: 'req-003',
-    created_at: '2026-09-10T11:00:00Z',
-    first_name: 'Alejandro',
-    last_name: 'García Pérez',
-    email: 'alumno@pendulo.es',
-    phone: '612 345 678',
-    course_id: 'TMVG0004',
-    course_code: 'TMVG0004',
-    course_name: 'Mantenimiento de Vehículos Híbridos y Eléctricos',
-    preferred_schedule: 'Mañanas',
-    employment_status: 'Empleado',
-    message: 'Solicitud previa de información comercial.',
-    status: 'enrolled',
-    student_id: 'usr-student-1',
-    internal_notes: 'Alumno matriculado formalmente. Acceso activo al Campus Virtual.',
-    source: 'Formulario Web Principal',
+    internal_notes: 'Llamada realizada el 13/09. Información sobre requisitos Nivel 2 enviada.',
+    source: 'Catálogo de Especialidades',
   },
 ];
-

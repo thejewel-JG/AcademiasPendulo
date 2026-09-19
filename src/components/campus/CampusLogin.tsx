@@ -185,10 +185,10 @@ export const CampusLogin: React.FC = () => {
             {showForgotMsg && (
               <div className="p-3 bg-zinc-950 border border-zinc-800 rounded-xl text-xs text-zinc-400 leading-relaxed">
                 Por motivos de seguridad, para restablecer la contraseña debes contactar con Secretaría en{' '}
-                <a href="mailto:secretaria@academiaspendulo.es" className="text-red-400 underline">
-                  secretaria@academiaspendulo.es
+                <a href="mailto:secretaria@academiaspendulo.com" className="text-red-400 underline">
+                  secretaria@academiaspendulo.com
                 </a>{' '}
-                o llamando al <span className="text-white font-medium">950 00 00 00</span>.
+                o llamando al <span className="text-white font-medium">+34 950 25 25 25</span>.
               </div>
             )}
 

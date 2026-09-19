@@ -392,7 +392,7 @@ export const CampusProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     setContactRequests((prev) => [newReq, ...prev]);
 
     // Simulate sending email notification in background without blocking DB record
-    console.log(`[EMAIL DISPATCH] Sending notification email to info@academiaspendulo.es: Nueva solicitud - [${data.course_code}] · [${data.course_name}] from ${data.first_name} ${data.last_name}`);
+    console.log(`[EMAIL DISPATCH] Sending notification email to info@academiaspendulo.com: Nueva solicitud - [${data.course_code}] · [${data.course_name}] from ${data.first_name} ${data.last_name}`);
 
     return newReq;
   };
@@ -528,7 +528,7 @@ export const CampusProvider: React.FC<{ children: React.ReactNode }> = ({ childr
             thread_id: threadId,
             external_message_id: `gmail-outbound-${Date.now()}`,
             sender_name: 'Secretaría Academias Péndulo',
-            sender_email: 'secretaria@academiaspendulo.es',
+            sender_email: 'secretaria@academiaspendulo.com',
             recipient_email: th.sender_email,
             subject: `RE: ${th.subject}`,
             body: replyText,

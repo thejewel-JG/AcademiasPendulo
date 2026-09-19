@@ -80,7 +80,7 @@ export const CampusAdminInbox: React.FC = () => {
         <div>
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-red-600/20 border border-red-500/30 text-red-400 text-xs font-semibold mb-2">
             <Mail className="w-3.5 h-3.5" />
-            Correo Oficial info@academiaspendulo.es
+            Correo Oficial info@academiaspendulo.com
           </div>
           <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight font-heading">
             Bandeja de Correo Electrónico
@@ -295,7 +295,7 @@ export const CampusAdminInbox: React.FC = () => {
               {/* Outbound Reply Editor */}
               <form onSubmit={handleSendReply} className="pt-4 border-t border-zinc-800 space-y-3">
                 <div className="text-xs font-bold text-zinc-300">
-                  Responder desde info@academiaspendulo.es
+                  Responder desde info@academiaspendulo.com
                 </div>
                 <textarea
                   rows={3}
