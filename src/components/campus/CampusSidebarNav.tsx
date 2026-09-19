@@ -120,6 +120,15 @@ export const CampusSidebarNav: React.FC = () => {
               <div className="text-[11px] text-zinc-400 font-medium">Academias Péndulo</div>
             </div>
           </div>
+
+          <button
+            type="button"
+            onClick={toggleCampusTheme}
+            className="p-2 rounded-xl bg-zinc-900 border border-zinc-800 text-amber-400 hover:scale-105 transition-all shadow"
+            title={campusTheme === 'dark' ? 'Cambiar a Modo Día (Claro)' : 'Cambiar a Modo Noche (Oscuro)'}
+          >
+            {campusTheme === 'dark' ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4 text-indigo-400" />}
+          </button>
         </div>
 
         {/* User Card */}

@@ -1,9 +1,9 @@
 import React, { useState } from 'react';
 import { useCampus } from '../../context/CampusContext';
-import { LogIn, ShieldAlert, KeyRound, UserCheck, ArrowLeft, Lock, Mail } from 'lucide-react';
+import { LogIn, ShieldAlert, KeyRound, UserCheck, ArrowLeft, Lock, Mail, Sun, Moon } from 'lucide-react';
 
 export const CampusLogin: React.FC = () => {
-  const { login, authError, navigateTo } = useCampus();
+  const { login, authError, navigateTo, campusTheme, toggleCampusTheme } = useCampus();
   const [email, setEmail] = useState('alumno@pendulo.es');
   const [password, setPassword] = useState('123456');
   const [showForgotMsg, setShowForgotMsg] = useState(false);
@@ -25,8 +25,8 @@ export const CampusLogin: React.FC = () => {
       <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full max-w-7xl h-96 bg-red-900/10 blur-3xl pointer-events-none rounded-full" />
       <div className="absolute bottom-0 right-0 w-96 h-96 bg-red-600/5 blur-3xl pointer-events-none rounded-full" />
 
-      {/* Return to Public Web */}
-      <div className="absolute top-6 left-6 z-10">
+      {/* Top Bar Actions */}
+      <div className="absolute top-6 left-6 right-6 z-10 flex items-center justify-between">
         <a
           href="/"
           onClick={(e) => {
@@ -35,11 +35,29 @@ export const CampusLogin: React.FC = () => {
             window.history.pushState(null, '', '/');
             window.dispatchEvent(new Event('popstate'));
           }}
-          className="inline-flex items-center gap-2 text-sm text-zinc-400 hover:text-white transition-colors bg-zinc-900/80 px-4 py-2 rounded-full border border-zinc-800 backdrop-blur-md"
+          className="inline-flex items-center gap-2 text-xs sm:text-sm text-zinc-400 hover:text-white transition-colors bg-zinc-900/80 px-4 py-2 rounded-full border border-zinc-800 backdrop-blur-md font-semibold"
         >
           <ArrowLeft className="w-4 h-4" />
           Volver a la Web Principal
         </a>
+
+        <button
+          type="button"
+          onClick={toggleCampusTheme}
+          className="inline-flex items-center gap-2 text-xs font-extrabold text-amber-400 hover:text-amber-300 bg-zinc-900/90 px-4 py-2 rounded-full border border-zinc-800 backdrop-blur-md shadow-lg transition-all"
+        >
+          {campusTheme === 'dark' ? (
+            <>
+              <Sun className="w-4 h-4" />
+              <span>Modo Día (Claro)</span>
+            </>
+          ) : (
+            <>
+              <Moon className="w-4 h-4 text-indigo-400" />
+              <span>Modo Noche (Oscuro)</span>
+            </>
+          )}
+        </button>
       </div>
 
       <div className="sm:mx-auto sm:w-full sm:max-w-md z-10">
