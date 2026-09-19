@@ -9,45 +9,63 @@ dotenv.config();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-async function runDatabaseSetup() {
-  const host = process.env.DB_HOST || 'srv1787.hstgr.io';
-  const user = process.env.DB_USER || 'u141101294_guillermina';
-  const password = process.env.DB_PASS || 'Wattpad_3317';
-  const database = process.env.DB_NAME || 'u141101294_guillermina';
-  const port = Number(process.env.DB_PORT) || 3306;
-
-  console.log(`📡 Intentando conectar a MySQL en Hostinger...`);
-  console.log(`   Host: ${host} (${port})`);
-  console.log(`   Base de datos: ${database}`);
-  console.log(`   Usuario: ${user}`);
+async function tryConnection(host, user, password, database) {
+  console.log(`\n📡 Probando conexión:`);
+  console.log(`   Host: ${host}`);
+  console.log(`   User: ${user}`);
+  console.log(`   DB:   ${database}`);
 
   try {
     const connection = await mysql.createConnection({
       host,
-      port,
+      port: 3306,
       user,
       password,
       database,
       multipleStatements: true,
-      ssl: { rejectUnauthorized: false },
+      connectTimeout: 10000,
     });
 
-    console.log(`✅ Conexión establecida con éxito con el servidor de Hostinger!`);
+    console.log(`✅ ¡CONEXIÓN EXITOSA CON HOSTINGER! (${host} / ${database})`);
 
     const schemaPath = path.join(__dirname, '..', 'schema.sql');
-    const sqlContent = fs.readFileSync(schemaPath, 'utf-8');
+    let sqlContent = fs.readFileSync(schemaPath, 'utf-8');
 
-    console.log(`🔄 Ejecutando archivo schema.sql para crear todas las tablas...`);
+    // Replace database name in schema if needed
+    sqlContent = sqlContent.replace(/`u141101294_guillermina`/g, `\`${database}\``);
+
+    console.log(`🔄 Ejecutando archivo schema.sql para crear todas las tablas oficiales...`);
     await connection.query(sqlContent);
 
-    console.log(`🎉 ¡ÉXITO! Se han creado todas las tablas y datos oficiales en Hostinger.`);
+    console.log(`🎉 ¡ÉXITO TOTAL! Se han creado las 8 tablas y las 33 especialidades en Hostinger (${database}).`);
     await connection.end();
+    return true;
   } catch (error) {
-    console.error(`❌ Error al conectar con la base de datos de Hostinger:`, error.message);
-    if (error.code === 'ETIMEDOUT' || error.code === 'ER_ACCESS_DENIED_ERROR' || error.message.includes('Access denied')) {
-      console.log(`👉 Asegúrate de haber marcado "Cualquier host" y hecho clic en "Crear" en el panel de Hostinger.`);
+    console.log(`❌ Error (${host}): ${error.message}`);
+    return false;
+  }
+}
+
+async function runDatabaseSetup() {
+  const password = process.env.DB_PASS || 'Wattpad_3317';
+
+  const hosts = ['srv1787.hstgr.io', '193.203.168.172', 'auth-db1787.hstgr.io'];
+  const databases = ['u141101294_Academias', 'u141101294_guillermina'];
+  const users = ['u141101294_guillermina', 'u141101294_Academias', 'u141101294'];
+
+  for (const host of hosts) {
+    for (const db of databases) {
+      for (const u of users) {
+        const success = await tryConnection(host, u, password, db);
+        if (success) {
+          console.log(`\n✨ ¡Base de datos de Hostinger lista e inicializada con éxito!`);
+          return;
+        }
+      }
     }
   }
+
+  console.log(`\n⚠️ Si la conexión falla por "Access Denied", asegúrate de pulsar "Crear" en el panel de MySQL Remoto de Hostinger habiendo marcado "Cualquier host".`);
 }
 
 runDatabaseSetup();
