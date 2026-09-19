@@ -10,6 +10,7 @@
     "preview": "vite preview",
     "clean": "rm -rf dist",
     "db:setup": "node scripts/setup_remote_db.js",
+    "db:migrate": "node scripts/migrate.js",
     "lint": "tsc --noEmit"
   },
   "dependencies": {
