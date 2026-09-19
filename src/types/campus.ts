@@ -36,6 +36,7 @@ export interface UserProfile {
   fechaAlta?: string;
   invitedAt?: string;
   passwordSet?: boolean;
+  mustChangePassword?: boolean;
 }
 
 export interface ResourceItem {

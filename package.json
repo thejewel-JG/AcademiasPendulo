@@ -11,6 +11,7 @@
     "clean": "rm -rf dist",
     "db:setup": "node scripts/setup_remote_db.js",
     "db:migrate": "node scripts/migrate.js",
+    "seed:admin": "node scripts/create_admin.js",
     "lint": "tsc --noEmit"
   },
   "dependencies": {

@@ -8,9 +8,9 @@ export const CampusLogin: React.FC = () => {
   const [password, setPassword] = useState('123456');
   const [showForgotMsg, setShowForgotMsg] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    login(email, password);
+    await login(email, password);
   };
 
   const setDemoAccount = (demoEmail: string) => {

@@ -34,6 +34,7 @@ import { CampusAdminPanel } from './components/campus/CampusAdminPanel';
 import { CampusAdminRequests } from './components/campus/CampusAdminRequests';
 import { CampusUserManagement } from './components/campus/CampusUserManagement';
 import { CampusAdminInbox } from './components/campus/CampusAdminInbox';
+import { CampusForcedPasswordChangeModal } from './components/campus/CampusForcedPasswordChangeModal';
 
 function MainAppContent() {
   const [selectedCourse, setSelectedCourse] = useState<Course | null>(null);
@@ -127,6 +128,7 @@ function MainAppContent() {
           {currentView === 'admin-usuarios' && <CampusUserManagement />}
           {currentView === 'admin-correo' && <CampusAdminInbox />}
         </div>
+        <CampusForcedPasswordChangeModal />
       </div>
     );
   }

@@ -181,32 +181,49 @@ export const CampusProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     setIsCampusRoute(true);
   };
 
-  const login = (email: string, pass: string): boolean => {
+  const login = async (email: string, pass: string): Promise<boolean> => {
     setAuthError(null);
-    const user = users.find((u) => u.email.toLowerCase() === email.toLowerCase().trim());
+    try {
+      const res = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: email.trim(), password: pass })
+      });
 
-    if (!user) {
-      setAuthError('No existe ninguna cuenta de usuario autorizada con este correo electrónico.');
+      const data = await res.json();
+
+      if (!res.ok) {
+        setAuthError(data.error || 'Credenciales inválidas.');
+        return false;
+      }
+
+      const userProfile: UserProfile = {
+        id: data.user.id,
+        nombre: data.user.nombre,
+        apellidos: data.user.apellidos,
+        email: data.user.email,
+        role: data.activeRole === 'ADMINISTRADOR' ? 'ADMINISTRACION' : (data.activeRole as any),
+        activo: data.user.estado === 'ACTIVO',
+        fechaAlta: new Date().toISOString(),
+        mustChangePassword: data.mustChangePassword
+      };
+
+      setCurrentUser(userProfile);
+
+      // Automatic Role-Based Redirection
+      if (data.activeRole === 'ADMINISTRADOR') {
+        navigateTo('admin-panel');
+      } else if (data.activeRole === 'PROFESOR') {
+        navigateTo('profesor-dashboard');
+      } else {
+        navigateTo('dashboard');
+      }
+
+      return true;
+    } catch (err: any) {
+      setAuthError('Error al conectar con el servidor de autenticación.');
       return false;
     }
-
-    if (!user.activo) {
-      setAuthError('Tu cuenta se encuentra inactiva. Contacta con la secretaría de Academias Péndulo.');
-      return false;
-    }
-
-    setCurrentUser(user);
-
-    // Automatic Role-Based Redirection
-    if (user.role === 'ADMINISTRACION') {
-      navigateTo('admin-panel');
-    } else if (user.role === 'PROFESOR') {
-      navigateTo('profesor-dashboard');
-    } else {
-      navigateTo('dashboard');
-    }
-
-    return true;
   };
 
 
