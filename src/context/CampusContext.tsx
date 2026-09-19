@@ -34,6 +34,9 @@ interface CampusContextType {
   isCampusRoute: boolean;
   activeCourseId: string | null;
   authError: string | null;
+  campusTheme: 'dark' | 'light';
+  toggleCampusTheme: () => void;
+  setCampusTheme: (theme: 'dark' | 'light') => void;
   users: UserProfile[];
   courses: CampusCourse[];
   enrollments: Enrollment[];
@@ -93,6 +96,24 @@ export const CampusProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     const saved = localStorage.getItem('pendulo_campus_user');
     return saved ? JSON.parse(saved) : MOCK_USERS[0]; // Default student demo
   });
+
+  const [campusTheme, setCampusThemeState] = useState<'dark' | 'light'>(() => {
+    const saved = localStorage.getItem('pendulo_campus_theme');
+    return (saved === 'light' ? 'light' : 'dark') as 'dark' | 'light';
+  });
+
+  const setCampusTheme = (theme: 'dark' | 'light') => {
+    setCampusThemeState(theme);
+    localStorage.setItem('pendulo_campus_theme', theme);
+  };
+
+  const toggleCampusTheme = () => {
+    setCampusThemeState((prev) => {
+      const next = prev === 'dark' ? 'light' : 'dark';
+      localStorage.setItem('pendulo_campus_theme', next);
+      return next;
+    });
+  };
 
   const [currentView, setCurrentView] = useState<CampusView>('dashboard');
   const [activeCourseId, setActiveCourseId] = useState<string | null>('TMVG0004');
@@ -536,6 +557,9 @@ export const CampusProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         isCampusRoute,
         activeCourseId,
         authError,
+        campusTheme,
+        toggleCampusTheme,
+        setCampusTheme,
         users,
         courses,
         enrollments,

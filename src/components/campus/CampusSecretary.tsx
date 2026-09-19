@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useCampus } from '../../context/CampusContext';
 import { FileText, Plus, Send, Clock, ShieldCheck, CheckCircle2 } from 'lucide-react';
 import { SecretaryRequest, SecretaryType } from '../../types/campus';
+import { PdfFileUploader } from './PdfFileUploader';
 
 export const CampusSecretary: React.FC = () => {
   const { currentUser, secretaryRequests, addSecretaryRequest, addSecretaryMessage } = useCampus();
@@ -13,6 +14,9 @@ export const CampusSecretary: React.FC = () => {
   const [tipo, setTipo] = useState<SecretaryType>('Solicitud de certificado');
   const [asunto, setAsunto] = useState('');
   const [descripcion, setDescripcion] = useState('');
+  const [attachedPdfName, setAttachedPdfName] = useState('');
+  const [attachedPdfSize, setAttachedPdfSize] = useState('');
+  const [attachedPdfUrl, setAttachedPdfUrl] = useState('');
 
   // Reply message
   const [replyText, setReplyText] = useState('');
@@ -36,6 +40,7 @@ export const CampusSecretary: React.FC = () => {
       descripcion,
       referencia: `SEC-${Math.floor(1000 + Math.random() * 9000)}`,
       estado: 'PENDIENTE',
+      adjuntoUrl: attachedPdfUrl || undefined,
       mensajes: [
         {
           id: `sec_msg_${Date.now()}`,
@@ -44,6 +49,7 @@ export const CampusSecretary: React.FC = () => {
           autorRol: currentUser.role,
           texto: descripcion,
           fechaHora: new Date().toISOString(),
+          adjuntoUrl: attachedPdfUrl || undefined,
         },
       ],
     });
@@ -51,6 +57,9 @@ export const CampusSecretary: React.FC = () => {
     setShowModal(false);
     setAsunto('');
     setDescripcion('');
+    setAttachedPdfName('');
+    setAttachedPdfSize('');
+    setAttachedPdfUrl('');
   };
 
   const handleSendReply = (e: React.FormEvent) => {
@@ -278,13 +287,29 @@ export const CampusSecretary: React.FC = () => {
                 <label className="block text-zinc-400 font-semibold mb-1">Descripción detallada</label>
                 <textarea
                   required
-                  rows={4}
+                  rows={3}
                   value={descripcion}
                   onChange={(e) => setDescripcion(e.target.value)}
                   placeholder="Detalla las especificaciones de tu solicitud..."
                   className="w-full bg-zinc-950 border border-zinc-800 rounded-xl p-3 text-white focus:outline-none focus:border-red-500 resize-none"
                 />
               </div>
+
+              <PdfFileUploader
+                label="Adjuntar documento o justificante PDF (Opcional)"
+                selectedFileName={attachedPdfName}
+                selectedFileSize={attachedPdfSize}
+                onFileSelected={({ name, sizeStr, url }) => {
+                  setAttachedPdfName(name);
+                  setAttachedPdfSize(sizeStr);
+                  setAttachedPdfUrl(url);
+                }}
+                onFileRemoved={() => {
+                  setAttachedPdfName('');
+                  setAttachedPdfSize('');
+                  setAttachedPdfUrl('');
+                }}
+              />
 
               <div className="flex justify-end gap-3 pt-2">
                 <button

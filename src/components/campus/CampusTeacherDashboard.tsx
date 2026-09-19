@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useCampus } from '../../context/CampusContext';
 import { GraduationCap, BookOpen, Users, HelpCircle, Bell, ArrowRight, PlayCircle } from 'lucide-react';
+import { PdfFileUploader } from './PdfFileUploader';
 
 export const CampusTeacherDashboard: React.FC = () => {
   const { currentUser, courses, questions, announcements, navigateTo, publishCourseResource } = useCampus();
@@ -19,6 +20,9 @@ export const CampusTeacherDashboard: React.FC = () => {
   const [resourceDesc, setResourceDesc] = useState('');
   const [resourceType, setResourceType] = useState<'PDF' | 'VIDEO'>('PDF');
   const [resourceUrl, setResourceUrl] = useState('');
+  const [attachedPdfName, setAttachedPdfName] = useState('');
+  const [attachedPdfSize, setAttachedPdfSize] = useState('');
+  const [attachedPdfDataUrl, setAttachedPdfDataUrl] = useState('');
   const [allowDownload, setAllowDownload] = useState(true);
   const [publishSuccessMsg, setPublishSuccessMsg] = useState('');
 
@@ -32,19 +36,22 @@ export const CampusTeacherDashboard: React.FC = () => {
       titulo: resourceTitle,
       descripcion: resourceDesc,
       tipo: resourceType,
-      urlPrivada: resourceUrl || 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf',
-      tamano: resourceType === 'PDF' ? '4.2 MB' : undefined,
+      urlPrivada: resourceType === 'PDF' && attachedPdfDataUrl ? attachedPdfDataUrl : (resourceUrl || 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf'),
+      tamano: resourceType === 'PDF' ? (attachedPdfSize || '3.5 MB') : undefined,
       permitirDescarga: allowDownload,
       publicado: true,
     });
 
     setPublishSuccessMsg(
-      `¡Material "${resourceTitle}" publicado con éxito! Todos los alumnos matriculados ya tienen acceso.`
+      `¡Material "${resourceTitle}" publicado con éxito! Todos los alumnos matriculados ya tienen acceso al PDF.`
     );
     setShowMaterialModal(false);
     setResourceTitle('');
     setResourceDesc('');
     setResourceUrl('');
+    setAttachedPdfName('');
+    setAttachedPdfSize('');
+    setAttachedPdfDataUrl('');
     setTimeout(() => setPublishSuccessMsg(''), 5000);
   };
 
@@ -281,17 +288,38 @@ export const CampusTeacherDashboard: React.FC = () => {
                   />
                 </div>
               ) : (
-                <div className="flex items-center gap-2 pt-1">
-                  <input
-                    type="checkbox"
-                    id="allowDownload"
-                    checked={allowDownload}
-                    onChange={(e) => setAllowDownload(e.target.checked)}
-                    className="accent-red-600 rounded"
+                <div className="space-y-3">
+                  <PdfFileUploader
+                    label="Seleccionar o arrastrar PDF desde tu PC *"
+                    selectedFileName={attachedPdfName}
+                    selectedFileSize={attachedPdfSize}
+                    onFileSelected={({ name, sizeStr, url }) => {
+                      setAttachedPdfName(name);
+                      setAttachedPdfSize(sizeStr);
+                      setAttachedPdfDataUrl(url);
+                      if (!resourceTitle) {
+                        setResourceTitle(name.replace(/\.pdf$/i, ''));
+                      }
+                    }}
+                    onFileRemoved={() => {
+                      setAttachedPdfName('');
+                      setAttachedPdfSize('');
+                      setAttachedPdfDataUrl('');
+                    }}
                   />
-                  <label htmlFor="allowDownload" className="text-zinc-300 font-semibold">
-                    Permitir descarga del archivo PDF a los alumnos
-                  </label>
+
+                  <div className="flex items-center gap-2 pt-1">
+                    <input
+                      type="checkbox"
+                      id="allowDownload"
+                      checked={allowDownload}
+                      onChange={(e) => setAllowDownload(e.target.checked)}
+                      className="accent-red-600 rounded"
+                    />
+                    <label htmlFor="allowDownload" className="text-zinc-300 font-semibold">
+                      Permitir descarga del archivo PDF a los alumnos
+                    </label>
+                  </div>
                 </div>
               )}
 

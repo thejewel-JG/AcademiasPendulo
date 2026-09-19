@@ -126,3 +126,91 @@ html {
 .footer-link:hover::after {
   width: 100%;
 }
+
+/* ================================= */
+/*  CAMPUS VIRTUAL LIGHT THEME MODE  */
+/* ================================= */
+.campus-theme-light {
+  background-color: #f8fafc !important;
+  color: #0f172a !important;
+}
+
+.campus-theme-light aside,
+.campus-theme-light .bg-zinc-950 {
+  background-color: #ffffff !important;
+  border-color: #e2e8f0 !important;
+  color: #0f172a !important;
+}
+
+.campus-theme-light .bg-zinc-900,
+.campus-theme-light .bg-zinc-900\/60,
+.campus-theme-light .bg-zinc-900\/80,
+.campus-theme-light .bg-zinc-900\/90 {
+  background-color: #ffffff !important;
+  border-color: #e2e8f0 !important;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -2px rgba(0, 0, 0, 0.05) !important;
+  color: #0f172a !important;
+}
+
+.campus-theme-light .bg-zinc-850\/50,
+.campus-theme-light .bg-zinc-800,
+.campus-theme-light .bg-zinc-800\/60,
+.campus-theme-light .bg-zinc-800\/80 {
+  background-color: #f1f5f9 !important;
+  border-color: #cbd5e1 !important;
+  color: #1e293b !important;
+}
+
+.campus-theme-light .text-white {
+  color: #0f172a !important;
+}
+
+.campus-theme-light .text-zinc-400,
+.campus-theme-light .text-zinc-500 {
+  color: #64748b !important;
+}
+
+.campus-theme-light .text-zinc-300,
+.campus-theme-light .text-zinc-200 {
+  color: #334155 !important;
+}
+
+.campus-theme-light .border-zinc-800,
+.campus-theme-light .border-zinc-800\/80,
+.campus-theme-light .border-zinc-800\/60,
+.campus-theme-light .border-zinc-700 {
+  border-color: #e2e8f0 !important;
+}
+
+.campus-theme-light input,
+.campus-theme-light select,
+.campus-theme-light textarea {
+  background-color: #ffffff !important;
+  color: #0f172a !important;
+  border-color: #cbd5e1 !important;
+}
+
+.campus-theme-light input::placeholder,
+.campus-theme-light textarea::placeholder {
+  color: #94a3b8 !important;
+}
+
+.campus-theme-light .bg-gradient-to-r {
+  background: linear-gradient(135deg, #ffffff 0%, #fff1f2 50%, #ffe4e6 100%) !important;
+  border-color: #fecdd3 !important;
+}
+
+.campus-theme-light .bg-gradient-to-r h1 {
+  color: #991b1b !important;
+}
+
+.campus-theme-light table thead {
+  background-color: #f1f5f9 !important;
+  color: #475569 !important;
+  border-color: #e2e8f0 !important;
+}
+
+.campus-theme-light table tbody tr:hover {
+  background-color: #f8fafc !important;
+}
+

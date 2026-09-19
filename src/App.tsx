@@ -41,7 +41,7 @@ function MainAppContent() {
   const [isConsultationOpen, setIsConsultationOpen] = useState<boolean>(false);
   const [isWorkWithUsOpen, setIsWorkWithUsOpen] = useState<boolean>(false);
 
-  const { isCampusRoute, currentUser, currentView, navigateTo } = useCampus();
+  const { isCampusRoute, currentUser, currentView, navigateTo, campusTheme } = useCampus();
 
   const handleSelectCourseById = (courseId: string) => {
     const course = COURSES.find((c) => c.id === courseId);
@@ -97,13 +97,23 @@ function MainAppContent() {
 
   if (isCampusRoute) {
     if (!currentUser || currentView === 'login') {
-      return <CampusLogin />;
+      return (
+        <div className={campusTheme === 'light' ? 'campus-theme-light' : ''}>
+          <CampusLogin />
+        </div>
+      );
     }
 
     return (
-      <div className="min-h-screen bg-zinc-950 text-white flex flex-col lg:flex-row font-sans">
+      <div
+        className={`min-h-screen ${
+          campusTheme === 'light'
+            ? 'bg-slate-100 text-slate-900 campus-theme-light'
+            : 'bg-zinc-950 text-white'
+        } flex flex-col lg:flex-row font-sans transition-colors duration-200`}
+      >
         <CampusSidebarNav />
-        <div className="flex-1 bg-zinc-950 overflow-y-auto">
+        <div className={`flex-1 ${campusTheme === 'light' ? 'bg-slate-100' : 'bg-zinc-950'} overflow-y-auto`}>
           {currentView === 'dashboard' && <CampusStudentDashboard />}
           {currentView === 'cursos' && <CampusMyCourses />}
           {currentView === 'curso-detalle' && <CampusCourseDetail />}

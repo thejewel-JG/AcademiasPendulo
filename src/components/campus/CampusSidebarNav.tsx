@@ -16,11 +16,13 @@ import {
   X,
   ExternalLink,
   Mail,
+  Sun,
+  Moon,
 } from 'lucide-react';
 import { CampusView } from '../../types/campus';
 
 export const CampusSidebarNav: React.FC = () => {
-  const { currentUser, currentView, navigateTo, logout } = useCampus();
+  const { currentUser, currentView, navigateTo, logout, campusTheme, toggleCampusTheme } = useCampus();
   const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false);
 
   if (!currentUser) return null;
@@ -84,13 +86,23 @@ export const CampusSidebarNav: React.FC = () => {
           </div>
         </div>
 
-        <button
-          onClick={logout}
-          className="p-2 text-zinc-400 hover:text-red-400 hover:bg-zinc-900 rounded-lg border border-zinc-800 transition-colors"
-          title="Cerrar sesión"
-        >
-          <LogOut className="w-4 h-4" />
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={toggleCampusTheme}
+            className="p-2 text-amber-400 hover:bg-zinc-900 rounded-lg border border-zinc-800 transition-colors"
+            title={campusTheme === 'dark' ? 'Cambiar a Modo Claro' : 'Cambiar a Modo Oscuro'}
+          >
+            {campusTheme === 'dark' ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4 text-indigo-400" />}
+          </button>
+
+          <button
+            onClick={logout}
+            className="p-2 text-zinc-400 hover:text-red-400 hover:bg-zinc-900 rounded-lg border border-zinc-800 transition-colors"
+            title="Cerrar sesión"
+          >
+            <LogOut className="w-4 h-4" />
+          </button>
+        </div>
       </div>
 
       {/* Desktop Sidebar (hidden on mobile) */}
@@ -153,8 +165,30 @@ export const CampusSidebarNav: React.FC = () => {
           })}
         </nav>
 
-        {/* Footer Actions */}
+        {/* Footer Actions & Theme Selector */}
         <div className="p-3 border-t border-zinc-800/80 space-y-1">
+          <button
+            onClick={toggleCampusTheme}
+            className="w-full flex items-center justify-between px-3.5 py-2 rounded-xl text-xs font-semibold text-zinc-300 hover:text-white bg-zinc-900/60 hover:bg-zinc-850 border border-zinc-800 transition-colors"
+          >
+            <span className="flex items-center gap-2">
+              {campusTheme === 'dark' ? (
+                <>
+                  <Sun className="w-4 h-4 text-amber-400" />
+                  <span>Modo Claro</span>
+                </>
+              ) : (
+                <>
+                  <Moon className="w-4 h-4 text-indigo-400" />
+                  <span>Modo Oscuro</span>
+                </>
+              )}
+            </span>
+            <span className="text-[10px] uppercase px-2 py-0.5 rounded bg-zinc-800 font-extrabold text-zinc-400">
+              {campusTheme === 'dark' ? 'Oscuro' : 'Claro'}
+            </span>
+          </button>
+
           <a
             href="/"
             onClick={(e) => {

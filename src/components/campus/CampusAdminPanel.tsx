@@ -14,9 +14,11 @@ import {
   XCircle,
   Edit,
   FolderPlus,
+  Upload,
 } from 'lucide-react';
 import { UserRole } from '../../types/campus';
 import { CampusAdminRequests } from './CampusAdminRequests';
+import { PdfFileUploader } from './PdfFileUploader';
 
 export const CampusAdminPanel: React.FC = () => {
   const {
@@ -31,10 +33,21 @@ export const CampusAdminPanel: React.FC = () => {
     addEnrollment,
     removeEnrollment,
     updateSecretaryStatus,
+    publishCourseResource,
   } = useCampus();
 
   const [activeTab, setActiveTab] = useState<'solicitudes' | 'usuarios' | 'matriculas' | 'secretaria'>('solicitudes');
 
+  // Admin PDF Publish Modal State
+  const [showPublishPdfModal, setShowPublishPdfModal] = useState(false);
+  const [selectedCourseId, setSelectedCourseId] = useState(courses[0]?.id || 'TMVG0004');
+  const [selectedModuleId, setSelectedModuleId] = useState('mod1');
+  const [pdfTitle, setPdfTitle] = useState('');
+  const [pdfDesc, setPdfDesc] = useState('');
+  const [attachedPdfName, setAttachedPdfName] = useState('');
+  const [attachedPdfSize, setAttachedPdfSize] = useState('');
+  const [attachedPdfDataUrl, setAttachedPdfDataUrl] = useState('');
+  const [publishSuccessMsg, setPublishSuccessMsg] = useState('');
 
   // New User Form State
   const [showAddUserModal, setShowAddUserModal] = useState(false);
@@ -46,10 +59,36 @@ export const CampusAdminPanel: React.FC = () => {
   // New Enrollment Form State
   const [showAddEnrollmentModal, setShowAddEnrollmentModal] = useState(false);
   const [selectedStudentId, setSelectedStudentId] = useState('');
-  const [selectedCourseId, setSelectedCourseId] = useState('');
+  const [selectedEnrollCourseId, setSelectedEnrollCourseId] = useState('');
 
   const students = users.filter((u) => u.role === 'ALUMNO');
   const teachers = users.filter((u) => u.role === 'PROFESOR');
+
+  const handleAdminPublishPdf = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedCourseId || !pdfTitle || !attachedPdfDataUrl) return;
+
+    publishCourseResource(selectedCourseId, selectedModuleId, {
+      cursoId: selectedCourseId,
+      moduloId: selectedModuleId,
+      titulo: pdfTitle,
+      descripcion: pdfDesc,
+      tipo: 'PDF',
+      urlPrivada: attachedPdfDataUrl,
+      tamano: attachedPdfSize || '2.0 MB',
+      permitirDescarga: true,
+      publicado: true,
+    });
+
+    setPublishSuccessMsg(`Documento PDF "${pdfTitle}" publicado correctamente en el curso.`);
+    setShowPublishPdfModal(false);
+    setPdfTitle('');
+    setPdfDesc('');
+    setAttachedPdfName('');
+    setAttachedPdfSize('');
+    setAttachedPdfDataUrl('');
+    setTimeout(() => setPublishSuccessMsg(''), 5000);
+  };
 
   const handleCreateUser = (e: React.FormEvent) => {
     e.preventDefault();
@@ -80,18 +119,33 @@ export const CampusAdminPanel: React.FC = () => {
   return (
     <div className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto space-y-8">
       {/* Header Banner */}
-      <div className="bg-gradient-to-r from-zinc-900 via-zinc-900 to-red-950/60 border border-zinc-800 rounded-3xl p-6 sm:p-8 shadow-2xl">
-        <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-red-600/20 border border-red-500/30 text-red-400 text-xs font-semibold mb-3">
-          <Shield className="w-4 h-4" />
-          Administración Global Academias Péndulo
+      <div className="bg-gradient-to-r from-zinc-900 via-zinc-900 to-red-950/60 border border-zinc-800 rounded-3xl p-6 sm:p-8 shadow-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-6">
+        <div>
+          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-red-600/20 border border-red-500/30 text-red-400 text-xs font-semibold mb-3">
+            <Shield className="w-4 h-4" />
+            Administración Global Academias Péndulo
+          </div>
+          <h1 className="text-2xl sm:text-4xl font-extrabold text-white tracking-tight font-heading">
+            Panel de Control Administrativo
+          </h1>
+          <p className="mt-2 text-sm text-zinc-400 max-w-2xl">
+            Gestión centralizada de alumnos autorizados, profesores, matrículas académicas, contenidos y trámites de secretaría online.
+          </p>
         </div>
-        <h1 className="text-2xl sm:text-4xl font-extrabold text-white tracking-tight font-heading">
-          Panel de Control Administrativo
-        </h1>
-        <p className="mt-2 text-sm text-zinc-400 max-w-2xl">
-          Gestión centralizada de alumnos autorizados, profesores, matrículas académicas, contenidos y trámites de secretaría online.
-        </p>
+
+        <button
+          onClick={() => setShowPublishPdfModal(true)}
+          className="flex items-center justify-center gap-2 px-5 py-3 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-extrabold uppercase tracking-wider shadow-lg shadow-red-950/40 transition-all shrink-0"
+        >
+          <Upload className="w-4 h-4" /> Adjuntar PDF / Material
+        </button>
       </div>
+
+      {publishSuccessMsg && (
+        <div className="p-4 bg-emerald-950/90 border border-emerald-800 text-emerald-300 rounded-2xl text-xs font-bold shadow-xl">
+          {publishSuccessMsg}
+        </div>
+      )}
 
       {/* Admin Stat Overview Cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -430,8 +484,8 @@ export const CampusAdminPanel: React.FC = () => {
                 <label className="block text-zinc-400 font-semibold mb-1">Seleccionar Curso</label>
                 <select
                   required
-                  value={selectedCourseId}
-                  onChange={(e) => setSelectedCourseId(e.target.value)}
+                  value={selectedEnrollCourseId}
+                  onChange={(e) => setSelectedEnrollCourseId(e.target.value)}
                   className="w-full bg-zinc-950 border border-zinc-800 rounded-xl p-3 text-white"
                 >
                   <option value="">Selecciona curso...</option>
@@ -456,6 +510,108 @@ export const CampusAdminPanel: React.FC = () => {
                   className="px-5 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl font-bold"
                 >
                   Asignar Matrícula
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Admin Publish PDF Modal */}
+      {showPublishPdfModal && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl max-w-lg w-full p-6 space-y-4 shadow-2xl">
+            <div className="flex justify-between items-center border-b border-zinc-800 pb-3">
+              <h3 className="text-lg font-bold text-white font-heading">Adjuntar PDF desde PC (Administración)</h3>
+              <button onClick={() => setShowPublishPdfModal(false)} className="text-zinc-400 hover:text-white">
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleAdminPublishPdf} className="space-y-4 text-xs">
+              <div>
+                <label className="block text-zinc-400 font-semibold mb-1">Curso de Destino *</label>
+                <select
+                  value={selectedCourseId}
+                  onChange={(e) => setSelectedCourseId(e.target.value)}
+                  className="w-full bg-zinc-950 border border-zinc-800 rounded-xl p-3 text-white"
+                >
+                  {courses.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.codigo} - {c.nombre}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-zinc-400 font-semibold mb-1">Módulo *</label>
+                <select
+                  value={selectedModuleId}
+                  onChange={(e) => setSelectedModuleId(e.target.value)}
+                  className="w-full bg-zinc-950 border border-zinc-800 rounded-xl p-3 text-white"
+                >
+                  <option value="mod1">Módulo 1: Seguridad y Diagnosis</option>
+                  <option value="mod2">Módulo 2: Componentes y Ensayos Prácticos</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-zinc-400 font-semibold mb-1">Título del Documento *</label>
+                <input
+                  type="text"
+                  required
+                  value={pdfTitle}
+                  onChange={(e) => setPdfTitle(e.target.value)}
+                  placeholder="Ej. Guía Oficial de Normativa en Taller PDF"
+                  className="w-full bg-zinc-950 border border-zinc-800 rounded-xl p-3 text-white"
+                />
+              </div>
+
+              <PdfFileUploader
+                label="Seleccionar o arrastrar archivo PDF desde el equipo *"
+                selectedFileName={attachedPdfName}
+                selectedFileSize={attachedPdfSize}
+                onFileSelected={({ name, sizeStr, url }) => {
+                  setAttachedPdfName(name);
+                  setAttachedPdfSize(sizeStr);
+                  setAttachedPdfDataUrl(url);
+                  if (!pdfTitle) {
+                    setPdfTitle(name.replace(/\.pdf$/i, ''));
+                  }
+                }}
+                onFileRemoved={() => {
+                  setAttachedPdfName('');
+                  setAttachedPdfSize('');
+                  setAttachedPdfDataUrl('');
+                }}
+              />
+
+              <div>
+                <label className="block text-zinc-400 font-semibold mb-1">Descripción / Notas adicionales</label>
+                <textarea
+                  rows={2}
+                  value={pdfDesc}
+                  onChange={(e) => setPdfDesc(e.target.value)}
+                  placeholder="Información relevante para alumnos y docentes..."
+                  className="w-full bg-zinc-950 border border-zinc-800 rounded-xl p-3 text-white resize-none"
+                />
+              </div>
+
+              <div className="flex justify-end gap-3 pt-3 border-t border-zinc-800">
+                <button
+                  type="button"
+                  onClick={() => setShowPublishPdfModal(false)}
+                  className="px-4 py-2 bg-zinc-800 text-zinc-300 rounded-xl font-bold"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={!attachedPdfDataUrl}
+                  className="px-5 py-2.5 bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white rounded-xl font-extrabold"
+                >
+                  Publicar Documento PDF
                 </button>
               </div>
             </form>

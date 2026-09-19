@@ -11,8 +11,11 @@ import {
   User,
   Paperclip,
   GraduationCap,
+  FileText,
+  Download,
 } from 'lucide-react';
 import { QuestionThread } from '../../types/campus';
+import { PdfFileUploader } from './PdfFileUploader';
 
 export const CampusDoubts: React.FC = () => {
   const {
@@ -32,10 +35,16 @@ export const CampusDoubts: React.FC = () => {
   const [moduloUnidad, setModuloUnidad] = useState('');
   const [asunto, setAsunto] = useState('');
   const [mensaje, setMensaje] = useState('');
-  const [adjuntoNombre, setAdjuntoNombre] = useState('');
+  const [attachedPdfName, setAttachedPdfName] = useState('');
+  const [attachedPdfSize, setAttachedPdfSize] = useState('');
+  const [attachedPdfUrl, setAttachedPdfUrl] = useState('');
 
   // Reply message state
   const [replyText, setReplyText] = useState('');
+  const [replyPdfName, setReplyPdfName] = useState('');
+  const [replyPdfSize, setReplyPdfSize] = useState('');
+  const [replyPdfUrl, setReplyPdfUrl] = useState('');
+  const [showReplyPdfUploader, setShowReplyPdfUploader] = useState(false);
 
   if (!currentUser) return null;
 
@@ -65,7 +74,7 @@ export const CampusDoubts: React.FC = () => {
       moduloUnidad: moduloUnidad || 'General',
       asunto: asunto,
       estado: 'PENDIENTE',
-      adjuntoUrl: adjuntoNombre ? '#' : undefined,
+      adjuntoUrl: attachedPdfUrl || undefined,
       mensajes: [
         {
           id: `msg_${Date.now()}`,
@@ -74,7 +83,7 @@ export const CampusDoubts: React.FC = () => {
           autorRol: currentUser.role,
           texto: mensaje,
           fechaHora: new Date().toISOString(),
-          adjuntoUrl: adjuntoNombre ? '#' : undefined,
+          adjuntoUrl: attachedPdfUrl || undefined,
         },
       ],
     });
@@ -83,22 +92,29 @@ export const CampusDoubts: React.FC = () => {
     setAsunto('');
     setMensaje('');
     setModuloUnidad('');
-    setAdjuntoNombre('');
+    setAttachedPdfName('');
+    setAttachedPdfSize('');
+    setAttachedPdfUrl('');
   };
 
   const handleSendReply = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedThread || !replyText.trim()) return;
+    if (!selectedThread || (!replyText.trim() && !replyPdfUrl)) return;
 
     addQuestionMessage(selectedThread.id, {
       autorId: currentUser.id,
       autorNombre: `${currentUser.nombre} ${currentUser.apellidos}`,
       autorRol: currentUser.role,
-      texto: replyText.trim(),
+      texto: replyText.trim() || 'Adjunto documento PDF.',
       fechaHora: new Date().toISOString(),
+      adjuntoUrl: replyPdfUrl || undefined,
     });
 
     setReplyText('');
+    setReplyPdfName('');
+    setReplyPdfSize('');
+    setReplyPdfUrl('');
+    setShowReplyPdfUploader(false);
 
     // Update active thread view state locally
     const updated = questions.find((q) => q.id === selectedThread.id);
@@ -335,13 +351,29 @@ export const CampusDoubts: React.FC = () => {
                 <label className="block text-zinc-400 font-semibold mb-1">Mensaje explicativo</label>
                 <textarea
                   required
-                  rows={4}
+                  rows={3}
                   value={mensaje}
                   onChange={(e) => setMensaje(e.target.value)}
                   placeholder="Describe detalladamente tu duda académica..."
                   className="w-full bg-zinc-950 border border-zinc-800 rounded-xl p-3 text-white focus:outline-none focus:border-red-500 resize-none"
                 />
               </div>
+
+              <PdfFileUploader
+                label="Adjuntar documento PDF (Opcional - Esquemas, ejercicios,capturas)"
+                selectedFileName={attachedPdfName}
+                selectedFileSize={attachedPdfSize}
+                onFileSelected={({ name, sizeStr, url }) => {
+                  setAttachedPdfName(name);
+                  setAttachedPdfSize(sizeStr);
+                  setAttachedPdfUrl(url);
+                }}
+                onFileRemoved={() => {
+                  setAttachedPdfName('');
+                  setAttachedPdfSize('');
+                  setAttachedPdfUrl('');
+                }}
+              />
 
               <div className="flex justify-end gap-3 pt-2">
                 <button
