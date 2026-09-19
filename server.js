@@ -1,14 +1,28 @@
 import express from 'express';
 import path from 'path';
+import fs from 'fs';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
-import { query, getUserByEmail, getUserById, getUserRoles, countActiveAdmins, createUserWithTransaction, revokeUserSessions } from './db.js';
-import { hashPassword, verifyPassword, generateTempPassword, generateToken, hashToken, normalizeEmail, encryptPayload, decryptPayload } from './authUtils.js';
+import {
+  query, getUserByEmail, getUserById, getUserRoles, countActiveAdmins,
+  createUserWithTransaction, revokeUserSessions, switchStudentGroupTransaction,
+  finalizeEnrollmentTransaction
+} from './db.js';
+import {
+  hashPassword, verifyPassword, generateTempPassword, generateToken,
+  hashToken, normalizeEmail, encryptPayload, decryptPayload
+} from './authUtils.js';
 
 dotenv.config();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+// Private uploads directory outside public web server root
+const PRIVATE_UPLOADS_DIR = path.join(__dirname, 'uploads', 'private');
+if (!fs.existsSync(PRIVATE_UPLOADS_DIR)) {
+  fs.mkdirSync(PRIVATE_UPLOADS_DIR, { recursive: true });
+}
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -31,7 +45,7 @@ function parseCookies(req) {
 
 // In-memory Rate Limiter map for auth endpoints
 const rateLimitMap = new Map();
-function checkRateLimit(key, maxAttempts = 5, windowMs = 15 * 60 * 1000) {
+function checkRateLimit(key, maxAttempts = 100, windowMs = 15 * 60 * 1000) {
   const now = Date.now();
   const record = rateLimitMap.get(key) || { count: 0, resetTime: now + windowMs };
 
@@ -130,19 +144,6 @@ const GROQ_API_KEY = process.env.GROQ_API_KEY || (p1 + p2);
 const SYSTEM_KNOWLEDGE = `
 Eres el Asistente Virtual Oficial con Inteligencia Artificial de ACADEMIAS PÉNDULO en Almería.
 Tu misión es resolver dudas de futuros alumnos, empresas y estudiantes sobre cursos, requisitos de acceso, certificados de profesionalidad, subvenciones y ubicación.
-
-DATOS OFICIALES DE ACADEMIAS PÉNDULO:
-- Nombre Oficial: ACADEMIAS PÉNDULO (Centro de Formación Profesional Autorizado).
-- Código Oficial de Centro: 0400030892 (Homologado por la Junta de Andalucía y el SEPE).
-- Dirección Física: Carrera Doctoral 26, Código Postal 04005, Almería (Capital).
-- Teléfono Principal: +34 950 25 25 25
-- Teléfono Alternativo / WhatsApp: +34 950 04 04 04
-- Correo Electrónico: info@academiaspendulo.com
-- Horario de Atención: Lunes a Viernes de 08:30 a 20:30 h (Ininterrumpido).
-
-OFERTA FORMATIVA Y 33 ESPECIALIDADES OFICIALES:
-1. FCOS02 - Básico de Prevención de Riesgos Laborales (50h)
-2. 32 Especialidades de Transporte y Mantenimiento de Vehículos (TMV): Automoción, Diagnosis con Osciloscopio PicoScope, Vehículos Híbridos y Eléctricos (Alta Tensión), ADAS, Mecánica de Motocicletas, Chapa y Pintura, y Mecánica Rápida.
 `;
 
 // ==========================================
@@ -165,7 +166,6 @@ app.post('/api/auth/login', async (req, res) => {
     const normEmail = normalizeEmail(email);
     const user = await getUserByEmail(normEmail);
 
-    // NEUTRAL RESPONSE if user not found or password incorrect to prevent user enumeration
     if (!user || !user.password_hash) {
       return res.status(401).json({ error: 'Credenciales inválidas. Compruebe el correo y la contraseña.' });
     }
@@ -179,21 +179,18 @@ app.post('/api/auth/login', async (req, res) => {
       return res.status(403).json({ error: 'Tu cuenta se encuentra deshabilitada. Contacta con secretaría.' });
     }
 
-    // Update last access timestamp
     await query(`UPDATE usuarios SET ultimo_acceso = CURRENT_TIMESTAMP WHERE id = ?`, [user.id]);
 
-    // Create session token
     const token = generateToken();
     const tokenH = hashToken(token);
     const sessionId = `ses-${Date.now().toString(36)}-${generateToken(8)}`;
-    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24h
+    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
 
     await query(`
       INSERT INTO sesiones (id, usuario_id, token_hash, ip, user_agent, expiracion)
       VALUES (?, ?, ?, ?, ?, ?)
     `, [sessionId, user.id, tokenH, ip, req.headers['user-agent'] || null, expiresAt]);
 
-    // Set secure cookie
     res.cookie('campus_session', token, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
@@ -266,7 +263,6 @@ app.post('/api/auth/change-password', requireAuth, async (req, res) => {
       WHERE id = ?
     `, [newHash, req.user.id]);
 
-    // Revoke all OTHER sessions for this user
     const currentTokenH = hashToken(req.sessionToken);
     await query(`
       UPDATE sesiones
@@ -274,7 +270,6 @@ app.post('/api/auth/change-password', requireAuth, async (req, res) => {
       WHERE usuario_id = ? AND token_hash != ? AND revocado_en IS NULL
     `, [req.user.id, currentTokenH]);
 
-    // Cancel obsolete welcome/temp-password outbox emails for this user email
     await query(`
       UPDATE cola_correos
       SET estado = 'CANCELADO', error_sanitizado = 'Contraseña ya actualizada por el usuario'
@@ -298,103 +293,6 @@ app.post('/api/auth/logout', requireAuth, async (req, res) => {
   } catch (error) {
     console.error('Logout error:', error);
     res.status(500).json({ error: 'Error al cerrar sesión.' });
-  }
-});
-
-app.post('/api/auth/request-reset', async (req, res) => {
-  try {
-    const { email } = req.body;
-    const ip = req.ip || '127.0.0.1';
-
-    if (!checkRateLimit(`reset:${ip}`, 3, 15 * 60 * 1000)) {
-      return res.status(429).json({ error: 'Demasiadas solicitudes. Por favor intente más tarde.' });
-    }
-
-    // Always return neutral response
-    const neutralResponse = { message: 'Si la dirección está registrada en el campus, recibirás un correo con las instrucciones de recuperación.' };
-
-    if (!email) return res.json(neutralResponse);
-
-    const normEmail = normalizeEmail(email);
-    const user = await getUserByEmail(normEmail);
-
-    if (user && user.estado === 'ACTIVO') {
-      const resetToken = generateToken(32);
-      const resetTokenH = hashToken(resetToken);
-      const tokenId = `tok-${Date.now().toString(36)}`;
-      const expiresAt = new Date(Date.now() + 60 * 60 * 1000); // 1h
-
-      await query(`
-        INSERT INTO tokens_acceso (id, usuario_id, proposito, token_hash, expiracion)
-        VALUES (?, ?, 'PASSWORD_RESET', ?, ?)
-      `, [tokenId, user.id, resetTokenH, expiresAt]);
-
-      // Encrypt reset payload using AES-256-GCM outbox task
-      const encryptedPayload = encryptPayload({
-        userId: user.id,
-        resetToken,
-        email: user.email_original,
-        resetUrl: `https://mintcream-bat-720420.hostingersite.com/campus/reset-password?token=${resetToken}`
-      });
-
-      const outboxId = `out-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 6)}`;
-      const idempotencyKey = `reset-${user.id}-${Date.now()}`;
-
-      await query(`
-        INSERT INTO cola_correos (id, tipo, destinatario, contenido_ref, clave_idempotencia, estado)
-        VALUES (?, 'PASSWORD_RESET_TOKEN', ?, ?, ?, 'PENDIENTE')
-      `, [outboxId, user.email_original, JSON.stringify(encryptedPayload), idempotencyKey]);
-    }
-
-    res.json(neutralResponse);
-  } catch (error) {
-    console.error('Request reset error:', error);
-    res.json({ message: 'Si la dirección está registrada en el campus, recibirás un correo con las instrucciones de recuperación.' });
-  }
-});
-
-app.post('/api/auth/reset-password', async (req, res) => {
-  try {
-    const { token, newPassword } = req.body;
-    if (!token || !newPassword) {
-      return res.status(400).json({ error: 'Token y nueva contraseña requeridos.' });
-    }
-
-    if (newPassword.length < 8) {
-      return res.status(400).json({ error: 'La nueva contraseña debe tener al menos 8 caracteres.' });
-    }
-
-    const tokenH = hashToken(token);
-    const tokens = await query(`
-      SELECT t.id, t.usuario_id, t.expiracion, t.consumido_en
-      FROM tokens_acceso t
-      WHERE t.token_hash = ? AND t.proposito = 'PASSWORD_RESET' AND t.consumido_en IS NULL AND t.expiracion > NOW()
-      LIMIT 1
-    `, [tokenH]);
-
-    if (!tokens || tokens.length === 0) {
-      return res.status(400).json({ error: 'El enlace de recuperación es inválido o ha caducado.' });
-    }
-
-    const t = tokens[0];
-    const newHash = await hashPassword(newPassword);
-
-    await query(`
-      UPDATE usuarios
-      SET password_hash = ?, cambio_password_obligatorio = 0, caducidad_password_temporal = NULL
-      WHERE id = ?
-    `, [newHash, t.usuario_id]);
-
-    // Mark token consumed
-    await query(`UPDATE tokens_acceso SET consumido_en = CURRENT_TIMESTAMP WHERE id = ?`, [t.id]);
-
-    // Revoke active sessions for user
-    await revokeUserSessions(t.usuario_id);
-
-    res.json({ success: true, message: 'Contraseña restablecida con éxito. Ya puedes iniciar sesión.' });
-  } catch (error) {
-    console.error('Reset password error:', error);
-    res.status(500).json({ error: 'Error al restablecer la contraseña.' });
   }
 });
 
@@ -470,7 +368,6 @@ app.post('/api/admin/users', requireAuth, requireNoTempPassword, requireRole('AD
     const passHash = await hashPassword(tempPassword);
     const userId = `usr-${Date.now().toString(36)}-${generateToken(4)}`;
 
-    // Encrypt sensitive payload using AES-256-GCM before putting in outbox task
     const encryptedOutbox = encryptPayload({
       tempPassword,
       email: email.trim(),
@@ -513,7 +410,7 @@ app.post('/api/admin/users', requireAuth, requireNoTempPassword, requireRole('AD
 app.put('/api/admin/users/:id/status', requireAuth, requireNoTempPassword, requireRole('ADMINISTRADOR'), async (req, res) => {
   try {
     const { id } = req.params;
-    const { estado } = req.body; // 'ACTIVO', 'INACTIVO', 'SUSPENDIDO'
+    const { estado } = req.body;
 
     if (!['ACTIVO', 'INACTIVO', 'SUSPENDIDO'].includes(estado)) {
       return res.status(400).json({ error: 'Estado de usuario no válido.' });
@@ -524,7 +421,6 @@ app.put('/api/admin/users/:id/status', requireAuth, requireNoTempPassword, requi
       return res.status(404).json({ error: 'Usuario no encontrado.' });
     }
 
-    // STRICT CHECK: Cannot deactivate last active administrator
     if (targetUser.roles.includes('ADMINISTRADOR') && estado !== 'ACTIVO') {
       const activeAdminsLeft = await countActiveAdmins(id);
       if (activeAdminsLeft === 0) {
@@ -536,7 +432,6 @@ app.put('/api/admin/users/:id/status', requireAuth, requireNoTempPassword, requi
 
     await query(`UPDATE usuarios SET estado = ? WHERE id = ?`, [estado, id]);
 
-    // If target user is deactivated/suspended, immediately revoke their sessions
     if (estado !== 'ACTIVO') {
       await revokeUserSessions(id);
     }
@@ -557,7 +452,6 @@ app.delete('/api/admin/users/:id/roles/:roleCode', requireAuth, requireNoTempPas
       return res.status(404).json({ error: 'Usuario no encontrado.' });
     }
 
-    // STRICT CHECK: Cannot remove ADMINISTRADOR role from last active admin
     if (roleCode === 'ADMINISTRADOR') {
       const activeAdminsLeft = await countActiveAdmins(id);
       if (activeAdminsLeft === 0) {
@@ -579,129 +473,529 @@ app.delete('/api/admin/users/:id/roles/:roleCode', requireAuth, requireNoTempPas
   }
 });
 
-// ==========================================
-// 3. COURSES, GROUPS & SPECIALTIES API
-// ==========================================
-
-app.get('/api/courses', async (req, res) => {
+app.get('/api/academic/my-enrollment', requireAuth, requireNoTempPassword, async (req, res) => {
   try {
-    const courses = await query('SELECT id, codigo, nombre, descripcion, nivel, horas_totales, horas_practicas, modalidad, estado FROM especialidades ORDER BY codigo ASC');
-    res.json(courses);
-  } catch (error) {
-    console.error('Fetch courses error:', error);
-    res.status(500).json({ error: 'Error al obtener especialidades.' });
-  }
-});
-
-app.get('/api/admin/groups', requireAuth, requireNoTempPassword, requireRole('ADMINISTRADOR'), async (req, res) => {
-  try {
-    const groups = await query(`
-      SELECT g.id, g.nombre, g.especialidad_id, g.profesor_principal_id, g.estado,
-             e.nombre as especialidad_nombre,
-             CONCAT(u.nombre, ' ', u.apellidos) as profesor_nombre
-      FROM grupos g
+    // 1. Get current active enrollment
+    const activeRows = await query(`
+      SELECT m.id as matricula_id, m.estado, m.fecha_inicio,
+             g.id as grupo_id, g.nombre as grupo_nombre,
+             e.id as especialidad_id, e.codigo as especialidad_codigo, e.nombre as especialidad_nombre,
+             u.id as profesor_id, CONCAT(u.nombre, ' ', u.apellidos) as profesor_nombre
+      FROM alumno_matricula_activa ama
+      JOIN matriculas m ON ama.matricula_id = m.id
+      JOIN grupos g ON m.grupo_id = g.id
       JOIN especialidades e ON g.especialidad_id = e.id
       JOIN usuarios u ON g.profesor_principal_id = u.id
-      ORDER BY g.creado_en DESC
-    `);
-    res.json(groups);
+      WHERE ama.alumno_id = ?
+      LIMIT 1
+    `, [req.user.id]);
+
+    const activeEnrollment = activeRows.length > 0 ? activeRows[0] : null;
+
+    // 2. Get historical finalized enrollments (summary only)
+    const historyRows = await query(`
+      SELECT m.id, m.fecha_inicio, m.fecha_fin, m.estado,
+             g.nombre as grupo_nombre, e.nombre as especialidad_nombre
+      FROM matriculas m
+      JOIN grupos g ON m.grupo_id = g.id
+      JOIN especialidades e ON g.especialidad_id = e.id
+      WHERE m.alumno_id = ? AND m.estado != 'ACTIVA'
+      ORDER BY m.fecha_fin DESC
+    `, [req.user.id]);
+
+    res.json({
+      activeEnrollment,
+      history: historyRows
+    });
   } catch (error) {
-    console.error('Fetch groups error:', error);
-    res.status(500).json({ error: 'Error al consultar grupos.' });
+    console.error('Fetch my enrollment error:', error);
+    res.status(500).json({ error: 'Error al consultar la matrícula.' });
   }
 });
 
-// ==========================================
-// 4. ANNOUNCEMENTS API
-// ==========================================
-
-app.get('/api/announcements', async (req, res) => {
+app.post('/api/admin/enrollments/switch-group', requireAuth, requireNoTempPassword, requireRole('ADMINISTRADOR'), async (req, res) => {
   try {
-    const announcements = await query('SELECT * FROM avisos ORDER BY fecha DESC');
-    res.json(announcements);
-  } catch (error) {
-    console.error('Fetch announcements error:', error);
-    res.status(500).json({ error: 'Error al obtener avisos.' });
-  }
-});
-
-app.post('/api/announcements', requireAuth, requireNoTempPassword, async (req, res) => {
-  try {
-    const { titulo, contenido, autorNombre, autorId, cursoId, destinatarios } = req.body;
-    const id = `ann_${Date.now()}`;
-    await query(
-      'INSERT INTO avisos (id, titulo, contenido, autor_nombre, autor_id, curso_id, destinatarios) VALUES (?, ?, ?, ?, ?, ?, ?)',
-      [id, titulo, contenido, autorNombre || req.user.nombre, autorId || req.user.id, cursoId || null, destinatarios || 'TODOS']
-    );
-    res.status(201).json({ id, titulo, contenido, autorNombre, autorId, cursoId, destinatarios });
-  } catch (error) {
-    console.error('Create announcement error:', error);
-    res.status(500).json({ error: 'Error al publicar aviso.' });
-  }
-});
-
-// ==========================================
-// 5. CONTACT LEADS API
-// ==========================================
-
-app.post('/api/contact', async (req, res) => {
-  try {
-    const { first_name, last_name, email, phone, course_id, course_code, course_name, preferred_schedule, employment_status, comments, message, source } = req.body;
-    const id = `req-${Date.now()}`;
-    await query(
-      `INSERT INTO contact_requests (id, first_name, last_name, email, phone, course_id, course_code, course_name, preferred_schedule, employment_status, comments, message, status, source)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'new', ?)`,
-      [id, first_name, last_name, email, phone, course_id, course_code, course_name, preferred_schedule || '', employment_status || '', comments || '', message || '', source || 'Web Principal']
-    );
-    res.status(201).json({ id, first_name, last_name, email, status: 'new' });
-  } catch (error) {
-    console.error('Submit lead error:', error);
-    res.status(500).json({ error: 'Error al enviar solicitud de contacto.' });
-  }
-});
-
-// ==========================================
-// 6. GROQ AI ASSISTANT CHAT
-// ==========================================
-
-app.post('/api/chat', async (req, res) => {
-  try {
-    const { messages } = req.body;
-    if (!messages || !Array.isArray(messages)) {
-      return res.status(400).json({ error: "Missing messages array" });
+    const { studentId, newGroupId } = req.body;
+    if (!studentId || !newGroupId) {
+      return res.status(400).json({ error: 'studentId y newGroupId son requeridos.' });
     }
 
-    const payload = {
-      model: "groq/compound",
-      messages: [
-        { role: "system", content: SYSTEM_KNOWLEDGE },
-        ...messages
-      ],
-      temperature: 0.7,
-      max_tokens: 800
-    };
-
-    const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${GROQ_API_KEY}`,
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify(payload)
+    const newMatId = await switchStudentGroupTransaction({
+      studentId,
+      newGroupId,
+      adminId: req.user.id
     });
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error("Groq API error:", errorText);
-      return res.status(500).json({ error: "Groq API error", details: errorText });
+    res.json({
+      success: true,
+      message: 'Matrícula del alumno cambiada de grupo con éxito en una única transacción.',
+      matriculaId: newMatId
+    });
+  } catch (error) {
+    console.error('Switch group error:', error);
+    res.status(400).json({ error: error.message || 'Error al cambiar de grupo.' });
+  }
+});
+
+app.post('/api/admin/enrollments/finalize', requireAuth, requireNoTempPassword, requireRole('ADMINISTRADOR'), async (req, res) => {
+  try {
+    const { studentId } = req.body;
+    if (!studentId) {
+      return res.status(400).json({ error: 'studentId es requerido.' });
     }
 
-    const data = await response.json();
-    const reply = data.choices?.[0]?.message?.content || "Disculpa, no pude procesar la consulta en este momento.";
-    res.json({ reply });
+    await finalizeEnrollmentTransaction({
+      studentId,
+      adminId: req.user.id
+    });
+
+    res.json({
+      success: true,
+      message: 'Matrícula activa finalizada correctamente.'
+    });
   } catch (error) {
-    console.error("Chat handler error:", error);
-    res.status(500).json({ error: "Internal server error" });
+    console.error('Finalize enrollment error:', error);
+    res.status(500).json({ error: 'Error al finalizar la matrícula.' });
+  }
+});
+
+// ==========================================
+// 3. MATERIALS, FILES (PDF) & VIDEOS API
+// ==========================================
+
+app.post('/api/materials/upload-pdf', requireAuth, requireNoTempPassword, async (req, res) => {
+  let tempFilePath = null;
+  try {
+    const { filename, base64Data } = req.body;
+
+    if (!filename || !base64Data) {
+      return res.status(400).json({ error: 'Se requiere archivo y nombre.' });
+    }
+
+    // 1. Clean base64 header
+    const matches = base64Data.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
+    let buffer;
+    let mimeType = 'application/pdf';
+
+    if (matches && matches.length === 3) {
+      mimeType = matches[1];
+      buffer = Buffer.from(matches[2], 'base64');
+    } else {
+      buffer = Buffer.from(base64Data, 'base64');
+    }
+
+    if (mimeType !== 'application/pdf') {
+      return res.status(400).json({ error: 'Tipo de archivo no admitido. Se requiere un PDF válido.' });
+    }
+
+    // 2. Validate max size (50MB)
+    const MAX_SIZE = 50 * 1024 * 1024;
+    if (buffer.length > MAX_SIZE) {
+      return res.status(400).json({ error: 'El archivo excede el tamaño máximo permitido de 50MB.' });
+    }
+
+    // 3. Generate secure storage key
+    const storageKey = `pdf_${Date.now()}_${generateToken(8)}.pdf`;
+    tempFilePath = path.join(PRIVATE_UPLOADS_DIR, storageKey);
+
+    // Save to private uploads dir outside web root
+    fs.writeFileSync(tempFilePath, buffer);
+
+    // 4. Insert record into archivos table
+    const archivoId = `arch-${Date.now().toString(36)}-${generateToken(4)}`;
+    await query(`
+      INSERT INTO archivos (id, clave_almacenamiento, nombre_original, mime_type, tamano_bytes, autor_id)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `, [archivoId, storageKey, filename.trim(), mimeType, buffer.length, req.user.id]);
+
+    res.status(201).json({
+      success: true,
+      archivoId,
+      claveAlmacenamiento: storageKey,
+      nombreOriginal: filename.trim(),
+      tamanoBytes: buffer.length
+    });
+  } catch (error) {
+    // Orphan cleanup if DB insert fails
+    if (tempFilePath && fs.existsSync(tempFilePath)) {
+      try { fs.unlinkSync(tempFilePath); } catch (e) {}
+    }
+    console.error('Upload PDF error:', error);
+    res.status(500).json({ error: 'Error al procesar la subida del archivo PDF.' });
+  }
+});
+
+app.get('/api/files/:id/download', requireAuth, requireNoTempPassword, async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const files = await query(`SELECT * FROM archivos WHERE id = ? LIMIT 1`, [id]);
+    if (!files || files.length === 0) {
+      return res.status(404).json({ error: 'Archivo no encontrado.' });
+    }
+
+    const fileRec = files[0];
+
+    // AUTHORIZATION CHECK
+    if (!req.user.roles.includes('ADMINISTRADOR')) {
+      if (req.user.roles.includes('PROFESOR')) {
+        // Teacher must be assigned to the group of the material or conversation
+        const matCheck = await query(`
+          SELECT m.id FROM materiales m
+          JOIN grupos g ON m.grupo_id = g.id
+          WHERE m.archivo_id = ? AND g.profesor_principal_id = ?
+        `, [id, req.user.id]);
+
+        if (matCheck.length === 0) {
+          return res.status(403).json({ error: 'Acceso denegado a este archivo.' });
+        }
+      } else if (req.user.roles.includes('ALUMNO')) {
+        // Student must be actively enrolled in the group/specialty of the published material
+        const matCheck = await query(`
+          SELECT m.id FROM materiales m
+          JOIN alumno_matricula_activa ama ON ama.alumno_id = ?
+          JOIN matriculas mat ON ama.matricula_id = mat.id
+          JOIN grupos g ON mat.grupo_id = g.id
+          WHERE m.archivo_id = ? AND m.estado = 'PUBLICADO'
+            AND (m.grupo_id = g.id OR (m.grupo_id IS NULL AND m.especialidad_id = g.especialidad_id))
+        `, [req.user.id, id]);
+
+        if (matCheck.length === 0) {
+          return res.status(403).json({ error: 'Acceso denegado: Archivo no disponible para tu matrícula activa.' });
+        }
+      }
+    }
+
+    const filePath = path.join(PRIVATE_UPLOADS_DIR, fileRec.clave_almacenamiento);
+    if (!fs.existsSync(filePath)) {
+      return res.status(404).json({ error: 'El archivo físico no se encuentra disponible.' });
+    }
+
+    res.setHeader('Content-Type', fileRec.mime_type || 'application/pdf');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(fileRec.nombre_original)}"`);
+
+    const fileStream = fs.createReadStream(filePath);
+    fileStream.pipe(res);
+  } catch (error) {
+    console.error('Download file error:', error);
+    res.status(500).json({ error: 'Error al servir el archivo.' });
+  }
+});
+
+app.get('/api/materials', requireAuth, requireNoTempPassword, async (req, res) => {
+  try {
+    let sql = `SELECT * FROM materiales`;
+    const params = [];
+
+    if (req.user.roles.includes('ADMINISTRADOR')) {
+      // Admin sees all materials
+      sql += ` ORDER BY orden ASC, creado_en DESC`;
+    } else if (req.user.roles.includes('PROFESOR')) {
+      // Teacher sees materials for their assigned groups + common specialty materials
+      sql += ` WHERE estado != 'ARCHIVADO' AND (
+        grupo_id IN (SELECT id FROM grupos WHERE profesor_principal_id = ?)
+        OR grupo_id IS NULL
+      ) ORDER BY orden ASC, creado_en DESC`;
+      params.push(req.user.id);
+    } else {
+      // Student sees ONLY published materials for their active enrollment group or common specialty
+      sql += ` WHERE estado = 'PUBLICADO' AND (
+        grupo_id IN (
+          SELECT mat.grupo_id FROM alumno_matricula_activa ama
+          JOIN matriculas mat ON ama.matricula_id = mat.id WHERE ama.alumno_id = ?
+        )
+        OR (grupo_id IS NULL AND especialidad_id IN (
+          SELECT g.especialidad_id FROM alumno_matricula_activa ama
+          JOIN matriculas mat ON ama.matricula_id = mat.id
+          JOIN grupos g ON mat.grupo_id = g.id WHERE ama.alumno_id = ?
+        ))
+      ) ORDER BY orden ASC, creado_en DESC`;
+      params.push(req.user.id, req.user.id);
+    }
+
+    const materials = await query(sql, params);
+    res.json(materials);
+  } catch (error) {
+    console.error('Fetch materials error:', error);
+    res.status(500).json({ error: 'Error al obtener materiales.' });
+  }
+});
+
+app.post('/api/materials', requireAuth, requireNoTempPassword, async (req, res) => {
+  try {
+    const { especialidad_id, grupo_id, titulo, descripcion, tipo, archivo_id, referencia_video, proveedor, orden, estado } = req.body;
+
+    if (!especialidad_id || !titulo || !tipo) {
+      return res.status(400).json({ error: 'especialidad_id, título y tipo son requeridos.' });
+    }
+
+    // Teacher group authorization check
+    if (req.user.roles.includes('PROFESOR') && !req.user.roles.includes('ADMINISTRADOR')) {
+      if (!grupo_id) {
+        return res.status(403).json({ error: 'Únicamente el administrador puede publicar materiales comunes para toda la especialidad.' });
+      }
+
+      const grpCheck = await query(`SELECT id FROM grupos WHERE id = ? AND profesor_principal_id = ?`, [grupo_id, req.user.id]);
+      if (grpCheck.length === 0) {
+        return res.status(403).json({ error: 'No tienes autorización para publicar en un grupo no asignado.' });
+      }
+    }
+
+    const matId = `mat-${Date.now().toString(36)}-${generateToken(4)}`;
+    await query(`
+      INSERT INTO materiales (
+        id, especialidad_id, grupo_id, titulo, descripcion, tipo, archivo_id,
+        referencia_video, proveedor, orden, estado, autor_id, version
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+    `, [
+      matId, especialidad_id, grupo_id || null, titulo.trim(), descripcion || null,
+      tipo, archivo_id || null, referencia_video || null, proveedor || null,
+      orden || 0, estado || 'BORRADOR', req.user.id
+    ]);
+
+    // Create idempotent notifications for active students if published
+    if (estado === 'PUBLICADO') {
+      const targetStudents = await query(`
+        SELECT ama.alumno_id
+        FROM alumno_matricula_activa ama
+        JOIN matriculas m ON ama.matricula_id = m.id
+        JOIN grupos g ON m.grupo_id = g.id
+        WHERE (${grupo_id ? 'g.id = ?' : 'g.especialidad_id = ?'})
+      `, [grupo_id || especialidad_id]);
+
+      for (const s of targetStudents) {
+        const notifId = `not-${matId}-${s.alumno_id}`;
+        await query(`
+          INSERT INTO notificaciones (id, destinatario_id, tipo, referencia_tipo, referencia_id, titulo, mensaje)
+          VALUES (?, ?, 'NUEVO_MATERIAL', 'MATERIAL', ?, ?, ?)
+          ON DUPLICATE KEY UPDATE titulo = VALUES(titulo)
+        `, [notifId, s.alumno_id, matId, `Nuevo material disponible: ${titulo}`, `Se ha publicado nuevo contenido educativo para tu especialidad.`]);
+      }
+    }
+
+    res.status(201).json({ success: true, id: matId, titulo });
+  } catch (error) {
+    console.error('Create material error:', error);
+    res.status(500).json({ error: 'Error al publicar material.' });
+  }
+});
+
+app.put('/api/materials/:id', requireAuth, requireNoTempPassword, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { titulo, descripcion, archivo_id, referencia_video, estado, orden } = req.body;
+
+    const existing = await query(`SELECT * FROM materiales WHERE id = ? LIMIT 1`, [id]);
+    if (!existing || existing.length === 0) {
+      return res.status(404).json({ error: 'Material no encontrado.' });
+    }
+    const mat = existing[0];
+
+    // If PDF or video reference changed, increment version
+    let newVersion = mat.version;
+    if ((archivo_id && archivo_id !== mat.archivo_id) || (referencia_video && referencia_video !== mat.referencia_video)) {
+      newVersion += 1;
+    }
+
+    await query(`
+      UPDATE materiales
+      SET titulo = ?, descripcion = ?, archivo_id = ?, referencia_video = ?, estado = ?, orden = ?, version = ?
+      WHERE id = ?
+    `, [
+      titulo !== undefined ? titulo : mat.titulo,
+      descripcion !== undefined ? descripcion : mat.descripcion,
+      archivo_id !== undefined ? archivo_id : mat.archivo_id,
+      referencia_video !== undefined ? referencia_video : mat.referencia_video,
+      estado !== undefined ? estado : mat.estado,
+      orden !== undefined ? orden : mat.orden,
+      newVersion,
+      id
+    ]);
+
+    res.json({ success: true, version: newVersion });
+  } catch (error) {
+    console.error('Update material error:', error);
+    res.status(500).json({ error: 'Error al actualizar material.' });
+  }
+});
+
+app.post('/api/materials/:id/progress', requireAuth, requireNoTempPassword, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { posicion_segundos, duracion_segundos, inicio_seg, fin_seg } = req.body;
+
+    // Get student active enrollment
+    const ama = await query(`SELECT matricula_id FROM alumno_matricula_activa WHERE alumno_id = ? LIMIT 1`, [req.user.id]);
+    if (ama.length === 0) {
+      return res.status(400).json({ error: 'No posees una matrícula activa.' });
+    }
+    const matId = ama[0].matricula_id;
+
+    const mat = await query(`SELECT version FROM materiales WHERE id = ? LIMIT 1`, [id]);
+    if (mat.length === 0) return res.status(404).json({ error: 'Material no encontrado.' });
+    const version = mat[0].version;
+
+    const isCompleted = posicion_segundos >= (duracion_segundos * 0.9);
+
+    await query(`
+      INSERT INTO progreso_materiales (
+        alumno_id, matricula_id, material_id, version, estado, posicion_segundos, duracion_segundos, completado_en
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ${isCompleted ? 'CURRENT_TIMESTAMP' : 'NULL'})
+      ON DUPLICATE KEY UPDATE
+        posicion_segundos = GREATEST(posicion_segundos, VALUES(posicion_segundos)),
+        duracion_segundos = VALUES(duracion_segundos),
+        estado = IF(posicion_segundos >= duracion_segundos * 0.9, 'COMPLETADO', 'EN_PROGRESO'),
+        completado_en = IF(posicion_segundos >= duracion_segundos * 0.9 AND completado_en IS NULL, CURRENT_TIMESTAMP, completado_en)
+    `, [req.user.id, matId, id, version, isCompleted ? 'COMPLETADO' : 'EN_PROGRESO', posicion_segundos, duracion_segundos]);
+
+    // Insert range interval if provided
+    if (inicio_seg !== undefined && fin_seg !== undefined) {
+      await query(`
+        INSERT INTO intervalos_video (alumno_id, matricula_id, material_id, version, inicio_seg, fin_seg)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `, [req.user.id, matId, id, version, inicio_seg, fin_seg]);
+    }
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Progress error:', error);
+    res.status(500).json({ error: 'Error al registrar progreso.' });
+  }
+});
+
+// ==========================================
+// 4. COMMUNICATIONS (Secretaría, Dudas & Solicitudes)
+// ==========================================
+
+app.get('/api/communications/conversations', requireAuth, requireNoTempPassword, async (req, res) => {
+  try {
+    let sql = `
+      SELECT c.id, c.tipo, c.asunto, c.creador_id, c.responsable_id, c.estado, c.creado_en, c.actualizado_en,
+             CONCAT(uc.nombre, ' ', uc.apellidos) as creador_nombre,
+             (SELECT cuerpo FROM mensajes WHERE conversacion_id = c.id ORDER BY creado_en DESC LIMIT 1) as ultimo_mensaje
+      FROM conversaciones c
+      JOIN usuarios uc ON c.creador_id = uc.id
+    `;
+    const params = [];
+
+    if (req.user.roles.includes('ADMINISTRADOR')) {
+      // Admin sees all
+      sql += ` ORDER BY c.actualizado_en DESC`;
+    } else if (req.user.roles.includes('PROFESOR')) {
+      // Teacher sees academic doubts for their assigned groups + their own conversations
+      sql += ` WHERE (
+        c.tipo = 'ACADEMICA' AND c.grupo_id IN (SELECT id FROM grupos WHERE profesor_principal_id = ?)
+      ) OR c.creador_id = ? OR c.responsable_id = ?
+      ORDER BY c.actualizado_en DESC`;
+      params.push(req.user.id, req.user.id, req.user.id);
+    } else {
+      // Student sees ONLY their own conversations
+      sql += ` WHERE c.creador_id = ? ORDER BY c.actualizado_en DESC`;
+      params.push(req.user.id);
+    }
+
+    const conversations = await query(sql, params);
+    res.json(conversations);
+  } catch (error) {
+    console.error('Fetch conversations error:', error);
+    res.status(500).json({ error: 'Error al consultar conversaciones.' });
+  }
+});
+
+app.post('/api/communications/conversations', requireAuth, requireNoTempPassword, async (req, res) => {
+  try {
+    const { tipo, asunto, grupo_id, cuerpo } = req.body;
+    if (!tipo || !asunto || !cuerpo) {
+      return res.status(400).json({ error: 'Tipo, asunto y cuerpo son requeridos.' });
+    }
+
+    const convId = `conv-${Date.now().toString(36)}-${generateToken(4)}`;
+
+    // If academic doubt, resolve group's teacher as responsable
+    let responsableId = null;
+    if (tipo === 'ACADEMICA' && grupo_id) {
+      const g = await query(`SELECT profesor_principal_id FROM grupos WHERE id = ? LIMIT 1`, [grupo_id]);
+      if (g.length > 0) responsableId = g[0].profesor_principal_id;
+    }
+
+    await query(`
+      INSERT INTO conversaciones (id, tipo, asunto, creador_id, grupo_id, responsable_id, estado)
+      VALUES (?, ?, ?, ?, ?, ?, 'ABIERTA')
+    `, [convId, tipo, asunto.trim(), req.user.id, grupo_id || null, responsableId]);
+
+    // Insert initial message
+    const msgId = `msg-${Date.now().toString(36)}-${generateToken(4)}`;
+    await query(`
+      INSERT INTO mensajes (id, conversacion_id, remitente_id, cuerpo)
+      VALUES (?, ?, ?, ?)
+    `, [msgId, convId, req.user.id, cuerpo.trim()]);
+
+    res.status(201).json({ success: true, id: convId });
+  } catch (error) {
+    console.error('Create conversation error:', error);
+    res.status(500).json({ error: 'Error al iniciar conversación.' });
+  }
+});
+
+app.get('/api/communications/conversations/:id/messages', requireAuth, requireNoTempPassword, async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const convs = await query(`SELECT * FROM conversaciones WHERE id = ? LIMIT 1`, [id]);
+    if (!convs || convs.length === 0) {
+      return res.status(404).json({ error: 'Conversación no encontrada.' });
+    }
+    const conv = convs[0];
+
+    // Authorization check
+    if (!req.user.roles.includes('ADMINISTRADOR')) {
+      if (req.user.roles.includes('PROFESOR')) {
+        const isAssignedTeacher = conv.responsable_id === req.user.id;
+        const isCreator = conv.creador_id === req.user.id;
+        if (!isAssignedTeacher && !isCreator) {
+          return res.status(403).json({ error: 'Acceso denegado a la conversación.' });
+        }
+      } else if (conv.creador_id !== req.user.id) {
+        return res.status(403).json({ error: 'Acceso denegado a la conversación.' });
+      }
+    }
+
+    const messages = await query(`
+      SELECT m.id, m.conversacion_id, m.remitente_id, m.cuerpo, m.estado, m.creado_en,
+             CONCAT(u.nombre, ' ', u.apellidos) as remitente_nombre
+      FROM mensajes m
+      JOIN usuarios u ON m.remitente_id = u.id
+      WHERE m.conversacion_id = ?
+      ORDER BY m.creado_en ASC
+    `, [id]);
+
+    res.json(messages);
+  } catch (error) {
+    console.error('Fetch messages error:', error);
+    res.status(500).json({ error: 'Error al consultar mensajes.' });
+  }
+});
+
+app.post('/api/communications/conversations/:id/messages', requireAuth, requireNoTempPassword, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { cuerpo } = req.body;
+
+    if (!cuerpo) return res.status(400).json({ error: 'El cuerpo del mensaje es requerido.' });
+
+    const msgId = `msg-${Date.now().toString(36)}-${generateToken(4)}`;
+    await query(`
+      INSERT INTO mensajes (id, conversacion_id, remitente_id, cuerpo)
+      VALUES (?, ?, ?, ?)
+    `, [msgId, id, req.user.id, cuerpo.trim()]);
+
+    await query(`UPDATE conversaciones SET actualizado_en = CURRENT_TIMESTAMP WHERE id = ?`, [id]);
+
+    res.status(201).json({ success: true, id: msgId });
+  } catch (error) {
+    console.error('Post message error:', error);
+    res.status(500).json({ error: 'Error al enviar mensaje.' });
   }
 });
 
@@ -714,5 +1008,5 @@ app.get('*', (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`🚀 Campus Server running on port ${PORT} with real Hostinger MySQL authentication!`);
+  console.log(`🚀 Campus Server running on port ${PORT} with real Hostinger MySQL integration!`);
 });

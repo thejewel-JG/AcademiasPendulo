@@ -185,6 +185,96 @@ export async function createUserWithTransaction({
 }
 
 /**
+ * Switch a student's active enrollment to a new group atomically inside a DB transaction
+ * Preserves historical progress without attributing it to the new group/enrollment
+ */
+export async function switchStudentGroupTransaction({ studentId, newGroupId, adminId }) {
+  const conn = await pool.getConnection();
+
+  try {
+    await conn.beginTransaction();
+
+    // 1. Verify group exists and is active
+    const [grpRows] = await conn.execute(`SELECT id, especialidad_id, estado FROM grupos WHERE id = ? LIMIT 1`, [newGroupId]);
+    if (!grpRows || grpRows.length === 0) {
+      throw new Error('El grupo de destino no existe.');
+    }
+    if (grpRows[0].estado !== 'ACTIVO') {
+      throw new Error('El grupo de destino no está activo y no admite nuevas matrículas.');
+    }
+
+    // 2. Find current active enrollment
+    const [amaRows] = await conn.execute(`SELECT matricula_id FROM alumno_matricula_activa WHERE alumno_id = ? LIMIT 1`, [studentId]);
+
+    if (amaRows.length > 0) {
+      const oldMatId = amaRows[0].matricula_id;
+      // Close old enrollment
+      await conn.execute(`
+        UPDATE matriculas
+        SET estado = 'FINALIZADA', fecha_fin = CURRENT_TIMESTAMP
+        WHERE id = ?
+      `, [oldMatId]);
+
+      // Remove from active enrollment table
+      await conn.execute(`DELETE FROM alumno_matricula_activa WHERE alumno_id = ?`, [studentId]);
+    }
+
+    // 3. Create new enrollment
+    const newMatId = `mat-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 6)}`;
+    await conn.execute(`
+      INSERT INTO matriculas (id, alumno_id, grupo_id, estado, autor_id)
+      VALUES (?, ?, ?, 'ACTIVA', ?)
+    `, [newMatId, studentId, newGroupId, adminId]);
+
+    // 4. Update atomic active enrollment table
+    await conn.execute(`
+      INSERT INTO alumno_matricula_activa (alumno_id, matricula_id)
+      VALUES (?, ?)
+    `, [studentId, newMatId]);
+
+    await conn.commit();
+    return newMatId;
+  } catch (err) {
+    await conn.rollback();
+    throw err;
+  } finally {
+    conn.release();
+  }
+}
+
+/**
+ * Finalize active enrollment for a student
+ */
+export async function finalizeEnrollmentTransaction({ studentId, adminId }) {
+  const conn = await pool.getConnection();
+
+  try {
+    await conn.beginTransaction();
+
+    const [amaRows] = await conn.execute(`SELECT matricula_id FROM alumno_matricula_activa WHERE alumno_id = ? LIMIT 1`, [studentId]);
+
+    if (amaRows.length > 0) {
+      const matId = amaRows[0].matricula_id;
+      await conn.execute(`
+        UPDATE matriculas
+        SET estado = 'FINALIZADA', fecha_fin = CURRENT_TIMESTAMP, autor_id = ?
+        WHERE id = ?
+      `, [adminId, matId]);
+
+      await conn.execute(`DELETE FROM alumno_matricula_activa WHERE alumno_id = ?`, [studentId]);
+    }
+
+    await conn.commit();
+    return true;
+  } catch (err) {
+    await conn.rollback();
+    throw err;
+  } finally {
+    conn.release();
+  }
+}
+
+/**
  * Revoke all active sessions for a user
  */
 export async function revokeUserSessions(userId) {
