@@ -208,6 +208,7 @@ function MainAppContent() {
         onOpenCampus={() => navigateTo('login')}
         onOpenConsultation={() => setIsConsultationOpen(true)}
         onOpenEmploymentPool={() => setIsEmploymentPoolOpen(true)}
+        onOpenWorkWithUs={() => setIsWorkWithUsOpen(true)}
       />
 
       {/* Floating Action Button */}
@@ -234,7 +235,7 @@ function MainAppContent() {
       )}
 
       {isWorkWithUsOpen && (
-        <WorkWithUsModal onClose={() => setIsWorkWithUsOpen(false)} />
+        <WorkWithUsModal isOpen={isWorkWithUsOpen} onClose={() => setIsWorkWithUsOpen(false)} />
       )}
 
       {isEmploymentPoolOpen && (

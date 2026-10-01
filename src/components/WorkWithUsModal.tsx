@@ -15,11 +15,11 @@ import {
 } from 'lucide-react';
 
 interface WorkWithUsModalProps {
-  isOpen: boolean;
+  isOpen?: boolean;
   onClose: () => void;
 }
 
-export const WorkWithUsModal: React.FC<WorkWithUsModalProps> = ({ isOpen, onClose }) => {
+export const WorkWithUsModal: React.FC<WorkWithUsModalProps> = ({ isOpen = true, onClose }) => {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');

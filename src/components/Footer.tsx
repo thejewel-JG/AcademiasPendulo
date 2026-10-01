@@ -17,9 +17,10 @@ interface FooterProps {
   onOpenCampus: () => void;
   onOpenConsultation: () => void;
   onOpenEmploymentPool?: () => void;
+  onOpenWorkWithUs?: () => void;
 }
 
-export const Footer: React.FC<FooterProps> = ({ onOpenCampus, onOpenConsultation, onOpenEmploymentPool }) => {
+export const Footer: React.FC<FooterProps> = ({ onOpenCampus, onOpenConsultation, onOpenEmploymentPool, onOpenWorkWithUs }) => {
   const scrollToTop = () => {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
@@ -190,7 +191,20 @@ export const Footer: React.FC<FooterProps> = ({ onOpenCampus, onOpenConsultation
             <ul className="space-y-2 text-gray-400 text-xs">
               <li><a href="#cursos" className="hover:text-[#FF4D4D] transition-colors inline-block py-1.5 min-h-[36px]">Oferta Formativa</a></li>
               <li><a href="#instalaciones" className="hover:text-[#FF4D4D] transition-colors inline-block py-1.5 min-h-[36px]">Nuestras Instalaciones</a></li>
-              <li><a href="#trabaja-con-nosotros" className="hover:text-[#FF4D4D] transition-colors font-semibold text-gray-200 inline-block py-1.5 min-h-[36px]">Trabaja con Nosotros</a></li>
+              <li>
+                {onOpenWorkWithUs ? (
+                  <button
+                    onClick={onOpenWorkWithUs}
+                    className="hover:text-[#FF4D4D] transition-colors font-semibold text-gray-200 inline-block py-1.5 min-h-[36px] text-left"
+                  >
+                    Trabaja con Nosotros
+                  </button>
+                ) : (
+                  <a href="#trabaja-con-nosotros" className="hover:text-[#FF4D4D] transition-colors font-semibold text-gray-200 inline-block py-1.5 min-h-[36px]">
+                    Trabaja con Nosotros
+                  </a>
+                )}
+              </li>
               <li><a href="#contacto" className="hover:text-[#FF4D4D] transition-colors inline-block py-1.5 min-h-[36px]">Almería</a></li>
             </ul>
           </div>
