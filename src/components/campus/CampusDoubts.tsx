@@ -554,169 +554,178 @@ export const CampusDoubts: React.FC = () => {
 
       {/* New Question Modal */}
       {showNewModal && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl max-w-lg w-full p-6 space-y-5 shadow-2xl animate-in fade-in zoom-in-95 duration-200">
-            <div className="flex items-center justify-between pb-3 border-b border-zinc-800">
-              <div className="flex items-center gap-2">
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4">
+          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl max-w-lg w-full max-h-[88vh] flex flex-col shadow-2xl animate-in fade-in zoom-in-95 duration-200 overflow-hidden">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between px-5 py-3.5 border-b border-zinc-800 shrink-0 bg-zinc-900">
+              <div className="flex items-center gap-2.5">
                 <div className="w-8 h-8 rounded-lg bg-red-600/20 text-red-500 flex items-center justify-center font-bold">
                   <HelpCircle className="w-4 h-4" />
                 </div>
-                <h3 className="text-base font-bold text-white font-heading">
-                  Plantear Nueva Consulta Académica
-                </h3>
+                <div>
+                  <h3 className="text-sm sm:text-base font-bold text-white font-heading">
+                    Plantear Nueva Consulta Académica
+                  </h3>
+                  <p className="text-[10px] text-zinc-400">Atención directa con tu docente asignado</p>
+                </div>
               </div>
               <button
+                type="button"
                 onClick={() => setShowNewModal(false)}
-                className="text-zinc-500 hover:text-white text-xs font-bold"
+                className="w-7 h-7 rounded-lg bg-zinc-800/80 hover:bg-zinc-700 text-zinc-400 hover:text-white flex items-center justify-center text-xs font-bold transition-colors"
               >
                 ✕
               </button>
             </div>
 
-            <form onSubmit={handleCreateQuestion} className="space-y-4 text-xs">
-              {/* Curso Selector & Info */}
-              <div>
-                <label className="block text-zinc-300 font-semibold mb-1.5 flex items-center gap-1.5">
-                  <BookOpen className="w-3.5 h-3.5 text-red-400" />
-                  Curso y Especialidad Matriculada
-                </label>
+            {/* Modal Form Scrollable Body */}
+            <form onSubmit={handleCreateQuestion} className="flex-1 flex flex-col min-h-0">
+              <div className="flex-1 overflow-y-auto px-5 py-4 space-y-3.5 text-xs">
+                {/* Curso Selector & Info */}
+                <div>
+                  <label className="block text-zinc-300 font-semibold mb-1 flex items-center gap-1.5 text-[11px]">
+                    <BookOpen className="w-3.5 h-3.5 text-red-400" />
+                    Curso y Especialidad
+                  </label>
 
-                {enrolledList.length > 1 ? (
-                  <select
-                    required
-                    value={selectedEnrollmentId}
-                    onChange={(e) => setSelectedEnrollmentId(e.target.value)}
-                    className="w-full bg-zinc-950 border border-zinc-800 rounded-xl p-3 text-white focus:outline-none focus:border-red-500 font-medium"
-                  >
-                    {enrolledList.map((enr) => (
-                      <option key={enr.matricula_id} value={enr.matricula_id}>
-                        {enr.especialidad_codigo ? `${enr.especialidad_codigo} - ` : ''}
-                        {enr.especialidad_nombre} ({enr.grupo_nombre})
-                      </option>
-                    ))}
-                  </select>
-                ) : enrolledList.length === 1 ? (
-                  <div className="p-3 bg-zinc-950 border border-zinc-800 rounded-xl flex items-center justify-between">
-                    <div>
-                      <div className="text-xs font-bold text-white">
-                        {currentSelectedEnr?.especialidad_codigo
-                          ? `${currentSelectedEnr.especialidad_codigo} - `
-                          : ''}
-                        {currentSelectedEnr?.especialidad_nombre}
+                  {enrolledList.length > 1 ? (
+                    <select
+                      required
+                      value={selectedEnrollmentId}
+                      onChange={(e) => setSelectedEnrollmentId(e.target.value)}
+                      className="w-full bg-zinc-950 border border-zinc-800 rounded-xl p-2.5 text-xs text-white focus:outline-none focus:border-red-500 font-medium"
+                    >
+                      {enrolledList.map((enr) => (
+                        <option key={enr.matricula_id} value={enr.matricula_id}>
+                          {enr.especialidad_codigo ? `${enr.especialidad_codigo} - ` : ''}
+                          {enr.especialidad_nombre} ({enr.grupo_nombre})
+                        </option>
+                      ))}
+                    </select>
+                  ) : enrolledList.length === 1 ? (
+                    <div className="p-2.5 bg-zinc-950 border border-zinc-800 rounded-xl flex items-center justify-between">
+                      <div>
+                        <div className="text-xs font-bold text-white leading-tight">
+                          {currentSelectedEnr?.especialidad_codigo
+                            ? `${currentSelectedEnr.especialidad_codigo} - `
+                            : ''}
+                          {currentSelectedEnr?.especialidad_nombre}
+                        </div>
+                        <div className="text-[10px] text-zinc-400 mt-0.5">
+                          Grupo: <strong className="text-zinc-300">{currentSelectedEnr?.grupo_nombre}</strong>
+                        </div>
                       </div>
-                      <div className="text-[11px] text-zinc-400 mt-0.5">
-                        Grupo: <strong className="text-zinc-300">{currentSelectedEnr?.grupo_nombre}</strong>
+                      <span className="px-2 py-0.5 rounded text-[9px] font-bold bg-emerald-950 text-emerald-400 border border-emerald-800 shrink-0">
+                        Matrícula Activa
+                      </span>
+                    </div>
+                  ) : (
+                    <div className="p-2.5 bg-zinc-950 border border-amber-800/40 rounded-xl text-amber-300 text-[11px] flex items-center gap-2">
+                      <AlertCircle className="w-4 h-4 shrink-0 text-amber-400" />
+                      <span>No se ha detectado matrícula activa. La consulta se enviará a Secretaría Docente.</span>
+                    </div>
+                  )}
+                </div>
+
+                {/* Assigned Professor Card */}
+                <div className="p-2.5 bg-zinc-950/80 border border-zinc-800/80 rounded-xl space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-7 h-7 rounded-lg bg-red-600/10 border border-red-500/20 flex items-center justify-center text-red-500 font-bold shrink-0">
+                        <GraduationCap className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <div className="text-[9px] font-bold text-zinc-400 uppercase tracking-wider">
+                          Profesor Asignado
+                        </div>
+                        <div className="text-xs font-bold text-white">
+                          {currentSelectedEnr?.profesor_nombre || 'Docente por asignar (Secretaría Académica)'}
+                        </div>
                       </div>
                     </div>
-                    <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-950 text-emerald-400 border border-emerald-800">
-                      Matrícula Activa
+                    <span
+                      className={`px-2 py-0.5 rounded text-[9px] font-bold shrink-0 ${
+                        currentSelectedEnr?.profesor_nombre
+                          ? 'bg-emerald-950 text-emerald-400 border border-emerald-800'
+                          : 'bg-zinc-800 text-zinc-400'
+                      }`}
+                    >
+                      {currentSelectedEnr?.profesor_nombre ? 'Docente de tu grupo' : 'Jefatura de Estudios'}
                     </span>
                   </div>
-                ) : (
-                  <div className="p-3 bg-zinc-950 border border-amber-800/40 rounded-xl text-amber-300 text-xs flex items-center gap-2">
-                    <AlertCircle className="w-4 h-4 shrink-0 text-amber-400" />
-                    <span>No se ha detectado matrícula activa. La consulta se enviará a Secretaría Docente.</span>
-                  </div>
-                )}
-              </div>
-
-              {/* Assigned Professor Card */}
-              <div className="p-3.5 bg-zinc-950/80 border border-zinc-800/80 rounded-xl space-y-2">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <div className="w-9 h-9 rounded-xl bg-red-600/10 border border-red-500/20 flex items-center justify-center text-red-500 font-bold shrink-0">
-                      <GraduationCap className="w-5 h-5" />
-                    </div>
-                    <div>
-                      <div className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider">
-                        Profesor Asignado
-                      </div>
-                      <div className="text-xs font-bold text-white">
-                        {currentSelectedEnr?.profesor_nombre || 'Docente por asignar (Secretaría Académica)'}
-                      </div>
-                    </div>
-                  </div>
-                  <span
-                    className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                      currentSelectedEnr?.profesor_nombre
-                        ? 'bg-emerald-950 text-emerald-400 border border-emerald-800'
-                        : 'bg-zinc-800 text-zinc-400'
-                    }`}
-                  >
-                    {currentSelectedEnr?.profesor_nombre ? 'Docente de tu grupo' : 'Jefatura de Estudios'}
-                  </span>
+                  <p className="text-[9px] text-zinc-400 italic">
+                    🔒 Esta duda se dirigirá de forma privada y exclusiva al docente de tu grupo.
+                  </p>
                 </div>
-                <p className="text-[10px] text-zinc-400 italic">
-                  🔒 Esta duda se dirigirá de forma privada a la bandeja del profesor asignado a tu grupo.
-                </p>
-              </div>
 
-              <div>
-                <label className="block text-zinc-400 font-semibold mb-1">
-                  Módulo o Unidad (Opcional)
-                </label>
-                <input
-                  type="text"
-                  value={moduloUnidad}
-                  onChange={(e) => setModuloUnidad(e.target.value)}
-                  placeholder="Ej. Módulo 1 / Unidad 2: Sistemas de Alta Tensión"
-                  className="w-full bg-zinc-950 border border-zinc-800 rounded-xl p-3 text-white placeholder-zinc-500 focus:outline-none focus:border-red-500"
+                <div>
+                  <label className="block text-zinc-400 font-semibold mb-1 text-[11px]">
+                    Módulo o Unidad (Opcional)
+                  </label>
+                  <input
+                    type="text"
+                    value={moduloUnidad}
+                    onChange={(e) => setModuloUnidad(e.target.value)}
+                    placeholder="Ej. Módulo 1 / Unidad 2: Sistemas de Alta Tensión"
+                    className="w-full bg-zinc-950 border border-zinc-800 rounded-xl p-2.5 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-red-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-zinc-400 font-semibold mb-1 text-[11px]">Asunto</label>
+                  <input
+                    type="text"
+                    required
+                    value={asunto}
+                    onChange={(e) => setAsunto(e.target.value)}
+                    placeholder="Ej. Duda sobre el esquema del inversor trifásico"
+                    className="w-full bg-zinc-950 border border-zinc-800 rounded-xl p-2.5 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-red-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-zinc-400 font-semibold mb-1 text-[11px]">Mensaje explicativo</label>
+                  <textarea
+                    required
+                    rows={3}
+                    value={mensaje}
+                    onChange={(e) => setMensaje(e.target.value)}
+                    placeholder="Describe con detalle tu duda para que tu profesor pueda ayudarte con precisión..."
+                    className="w-full bg-zinc-950 border border-zinc-800 rounded-xl p-2.5 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-red-500 resize-none leading-relaxed"
+                  />
+                </div>
+
+                <PdfFileUploader
+                  label="Adjuntar documento PDF (Opcional - Esquemas, ejercicios, capturas)"
+                  selectedFileName={attachedPdfName}
+                  selectedFileSize={attachedPdfSize}
+                  onFileSelected={({ name, sizeStr, url }) => {
+                    setAttachedPdfName(name);
+                    setAttachedPdfSize(sizeStr);
+                    setAttachedPdfUrl(url);
+                  }}
+                  onFileRemoved={() => {
+                    setAttachedPdfName('');
+                    setAttachedPdfSize('');
+                    setAttachedPdfUrl('');
+                  }}
                 />
               </div>
 
-              <div>
-                <label className="block text-zinc-400 font-semibold mb-1">Asunto</label>
-                <input
-                  type="text"
-                  required
-                  value={asunto}
-                  onChange={(e) => setAsunto(e.target.value)}
-                  placeholder="Ej. Duda sobre el esquema del inversor trifásico"
-                  className="w-full bg-zinc-950 border border-zinc-800 rounded-xl p-3 text-white placeholder-zinc-500 focus:outline-none focus:border-red-500"
-                />
-              </div>
-
-              <div>
-                <label className="block text-zinc-400 font-semibold mb-1">Mensaje explicativo</label>
-                <textarea
-                  required
-                  rows={4}
-                  value={mensaje}
-                  onChange={(e) => setMensaje(e.target.value)}
-                  placeholder="Describe con el mayor detalle posible tu duda para que tu profesor pueda ayudarte con precisión..."
-                  className="w-full bg-zinc-950 border border-zinc-800 rounded-xl p-3 text-white placeholder-zinc-500 focus:outline-none focus:border-red-500 resize-none leading-relaxed"
-                />
-              </div>
-
-              <PdfFileUploader
-                label="Adjuntar documento PDF (Opcional - Esquemas, ejercicios, capturas)"
-                selectedFileName={attachedPdfName}
-                selectedFileSize={attachedPdfSize}
-                onFileSelected={({ name, sizeStr, url }) => {
-                  setAttachedPdfName(name);
-                  setAttachedPdfSize(sizeStr);
-                  setAttachedPdfUrl(url);
-                }}
-                onFileRemoved={() => {
-                  setAttachedPdfName('');
-                  setAttachedPdfSize('');
-                  setAttachedPdfUrl('');
-                }}
-              />
-
-              <div className="flex justify-end gap-3 pt-3 border-t border-zinc-800">
+              {/* Modal Fixed Footer with Action Buttons */}
+              <div className="px-5 py-3 border-t border-zinc-800 bg-zinc-900 flex justify-end gap-2.5 shrink-0">
                 <button
                   type="button"
                   onClick={() => setShowNewModal(false)}
                   disabled={isSubmitting}
-                  className="px-4 py-2.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-xl font-bold transition-all"
+                  className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-xl font-bold transition-all text-xs"
                 >
                   Cancelar
                 </button>
                 <button
                   type="submit"
                   disabled={isSubmitting}
-                  className="px-6 py-2.5 bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white rounded-xl font-bold transition-all shadow-lg shadow-red-950/40 flex items-center gap-2"
+                  className="px-5 py-2 bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white rounded-xl font-bold transition-all shadow-lg shadow-red-950/40 flex items-center gap-2 text-xs"
                 >
                   {isSubmitting ? (
                     <>
