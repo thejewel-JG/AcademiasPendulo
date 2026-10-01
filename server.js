@@ -2009,37 +2009,47 @@ app.post('/api/public/work-with-us', async (req, res) => {
   try {
     const {
       name,
+      nombre,
       email,
       phone,
+      telefono,
       position,
+      puesto,
       notes,
+      observaciones,
       cv_filename,
-      cv_base64
+      cv_nombre,
+      cv_base64,
+      cv_data
     } = req.body;
 
-    if (!name || !email || !phone) {
+    const candName = (name || nombre || '').trim();
+    const userEmail = (email || '').trim();
+    const userPhone = (phone || telefono || '').trim();
+
+    if (!candName || !userEmail || !userPhone) {
       return res.status(400).json({ error: 'Nombre, email y teléfono son requeridos.' });
     }
 
     const candId = `trab_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
-    const candidateName = name.trim();
-    const userEmail = email.trim();
-    const userPhone = phone.trim();
-    const candidatePosition = position || 'Docente de Automoción';
+    const candidateName = candName;
+    const candidatePosition = (position || puesto || 'Docente de Automoción').trim();
+    const candidateNotes = (notes || observaciones || 'Candidatura enviada desde la web.').trim();
 
     let savedCvPath = null;
-    let cvOriginalName = cv_filename || 'CV.pdf';
+    let cvOriginalName = cv_filename || cv_nombre || 'CV.pdf';
     let emailAttachments = [];
 
     // Handle CV file base64 if provided
-    if (cv_base64) {
+    const base64Data = cv_base64 || cv_data;
+    if (base64Data) {
       try {
-        const matches = cv_base64.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
+        const matches = typeof base64Data === 'string' ? base64Data.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/) : null;
         let buffer;
         if (matches && matches.length === 3) {
           buffer = Buffer.from(matches[2], 'base64');
         } else {
-          buffer = Buffer.from(cv_base64, 'base64');
+          buffer = Buffer.from(base64Data, 'base64');
         }
 
         const ext = path.extname(cvOriginalName) || '.pdf';
@@ -2075,50 +2085,58 @@ app.post('/api/public/work-with-us', async (req, res) => {
 
     // 2. Email notification to Secretaría / HR Admin
     const adminNotificationEmail = process.env.DEFAULT_NOTIFICATION_EMAIL || process.env.SMTP_USER || 'guillerminajoya@gmail.com';
-    sendSystemEmail({
-      to: adminNotificationEmail,
-      subject: `💼 Nueva Candidatura Recibida (Trabaja con Nosotros): ${candidateName} - ${candidatePosition}`,
-      html: `
-        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e5e7eb; border-radius: 12px; background: #ffffff;">
-          <h2 style="color: #dc2626; margin-top: 0;">💼 Nueva Candidatura: Trabaja con Nosotros</h2>
-          <p>Se ha recibido una nueva solicitud de empleo para el equipo de Academias Péndulo:</p>
-          <table style="width: 100%; border-collapse: collapse; margin: 15px 0;">
-            <tr style="border-bottom: 1px solid #f3f4f6;"><td style="padding: 8px; font-weight: bold; width: 140px;">Candidato:</td><td style="padding: 8px;">${candidateName}</td></tr>
-            <tr style="border-bottom: 1px solid #f3f4f6;"><td style="padding: 8px; font-weight: bold;">Puesto de Interés:</td><td style="padding: 8px; font-weight: bold; color: #dc2626;">${candidatePosition}</td></tr>
-            <tr style="border-bottom: 1px solid #f3f4f6;"><td style="padding: 8px; font-weight: bold;">Teléfono:</td><td style="padding: 8px;"><a href="tel:${userPhone}">${userPhone}</a></td></tr>
-            <tr style="border-bottom: 1px solid #f3f4f6;"><td style="padding: 8px; font-weight: bold;">Email:</td><td style="padding: 8px;"><a href="mailto:${userEmail}">${userEmail}</a></td></tr>
-            <tr style="border-bottom: 1px solid #f3f4f6;"><td style="padding: 8px; font-weight: bold;">CV Adjunto:</td><td style="padding: 8px;">${cvOriginalName} (adjunto en este correo)</td></tr>
-            <tr style="border-bottom: 1px solid #f3f4f6;"><td style="padding: 8px; font-weight: bold;">Carta / Mensaje:</td><td style="padding: 8px;">${notes || 'Sin mensaje adicional'}</td></tr>
-          </table>
-          <p style="font-size: 12px; color: #6b7280; margin-top: 20px;">Recibido el ${new Date().toLocaleString('es-ES')}</p>
-        </div>
-      `,
-      attachments: emailAttachments
-    });
+    try {
+      await sendSystemEmail({
+        to: adminNotificationEmail,
+        subject: `💼 Nueva Candidatura Recibida (Trabaja con Nosotros): ${candidateName} - ${candidatePosition}`,
+        html: `
+          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e5e7eb; border-radius: 12px; background: #ffffff;">
+            <h2 style="color: #dc2626; margin-top: 0;">💼 Nueva Candidatura: Trabaja con Nosotros</h2>
+            <p>Se ha recibido una nueva solicitud de empleo para el equipo de Academias Péndulo:</p>
+            <table style="width: 100%; border-collapse: collapse; margin: 15px 0;">
+              <tr style="border-bottom: 1px solid #f3f4f6;"><td style="padding: 8px; font-weight: bold; width: 140px;">Candidato:</td><td style="padding: 8px;">${candidateName}</td></tr>
+              <tr style="border-bottom: 1px solid #f3f4f6;"><td style="padding: 8px; font-weight: bold;">Puesto de Interés:</td><td style="padding: 8px; font-weight: bold; color: #dc2626;">${candidatePosition}</td></tr>
+              <tr style="border-bottom: 1px solid #f3f4f6;"><td style="padding: 8px; font-weight: bold;">Teléfono:</td><td style="padding: 8px;"><a href="tel:${userPhone}">${userPhone}</a></td></tr>
+              <tr style="border-bottom: 1px solid #f3f4f6;"><td style="padding: 8px; font-weight: bold;">Email:</td><td style="padding: 8px;"><a href="mailto:${userEmail}">${userEmail}</a></td></tr>
+              <tr style="border-bottom: 1px solid #f3f4f6;"><td style="padding: 8px; font-weight: bold;">CV Adjunto:</td><td style="padding: 8px;">${cvOriginalName} (adjunto en este correo)</td></tr>
+              <tr style="border-bottom: 1px solid #f3f4f6;"><td style="padding: 8px; font-weight: bold;">Carta / Mensaje:</td><td style="padding: 8px;">${notes || 'Sin mensaje adicional'}</td></tr>
+            </table>
+            <p style="font-size: 12px; color: #6b7280; margin-top: 20px;">Recibido el ${new Date().toLocaleString('es-ES')}</p>
+          </div>
+        `,
+        attachments: emailAttachments
+      });
+    } catch (eMailErr) {
+      console.warn('Error sending admin notification email:', eMailErr);
+    }
 
     // 3. Confirmation email to the Candidate
-    sendSystemEmail({
-      to: userEmail,
-      subject: `💼 Hemos recibido tu CV - Academias Péndulo`,
-      html: `
-        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 25px; border: 1px solid #e0e7ff; border-radius: 12px; background: #ffffff;">
-          <div style="text-align: center; margin-bottom: 20px;">
-            <h1 style="color: #dc2626; margin: 0;">Academias Péndulo</h1>
-            <p style="color: #6b7280; font-size: 14px; margin-top: 4px;">Selección y Recursos Humanos</p>
+    try {
+      await sendSystemEmail({
+        to: userEmail,
+        subject: `💼 Hemos recibido tu CV - Academias Péndulo`,
+        html: `
+          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 25px; border: 1px solid #e0e7ff; border-radius: 12px; background: #ffffff;">
+            <div style="text-align: center; margin-bottom: 20px;">
+              <h1 style="color: #dc2626; margin: 0;">Academias Péndulo</h1>
+              <p style="color: #6b7280; font-size: 14px; margin-top: 4px;">Selección y Recursos Humanos</p>
+            </div>
+            <hr style="border: none; border-top: 1px solid #f3f4f6; margin: 20px 0;" />
+            <h2 style="color: #1f2937;">¡Hola ${candidateName}!</h2>
+            <p>Hemos recibido correctamente tu currículum vitae y datos de candidatura para el puesto de <strong>${candidatePosition}</strong>.</p>
+            <div style="background-color: #fef2f2; padding: 16px; border-radius: 8px; margin: 15px 0; border-left: 4px solid #dc2626;">
+              <p style="margin: 0; font-weight: bold; color: #991b1b;">Puesto solicitado: ${candidatePosition}</p>
+              <p style="margin: 4px 0 0 0; font-size: 12px; color: #7f1d1d;">Currículum registrado: ${cvOriginalName}</p>
+            </div>
+            <p>Nuestro equipo directivo y pedagógico revisará tu perfil detalladamente. Si tu experiencia se ajusta a nuestras vacantes actuales o de próximas convocatorias, nos pondremos en contacto contigo a través del teléfono <strong>${userPhone}</strong> o este correo electrónico.</p>
+            <hr style="border: none; border-top: 1px solid #f3f4f6; margin: 20px 0;" />
+            <p style="font-size: 11px; color: #9ca3af; text-align: center;">Academias Péndulo · Centro de Formación Profesional Oficial de Automoción</p>
           </div>
-          <hr style="border: none; border-top: 1px solid #f3f4f6; margin: 20px 0;" />
-          <h2 style="color: #1f2937;">¡Hola ${candidateName}!</h2>
-          <p>Hemos recibido correctamente tu currículum vitae y datos de candidatura para el puesto de <strong>${candidatePosition}</strong>.</p>
-          <div style="background-color: #fef2f2; padding: 16px; border-radius: 8px; margin: 15px 0; border-left: 4px solid #dc2626;">
-            <p style="margin: 0; font-weight: bold; color: #991b1b;">Puesto solicitado: ${candidatePosition}</p>
-            <p style="margin: 4px 0 0 0; font-size: 12px; color: #7f1d1d;">Currículum registrado: ${cvOriginalName}</p>
-          </div>
-          <p>Nuestro equipo directivo y pedagógico revisará tu perfil detalladamente. Si tu experiencia se ajusta a nuestras vacantes actuales o de próximas convocatorias, nos pondremos en contacto contigo a través del teléfono <strong>${userPhone}</strong> o este correo electrónico.</p>
-          <hr style="border: none; border-top: 1px solid #f3f4f6; margin: 20px 0;" />
-          <p style="font-size: 11px; color: #9ca3af; text-align: center;">Academias Péndulo · Centro de Formación Profesional Oficial de Automoción</p>
-        </div>
-      `
-    });
+        `
+      });
+    } catch (cMailErr) {
+      console.warn('Error sending candidate confirmation email:', cMailErr);
+    }
 
     res.status(201).json({ success: true, id: candId });
   } catch (error) {
@@ -2130,14 +2148,62 @@ app.post('/api/public/work-with-us', async (req, res) => {
 // Admin endpoint: Fetch all job applications
 app.get('/api/admin/work-with-us', requireAuth, requireNoTempPassword, async (req, res) => {
   try {
-    if (!req.user.roles.includes('ADMINISTRADOR')) {
-      return res.status(403).json({ error: 'Acceso restringido a la administración.' });
+    const userRoles = req.user.roles || [];
+    if (!userRoles.some(r => ['ADMINISTRADOR', 'ADMIN', 'SECRETARIA', 'DIRECCION'].includes(r))) {
+      return res.status(403).json({ error: 'Acceso restringido a la secretaría y administración.' });
     }
     const applications = await query(`SELECT * FROM candidaturas_trabajo ORDER BY creado_en DESC`);
     res.json(applications);
   } catch (error) {
     console.error('Fetch work with us applications error:', error);
     res.status(500).json({ error: 'Error al consultar candidaturas de empleo.' });
+  }
+});
+
+// Admin endpoint: Download candidate CV
+app.get('/api/admin/work-with-us/:id/cv', requireAuth, requireNoTempPassword, async (req, res) => {
+  try {
+    const userRoles = req.user.roles || [];
+    if (!userRoles.some(r => ['ADMINISTRADOR', 'ADMIN', 'SECRETARIA', 'DIRECCION'].includes(r))) {
+      return res.status(403).json({ error: 'Acceso restringido.' });
+    }
+    const { id } = req.params;
+    const rows = await query(`SELECT cv_nombre, cv_ruta FROM candidaturas_trabajo WHERE id = ? LIMIT 1`, [id]);
+    if (!rows || rows.length === 0 || !rows[0].cv_ruta) {
+      return res.status(404).json({ error: 'CV no encontrado.' });
+    }
+
+    const cvFilename = path.basename(rows[0].cv_ruta);
+    const fullPath = path.join(CVS_UPLOAD_DIR, cvFilename);
+
+    if (!fs.existsSync(fullPath)) {
+      return res.status(404).json({ error: 'El archivo del CV no se encuentra en el servidor.' });
+    }
+
+    res.download(fullPath, rows[0].cv_nombre || 'CV.pdf');
+  } catch (error) {
+    console.error('Download CV error:', error);
+    res.status(500).json({ error: 'Error al descargar CV.' });
+  }
+});
+
+// Admin endpoint: Update candidate status
+app.patch('/api/admin/work-with-us/:id/status', requireAuth, requireNoTempPassword, async (req, res) => {
+  try {
+    const userRoles = req.user.roles || [];
+    if (!userRoles.some(r => ['ADMINISTRADOR', 'ADMIN', 'SECRETARIA', 'DIRECCION'].includes(r))) {
+      return res.status(403).json({ error: 'Acceso restringido.' });
+    }
+    const { id } = req.params;
+    const { estado } = req.body;
+    if (!['PENDIENTE', 'REVISADO', 'EN_PROCESO', 'SELECCIONADO', 'DESCARTADO'].includes(estado)) {
+      return res.status(400).json({ error: 'Estado no válido.' });
+    }
+    await query(`UPDATE candidaturas_trabajo SET estado = ? WHERE id = ?`, [estado, id]);
+    res.json({ success: true, estado });
+  } catch (error) {
+    console.error('Update candidate status error:', error);
+    res.status(500).json({ error: 'Error al actualizar el estado de la candidatura.' });
   }
 });
 
@@ -2290,62 +2356,81 @@ app.post('/api/public/inscription-request', async (req, res) => {
 
     const candidateFullName = `${first_name.trim()} ${last_name_1.trim()} ${last_name_2 ? last_name_2.trim() : ''}`.trim();
 
-    // 3. Send Automatic Email to Applicant (Requirement 9)
-    sendSystemEmail({
-      to: cleanEmail,
-      subject: `Hemos recibido tu solicitud — Academias Péndulo`,
-      html: `
-        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 25px; border: 1px solid #e5e7eb; border-radius: 12px; background: #ffffff;">
-          <div style="text-align: center; margin-bottom: 20px;">
-            <h1 style="color: #dc2626; margin: 0;">Academias Péndulo</h1>
-            <p style="color: #4b5563; font-size: 14px; margin-top: 4px;">Formación Oficial en Automoción</p>
-          </div>
-          <hr style="border: none; border-top: 1px solid #f3f4f6; margin: 20px 0;" />
-          
-          <p style="font-size: 16px; color: #1f2937;">Hola <strong>${first_name.trim()}</strong>,</p>
-          
-          <p style="font-size: 15px; color: #374151; line-height: 1.5;">Hemos recibido correctamente tu solicitud de inscripción para <strong>${course_name.trim()}</strong>.</p>
-          
-          <div style="background-color: #fef2f2; padding: 18px; border-radius: 10px; margin: 20px 0; border-left: 4px solid #dc2626; text-align: center;">
-            <p style="margin: 0; font-size: 13px; color: #991b1b; text-transform: uppercase; font-weight: bold; letter-spacing: 0.5px;">Tu número de solicitud es:</p>
-            <p style="margin: 8px 0 0 0; font-size: 24px; font-weight: 900; color: #dc2626; letter-spacing: 1px;">${requestNumber}</p>
-          </div>
-          
-          <p style="font-size: 14px; color: #4b5563; line-height: 1.6;">La solicitud ha sido registrada correctamente y nuestro equipo de Secretaría la revisará en breve.</p>
-          <p style="font-size: 14px; color: #4b5563; line-height: 1.6;">Nos pondremos en contacto contigo si necesitamos información adicional o para informarte sobre los siguientes pasos.</p>
-          
-          <p style="font-size: 15px; color: #1f2937; font-weight: bold; margin-top: 25px;">Gracias por confiar en Academias Péndulo — Formación en Automoción.</p>
-          
-          <hr style="border: none; border-top: 1px solid #f3f4f6; margin: 25px 0;" />
-          <p style="font-size: 11px; color: #9ca3af; text-align: center;">Este mensaje ha sido generado automáticamente. No es necesario volver a enviar la solicitud.</p>
-        </div>
-      `
-    });
+    // Prepare PDF Attachment if file exists
+    const inscriptionAttachments = [];
+    if (generatedPdfPath && fs.existsSync(generatedPdfPath)) {
+      inscriptionAttachments.push({
+        filename: `Solicitud_Inscripcion_${requestNumber}.pdf`,
+        path: generatedPdfPath
+      });
+    }
 
-    // 4. Send Notice to Admin / Secretaría (Requirement 10)
+    // 3. Send Automatic Email to Applicant (with attached official PDF)
+    try {
+      await sendSystemEmail({
+        to: cleanEmail,
+        subject: `Hemos recibido tu solicitud de inscripción (${requestNumber}) — Academias Péndulo`,
+        html: `
+          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 25px; border: 1px solid #e5e7eb; border-radius: 12px; background: #ffffff;">
+            <div style="text-align: center; margin-bottom: 20px;">
+              <h1 style="color: #dc2626; margin: 0;">Academias Péndulo</h1>
+              <p style="color: #4b5563; font-size: 14px; margin-top: 4px;">Formación Oficial en Automoción</p>
+            </div>
+            <hr style="border: none; border-top: 1px solid #f3f4f6; margin: 20px 0;" />
+            
+            <p style="font-size: 16px; color: #1f2937;">Hola <strong>${first_name.trim()}</strong>,</p>
+            
+            <p style="font-size: 15px; color: #374151; line-height: 1.5;">Hemos recibido correctamente tu solicitud de inscripción para el curso <strong>${course_name.trim()}</strong>.</p>
+            
+            <div style="background-color: #fef2f2; padding: 18px; border-radius: 10px; margin: 20px 0; border-left: 4px solid #dc2626; text-align: center;">
+              <p style="margin: 0; font-size: 13px; color: #991b1b; text-transform: uppercase; font-weight: bold; letter-spacing: 0.5px;">Tu número oficial de solicitud es:</p>
+              <p style="margin: 8px 0 0 0; font-size: 24px; font-weight: 900; color: #dc2626; letter-spacing: 1px;">${requestNumber}</p>
+            </div>
+            
+            <p style="font-size: 14px; color: #4b5563; line-height: 1.6;">Adjunto a este correo electrónico encontrarás una copia oficial en PDF con todos los datos y la firma de tu solicitud de inscripción.</p>
+            <p style="font-size: 14px; color: #4b5563; line-height: 1.6;">Nuestro equipo de Secretaría revisará tu documentación y se pondrá en contacto contigo en breve.</p>
+            
+            <p style="font-size: 15px; color: #1f2937; font-weight: bold; margin-top: 25px;">Gracias por confiar en Academias Péndulo — Formación en Automoción.</p>
+            
+            <hr style="border: none; border-top: 1px solid #f3f4f6; margin: 25px 0;" />
+            <p style="font-size: 11px; color: #9ca3af; text-align: center;">Este mensaje ha sido generado automáticamente. Por favor guarda el PDF adjunto como justificante.</p>
+          </div>
+        `,
+        attachments: inscriptionAttachments
+      });
+    } catch (appMailErr) {
+      console.warn('Error sending inscription email to applicant:', appMailErr);
+    }
+
+    // 4. Send Notice to Admin / Secretaría (with attached official PDF)
     const adminNotificationEmail = process.env.DEFAULT_NOTIFICATION_EMAIL || process.env.SMTP_USER || 'guillerminajoya@gmail.com';
-    sendSystemEmail({
-      to: adminNotificationEmail,
-      subject: `📋 Nueva solicitud de inscripción: ${candidateFullName} (${requestNumber})`,
-      html: `
-        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e5e7eb; border-radius: 12px; background: #ffffff;">
-          <h2 style="color: #dc2626; margin-top: 0;">Nueva Solicitud de Inscripción</h2>
-          <p>Se ha recibido una nueva solicitud de inscripción en el portal web:</p>
-          <table style="width: 100%; border-collapse: collapse; margin: 15px 0;">
-            <tr style="border-bottom: 1px solid #f3f4f6;"><td style="padding: 8px; font-weight: bold; width: 140px;">Nº Solicitud:</td><td style="padding: 8px; font-weight: bold; color: #dc2626;">${requestNumber}</td></tr>
-            <tr style="border-bottom: 1px solid #f3f4f6;"><td style="padding: 8px; font-weight: bold;">Nombre:</td><td style="padding: 8px;">${candidateFullName}</td></tr>
-            <tr style="border-bottom: 1px solid #f3f4f6;"><td style="padding: 8px; font-weight: bold;">DNI/NIE:</td><td style="padding: 8px;">${cleanDni}</td></tr>
-            <tr style="border-bottom: 1px solid #f3f4f6;"><td style="padding: 8px; font-weight: bold;">Curso:</td><td style="padding: 8px; font-weight: bold;">${course_name}</td></tr>
-            <tr style="border-bottom: 1px solid #f3f4f6;"><td style="padding: 8px; font-weight: bold;">Teléfono:</td><td style="padding: 8px;">${phone}</td></tr>
-            <tr style="border-bottom: 1px solid #f3f4f6;"><td style="padding: 8px; font-weight: bold;">Email:</td><td style="padding: 8px;"><a href="mailto:${cleanEmail}">${cleanEmail}</a></td></tr>
-            <tr style="border-bottom: 1px solid #f3f4f6;"><td style="padding: 8px; font-weight: bold;">Situación Laboral:</td><td style="padding: 8px;">${employment_status}</td></tr>
-          </table>
-          <p style="margin-top: 20px; text-align: center;">
-            <a href="http://localhost:3000/#campus" style="background: #dc2626; color: #ffffff; padding: 10px 20px; text-decoration: none; border-radius: 8px; font-weight: bold; inline-block;">Acceder al Panel de Secretaría</a>
-          </p>
-        </div>
-      `
-    });
+    try {
+      await sendSystemEmail({
+        to: adminNotificationEmail,
+        subject: `📋 Nueva solicitud de inscripción: ${candidateFullName} (${requestNumber})`,
+        html: `
+          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e5e7eb; border-radius: 12px; background: #ffffff;">
+            <h2 style="color: #dc2626; margin-top: 0;">Nueva Solicitud de Inscripción</h2>
+            <p>Se ha recibido una nueva solicitud de inscripción en el portal web (PDF oficial adjunto a este correo):</p>
+            <table style="width: 100%; border-collapse: collapse; margin: 15px 0;">
+              <tr style="border-bottom: 1px solid #f3f4f6;"><td style="padding: 8px; font-weight: bold; width: 140px;">Nº Solicitud:</td><td style="padding: 8px; font-weight: bold; color: #dc2626;">${requestNumber}</td></tr>
+              <tr style="border-bottom: 1px solid #f3f4f6;"><td style="padding: 8px; font-weight: bold;">Nombre:</td><td style="padding: 8px;">${candidateFullName}</td></tr>
+              <tr style="border-bottom: 1px solid #f3f4f6;"><td style="padding: 8px; font-weight: bold;">DNI/NIE:</td><td style="padding: 8px;">${cleanDni}</td></tr>
+              <tr style="border-bottom: 1px solid #f3f4f6;"><td style="padding: 8px; font-weight: bold;">Curso:</td><td style="padding: 8px; font-weight: bold;">${course_name}</td></tr>
+              <tr style="border-bottom: 1px solid #f3f4f6;"><td style="padding: 8px; font-weight: bold;">Teléfono:</td><td style="padding: 8px;"><a href="tel:${phone}">${phone}</a></td></tr>
+              <tr style="border-bottom: 1px solid #f3f4f6;"><td style="padding: 8px; font-weight: bold;">Email:</td><td style="padding: 8px;"><a href="mailto:${cleanEmail}">${cleanEmail}</a></td></tr>
+              <tr style="border-bottom: 1px solid #f3f4f6;"><td style="padding: 8px; font-weight: bold;">Situación Laboral:</td><td style="padding: 8px;">${employment_status}</td></tr>
+            </table>
+            <p style="margin-top: 20px; text-align: center;">
+              <a href="http://localhost:3000/#campus" style="background: #dc2626; color: #ffffff; padding: 10px 20px; text-decoration: none; border-radius: 8px; font-weight: bold; inline-block;">Acceder al Panel de Secretaría</a>
+            </p>
+          </div>
+        `,
+        attachments: inscriptionAttachments
+      });
+    } catch (admMailErr) {
+      console.warn('Error sending inscription notification email to admin:', admMailErr);
+    }
 
     res.status(201).json({
       success: true,
@@ -2363,7 +2448,7 @@ app.post('/api/public/inscription-request', async (req, res) => {
 app.get('/api/admin/inscriptions', requireAuth, requireNoTempPassword, async (req, res) => {
   try {
     const userRoles = req.user.roles || [];
-    if (!userRoles.includes('ADMINISTRADOR') && !userRoles.includes('SECRETARIA')) {
+    if (!userRoles.some(r => ['ADMINISTRADOR', 'ADMIN', 'SECRETARIA', 'DIRECCION'].includes(r))) {
       return res.status(403).json({ error: 'Acceso restringido a personal autorizado de Secretaría y Administración.' });
     }
 
