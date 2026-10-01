@@ -23,6 +23,7 @@ import {
   getTeacherGroupAnalytics, getAdminGlobalAnalytics
 } from './progressEngine.js';
 import { generateInscriptionPDF } from './pdfInscriptionGenerator.js';
+import PDFDocument from 'pdfkit';
 
 dotenv.config();
 
@@ -2162,6 +2163,76 @@ app.get('/api/admin/work-with-us', requireAuth, requireNoTempPassword, async (re
   }
 });
 
+function generateCandidateSummaryBuffer(c) {
+  return new Promise((resolve, reject) => {
+    try {
+      const doc = new PDFDocument({ size: 'A4', margin: 40 });
+      const chunks = [];
+      doc.on('data', chunk => chunks.push(chunk));
+      doc.on('end', () => resolve(Buffer.concat(chunks)));
+      doc.on('error', err => reject(err));
+
+      const RED = '#DC2626';
+      const DARK_GRAY = '#1F2937';
+      const LIGHT_BG = '#FEF2F2';
+
+      // Header Branding
+      doc.fillColor(DARK_GRAY).font('Helvetica-Bold').fontSize(22).text('Academias', 40, 40);
+      doc.fillColor(RED).fontSize(28).text('PÉNDULO', 40, 64);
+      doc.fillColor('#4B5563').font('Helvetica-Bold').fontSize(8).text('SELECCIÓN Y RECURSOS HUMANOS', 40, 96);
+
+      // Document Title
+      doc.fillColor(RED).font('Helvetica-Bold').fontSize(14).text('FICHA OFICIAL DE CANDIDATURA', 280, 45, { align: 'right' });
+      doc.fillColor('#6B7280').font('Helvetica').fontSize(9).text('Trabaja con Nosotros · Academias Péndulo', 280, 65, { align: 'right' });
+      doc.fillColor(DARK_GRAY).font('Helvetica-Bold').fontSize(9.5).text(`ID: ${c.id || 'N/A'}`, 280, 80, { align: 'right' });
+
+      // Divider Line
+      doc.moveTo(40, 110).lineTo(555, 110).strokeColor(RED).lineWidth(2).stroke();
+
+      // Banner Puesto
+      doc.rect(40, 125, 515, 36).fillAndStroke(LIGHT_BG, '#FCA5A5');
+      doc.fillColor(RED).font('Helvetica-Bold').fontSize(8.5).text('PUESTO SOLICITADO', 50, 131);
+      doc.fillColor(DARK_GRAY).font('Helvetica-Bold').fontSize(12).text(c.puesto || 'Docente de Automoción', 50, 143);
+
+      // Candidate Information Rows
+      let y = 175;
+      const addRow = (label, value) => {
+        doc.rect(40, y, 515, 26).fillAndStroke('#F9FAFB', '#E5E7EB');
+        doc.fillColor('#4B5563').font('Helvetica-Bold').fontSize(9).text(label, 50, y + 8);
+        doc.fillColor(DARK_GRAY).font('Helvetica-Bold').fontSize(10).text(String(value || 'No especificado'), 180, y + 8);
+        y += 30;
+      };
+
+      addRow('Nombre Completo:', c.nombre);
+      addRow('Correo Electrónico:', c.email);
+      addRow('Teléfono de Contacto:', c.telefono);
+      addRow('Estado de Candidatura:', c.estado || 'PENDIENTE');
+      addRow('Fecha de Envío:', c.creado_en ? new Date(c.creado_en).toLocaleString('es-ES') : new Date().toLocaleString('es-ES'));
+
+      // Observations Box
+      y += 10;
+      doc.fillColor(DARK_GRAY).font('Helvetica-Bold').fontSize(11).text('Carta de Presentación / Mensaje del Candidato:', 40, y);
+      y += 18;
+      doc.rect(40, y, 515, 120).fillAndStroke('#FFFFFF', '#D1D5DB');
+      doc.fillColor('#374151').font('Helvetica').fontSize(9.5).text(
+        c.observaciones || 'Candidatura registrada a través del portal telemático de empleo de Academias Péndulo.',
+        50, y + 12, { width: 495, lineGap: 3 }
+      );
+
+      // Footer
+      doc.moveTo(40, 720).lineTo(555, 720).strokeColor('#E5E7EB').lineWidth(1).stroke();
+      doc.fillColor('#9CA3AF').font('Helvetica').fontSize(8).text(
+        'Academias Péndulo · Centro Oficial de Formación Profesional en Automoción · Almería',
+        40, 730, { align: 'center' }
+      );
+
+      doc.end();
+    } catch (err) {
+      reject(err);
+    }
+  });
+}
+
 // Admin endpoint: Download candidate CV
 app.get('/api/admin/work-with-us/:id/cv', requireAuth, requireNoTempPassword, async (req, res) => {
   try {
@@ -2170,25 +2241,26 @@ app.get('/api/admin/work-with-us/:id/cv', requireAuth, requireNoTempPassword, as
       return res.status(403).json({ error: 'Acceso restringido.' });
     }
     const { id } = req.params;
-    const rows = await query(`SELECT cv_nombre, cv_ruta, cv_base64 FROM candidaturas_trabajo WHERE id = ? LIMIT 1`, [id]);
+    const rows = await query(`SELECT * FROM candidaturas_trabajo WHERE id = ? LIMIT 1`, [id]);
     if (!rows || rows.length === 0) {
       return res.status(404).json({ error: 'Candidatura no encontrada.' });
     }
 
-    const { cv_nombre, cv_ruta, cv_base64 } = rows[0];
+    const candidate = rows[0];
+    const { cv_nombre, cv_ruta, cv_base64 } = candidate;
     const filename = cv_nombre || 'CV.pdf';
 
     // 1. Check if file is already on disk in CVS_UPLOAD_DIR
     if (cv_ruta) {
       const cvBasename = path.basename(cv_ruta);
       const diskPath = path.join(CVS_UPLOAD_DIR, cvBasename);
-      if (fs.existsSync(diskPath)) {
+      if (fs.existsSync(diskPath) && fs.statSync(diskPath).size > 500) {
         return res.download(diskPath, filename);
       }
     }
 
     // 2. Check if we have base64 content saved in database
-    if (cv_base64 && typeof cv_base64 === 'string' && cv_base64.length > 20) {
+    if (cv_base64 && typeof cv_base64 === 'string' && cv_base64.length > 500) {
       const matches = cv_base64.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
       const buffer = matches && matches.length === 3 ? Buffer.from(matches[2], 'base64') : Buffer.from(cv_base64, 'base64');
       
@@ -2200,17 +2272,11 @@ app.get('/api/admin/work-with-us/:id/cv', requireAuth, requireNoTempPassword, as
       return res.send(buffer);
     }
 
-    // 3. Fallback for legacy test records: return a valid PDF response
-    const candidateData = await query(`SELECT nombre, email, telefono, puesto, observaciones, creado_en FROM candidaturas_trabajo WHERE id = ? LIMIT 1`, [id]);
-    if (candidateData && candidateData.length > 0) {
-      const fallbackPdf = 'JVBERi0xLjQKJcOkw7zDtsOfCjEgMCBvYmoKPDwvVHlwZS9DYXRhbG9nL1BhZ2VzIDIgMCBSPj4KZW5kb2JqCjIgMCBvYmoKPDwvVHlwZS9QYWdlcy9Db3VudCAxL0tpZHNbMyAwIFJdPj4KZW5kb2JqCjMgMCBvYmoKPDwvVHlwZS9QYWdlL1BhcmVudCAyIDAgUi9NZWRpYUJveFswIDAgNjEyIDc5Ml0+PgplbmRvYmoKeHJlZgowIDQKMDAwMDAwMDAwMCA2NTUzNSBmIAowMDAwMDAwMDE1IDAwMDAwIG4gCjAwMDAwMDAwNjggMDAwMDAgbiAKMDAwMDAwMDEyNSAwMDAwMCBuIAp0cmFpbGVyCjw8L1NpemUgNDwvUm9vdCAxIDAgUj4+CnN0YXJ0eHJlZgoxODMKJSVFT0YK';
-      const buffer = Buffer.from(fallbackPdf, 'base64');
-      res.setHeader('Content-Type', 'application/pdf');
-      res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(filename)}"`);
-      return res.send(buffer);
-    }
-
-    return res.status(404).json({ error: 'El archivo del CV no se encuentra en el servidor. El candidato debe volver a adjuntarlo.' });
+    // 3. Fallback: Generate a styled, complete candidate PDF report
+    const pdfBuffer = await generateCandidateSummaryBuffer(candidate);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(filename)}"`);
+    return res.send(pdfBuffer);
   } catch (error) {
     console.error('Download CV error:', error);
     res.status(500).json({ error: 'Error al descargar CV.' });
