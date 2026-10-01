@@ -1,11 +1,16 @@
 import React, { useState } from 'react';
 import { useCampus } from '../../context/CampusContext';
-import { FileText, Plus, Send, Clock, ShieldCheck, CheckCircle2 } from 'lucide-react';
+import { FileText, Plus, Send, Clock, ShieldCheck, CheckCircle2, Inbox } from 'lucide-react';
 import { SecretaryRequest, SecretaryType } from '../../types/campus';
 import { PdfFileUploader } from './PdfFileUploader';
+import { CampusSecretaryInscriptions } from './CampusSecretaryInscriptions';
 
 export const CampusSecretary: React.FC = () => {
   const { currentUser, secretaryRequests, addSecretaryRequest, addSecretaryMessage } = useCampus();
+
+  const [activeTab, setActiveTab] = useState<'inscriptions' | 'tramites'>(
+    currentUser?.role === 'ADMINISTRACION' ? 'inscriptions' : 'tramites'
+  );
 
   const [selectedRequest, setSelectedRequest] = useState<SecretaryRequest | null>(null);
   const [showModal, setShowModal] = useState(false);
@@ -86,10 +91,10 @@ export const CampusSecretary: React.FC = () => {
         <div>
           <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight font-heading flex items-center gap-3">
             <FileText className="w-7 h-7 text-red-500" />
-            Secretaría Online
+            Secretaría General
           </h1>
           <p className="text-xs sm:text-sm text-zinc-400 mt-1">
-            Tramita certificados, justificantes, actualización de expediente e incidencias administrativas.
+            Gestión de solicitudes de inscripción para cursos subvencionados, certificados y trámites de expediente.
           </p>
         </div>
 
@@ -104,7 +109,41 @@ export const CampusSecretary: React.FC = () => {
         )}
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+      {/* Admin / Secretary Tab Switcher */}
+      {currentUser.role === 'ADMINISTRACION' && (
+        <div className="flex items-center gap-2 border-b border-zinc-800 pb-2">
+          <button
+            onClick={() => setActiveTab('inscriptions')}
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-extrabold transition-all ${
+              activeTab === 'inscriptions'
+                ? 'bg-red-600 text-white shadow-lg'
+                : 'bg-zinc-900 text-zinc-400 hover:text-white border border-zinc-800'
+            }`}
+          >
+            <Inbox className="w-4 h-4" />
+            <span>Solicitudes de Inscripción (Cursos Subvencionados)</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('tramites')}
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-extrabold transition-all ${
+              activeTab === 'tramites'
+                ? 'bg-red-600 text-white shadow-lg'
+                : 'bg-zinc-900 text-zinc-400 hover:text-white border border-zinc-800'
+            }`}
+          >
+            <FileText className="w-4 h-4" />
+            <span>Trámites de Alumnos (Certificados e Incidencias)</span>
+          </button>
+        </div>
+      )}
+
+      {/* Tab 1: Inscriptions Panel */}
+      {activeTab === 'inscriptions' && currentUser.role === 'ADMINISTRACION' ? (
+        <CampusSecretaryInscriptions />
+      ) : (
+        /* Tab 2: Existing Tramites Panel */
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         {/* Left Column: Request List */}
         <div className="lg:col-span-5 space-y-3">
           <div className="text-xs font-bold text-zinc-400 uppercase tracking-wider">
@@ -246,6 +285,7 @@ export const CampusSecretary: React.FC = () => {
           )}
         </div>
       </div>
+      )}
 
       {/* New Request Modal */}
       {showModal && (

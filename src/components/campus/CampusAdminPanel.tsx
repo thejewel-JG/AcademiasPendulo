@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useCampus } from '../../context/CampusContext';
 import {
   Shield,
@@ -15,10 +15,24 @@ import {
   Edit,
   FolderPlus,
   Upload,
+  BarChart3,
+  Filter,
+  Search,
 } from 'lucide-react';
 import { UserRole } from '../../types/campus';
 import { CampusAdminRequests } from './CampusAdminRequests';
 import { PdfFileUploader } from './PdfFileUploader';
+
+interface AdminGlobalProgress {
+  alumno_id: string;
+  nombre: string;
+  email: string;
+  grupo_codigo: string;
+  especialidad_nombre: string;
+  total_publicados: number;
+  completados: number;
+  porcentaje_global: number;
+}
 
 export const CampusAdminPanel: React.FC = () => {
   const {
@@ -36,7 +50,14 @@ export const CampusAdminPanel: React.FC = () => {
     publishCourseResource,
   } = useCampus();
 
-  const [activeTab, setActiveTab] = useState<'solicitudes' | 'usuarios' | 'matriculas' | 'secretaria'>('solicitudes');
+  const [activeTab, setActiveTab] = useState<'solicitudes' | 'usuarios' | 'matriculas' | 'secretaria' | 'seguimiento'>('solicitudes');
+
+  // Global Progress Analytics State
+  const [globalProgress, setGlobalProgress] = useState<AdminGlobalProgress[]>([]);
+  const [loadingProgress, setLoadingProgress] = useState<boolean>(false);
+  const [filterEspecialidad, setFilterEspecialidad] = useState<string>('');
+  const [filterGrupo, setFilterGrupo] = useState<string>('');
+  const [searchQuery, setSearchQuery] = useState<string>('');
 
   // Admin PDF Publish Modal State
   const [showPublishPdfModal, setShowPublishPdfModal] = useState(false);
@@ -63,6 +84,32 @@ export const CampusAdminPanel: React.FC = () => {
 
   const students = users.filter((u) => u.role === 'ALUMNO');
   const teachers = users.filter((u) => u.role === 'PROFESOR');
+
+  // Fetch Global Analytics from backend
+  const fetchGlobalAnalytics = async () => {
+    setLoadingProgress(true);
+    try {
+      const queryParams = new URLSearchParams();
+      if (filterEspecialidad) queryParams.append('especialidadId', filterEspecialidad);
+      if (filterGrupo) queryParams.append('grupoId', filterGrupo);
+
+      const res = await fetch(`/api/admin/progress/analytics?${queryParams.toString()}`);
+      if (res.ok) {
+        const data = await res.json();
+        setGlobalProgress(Array.isArray(data) ? data : []);
+      }
+    } catch (e) {
+      console.warn('Error fetching admin progress analytics:', e);
+    } finally {
+      setLoadingProgress(false);
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab === 'seguimiento') {
+      fetchGlobalAnalytics();
+    }
+  }, [activeTab, filterEspecialidad, filterGrupo]);
 
   const handleAdminPublishPdf = (e: React.FormEvent) => {
     e.preventDefault();
@@ -116,6 +163,13 @@ export const CampusAdminPanel: React.FC = () => {
     setShowAddEnrollmentModal(false);
   };
 
+  // Filter local search for global progress
+  const filteredProgress = globalProgress.filter((p) => {
+    if (!searchQuery) return true;
+    const q = searchQuery.toLowerCase();
+    return p.nombre.toLowerCase().includes(q) || p.email.toLowerCase().includes(q) || p.grupo_codigo.toLowerCase().includes(q);
+  });
+
   return (
     <div className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto space-y-8">
       {/* Header Banner */}
@@ -129,7 +183,7 @@ export const CampusAdminPanel: React.FC = () => {
             Panel de Control Administrativo
           </h1>
           <p className="mt-2 text-sm text-zinc-400 max-w-2xl">
-            Gestión centralizada de alumnos autorizados, profesores, matrículas académicas, contenidos y trámites de secretaría online.
+            Gestión centralizada de alumnos autorizados, profesores, matrículas académicas, contenidos y seguimiento de progreso global.
           </p>
         </div>
 
@@ -171,10 +225,10 @@ export const CampusAdminPanel: React.FC = () => {
       </div>
 
       {/* Tabs */}
-      <div className="flex border-b border-zinc-800 gap-4 text-xs font-bold">
+      <div className="flex border-b border-zinc-800 gap-4 text-xs font-bold overflow-x-auto">
         <button
           onClick={() => setActiveTab('solicitudes')}
-          className={`pb-3 transition-colors ${
+          className={`pb-3 transition-colors shrink-0 ${
             activeTab === 'solicitudes'
               ? 'text-red-400 border-b-2 border-red-500 font-heading'
               : 'text-zinc-400 hover:text-white'
@@ -184,7 +238,7 @@ export const CampusAdminPanel: React.FC = () => {
         </button>
         <button
           onClick={() => setActiveTab('usuarios')}
-          className={`pb-3 transition-colors ${
+          className={`pb-3 transition-colors shrink-0 ${
             activeTab === 'usuarios'
               ? 'text-red-400 border-b-2 border-red-500 font-heading'
               : 'text-zinc-400 hover:text-white'
@@ -194,7 +248,7 @@ export const CampusAdminPanel: React.FC = () => {
         </button>
         <button
           onClick={() => setActiveTab('matriculas')}
-          className={`pb-3 transition-colors ${
+          className={`pb-3 transition-colors shrink-0 ${
             activeTab === 'matriculas'
               ? 'text-red-400 border-b-2 border-red-500 font-heading'
               : 'text-zinc-400 hover:text-white'
@@ -204,7 +258,7 @@ export const CampusAdminPanel: React.FC = () => {
         </button>
         <button
           onClick={() => setActiveTab('secretaria')}
-          className={`pb-3 transition-colors ${
+          className={`pb-3 transition-colors shrink-0 ${
             activeTab === 'secretaria'
               ? 'text-red-400 border-b-2 border-red-500 font-heading'
               : 'text-zinc-400 hover:text-white'
@@ -212,317 +266,292 @@ export const CampusAdminPanel: React.FC = () => {
         >
           Trámites Secretaría ({secretaryRequests.length})
         </button>
+        <button
+          onClick={() => setActiveTab('seguimiento')}
+          className={`pb-3 transition-colors shrink-0 flex items-center gap-1.5 ${
+            activeTab === 'seguimiento'
+              ? 'text-red-400 border-b-2 border-red-500 font-heading'
+              : 'text-zinc-400 hover:text-white'
+          }`}
+        >
+          <BarChart3 className="w-4 h-4 text-red-500" />
+          Seguimiento Académico Global
+        </button>
       </div>
 
       {/* TAB 0: CONTACT REQUESTS & LEADS */}
       {activeTab === 'solicitudes' && <CampusAdminRequests />}
 
+      {/* TAB: GLOBAL ACADEMIC PROGRESS TRACKING ANALYTICS */}
+      {activeTab === 'seguimiento' && (
+        <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 space-y-6 shadow-xl">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-zinc-800 pb-4">
+            <div>
+              <h2 className="text-lg font-bold text-white flex items-center gap-2 font-heading">
+                <BarChart3 className="w-5 h-5 text-red-500" />
+                Seguimiento Global de Progreso por Alumno
+              </h2>
+              <p className="text-xs text-zinc-400 mt-1">
+                Consulta el avance académico en vivo sobre el catálogo de materiales publicados aplicables por especialidad y grupo.
+              </p>
+            </div>
 
-      {/* TAB 1: USERS MANAGEMENT */}
-      {activeTab === 'usuarios' && (
-        <div className="space-y-4">
-          <div className="flex justify-between items-center">
-            <h2 className="text-base font-bold text-white">Listado de Usuarios Autorizados</h2>
-            <button
-              onClick={() => setShowAddUserModal(true)}
-              className="flex items-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-bold"
-            >
-              <Plus className="w-4 h-4" /> Alta de Usuario
-            </button>
+            {/* Filters */}
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="relative">
+                <Search className="w-3.5 h-3.5 text-zinc-500 absolute left-3 top-3" />
+                <input
+                  type="text"
+                  placeholder="Buscar por alumno o email..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="bg-zinc-950 border border-zinc-800 rounded-xl pl-9 pr-3 py-2 text-xs text-white w-48 sm:w-64"
+                />
+              </div>
+
+              <select
+                value={filterEspecialidad}
+                onChange={(e) => setFilterEspecialidad(e.target.value)}
+                className="bg-zinc-950 border border-zinc-800 rounded-xl px-3 py-2 text-xs text-white font-semibold"
+              >
+                <option value="">Todas las Especialidades (33)</option>
+                <option value="esp-mecanica-hibridos">Mecánica de Vehículos Híbridos</option>
+                <option value="esp-electricidad">Electricidad del Automóvil</option>
+              </select>
+
+              <button
+                onClick={fetchGlobalAnalytics}
+                className="px-3 py-2 bg-zinc-800 hover:bg-zinc-700 text-white rounded-xl text-xs font-bold transition-all"
+              >
+                Actualizar Datos
+              </button>
+            </div>
           </div>
 
-          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl overflow-hidden shadow-xl">
+          {loadingProgress ? (
+            <div className="text-center py-12 text-xs text-zinc-400">Cargando datos de progreso global...</div>
+          ) : filteredProgress.length === 0 ? (
+            <div className="text-center py-12 text-xs text-zinc-500">
+              No se encontraron registros de progreso para los filtros seleccionados.
+            </div>
+          ) : (
             <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs text-zinc-300">
-                <thead className="bg-zinc-950 text-zinc-400 uppercase font-semibold border-b border-zinc-800">
-                  <tr>
-                    <th className="p-3.5">Usuario</th>
-                    <th className="p-3.5">Email</th>
-                    <th className="p-3.5">Rol</th>
-                    <th className="p-3.5">Estado</th>
-                    <th className="p-3.5 text-right">Acciones</th>
+              <table className="w-full text-left text-xs">
+                <thead>
+                  <tr className="bg-zinc-950 text-zinc-400 uppercase font-bold text-[10px] tracking-wider border-b border-zinc-800">
+                    <th className="p-3">Alumno</th>
+                    <th className="p-3">Email</th>
+                    <th className="p-3">Especialidad / Grupo</th>
+                    <th className="p-3 text-center">Materiales Publicados</th>
+                    <th className="p-3 text-center">Completados</th>
+                    <th className="p-3 text-right">Progreso Global</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-zinc-800/60">
-                  {users.map((u) => (
-                    <tr key={u.id} className="hover:bg-zinc-850/50 transition-colors">
-                      <td className="p-3.5 font-bold text-white">
-                        {u.nombre} {u.apellidos}
-                      </td>
-                      <td className="p-3.5 text-zinc-400">{u.email}</td>
-                      <td className="p-3.5">
-                        <span className="bg-zinc-800 text-zinc-200 px-2.5 py-0.5 rounded text-[10px] font-bold">
-                          {u.role}
+                  {filteredProgress.map((p) => (
+                    <tr key={p.alumno_id} className="hover:bg-zinc-850/50 transition-colors">
+                      <td className="p-3 font-bold text-white">{p.nombre}</td>
+                      <td className="p-3 text-zinc-400 font-mono text-[11px]">{p.email}</td>
+                      <td className="p-3">
+                        <div className="text-white font-semibold">{p.especialidad_nombre}</div>
+                        <span className="bg-zinc-950 border border-zinc-800 px-2 py-0.5 rounded text-[10px] font-bold text-red-400">
+                          {p.grupo_codigo}
                         </span>
                       </td>
-                      <td className="p-3.5">
-                        <span
-                          className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                            u.activo
-                              ? 'bg-emerald-950 text-emerald-400 border border-emerald-800'
-                              : 'bg-red-950 text-red-400 border border-red-800'
-                          }`}
-                        >
-                          {u.activo ? 'ACTIVO' : 'INACTIVO'}
-                        </span>
-                      </td>
-                      <td className="p-3.5 text-right">
-                        <button
-                          onClick={() => toggleUserActive(u.id)}
-                          className="text-xs text-zinc-400 hover:text-white underline font-semibold"
-                        >
-                          {u.activo ? 'Desactivar' : 'Activar'}
-                        </button>
+                      <td className="p-3 text-center font-bold text-zinc-300">{p.total_publicados}</td>
+                      <td className="p-3 text-center font-bold text-emerald-400">{p.completados}</td>
+                      <td className="p-3 text-right">
+                        <div className="flex items-center justify-end gap-2.5">
+                          <span className="font-extrabold text-white">{p.porcentaje_global}%</span>
+                          <div className="w-20 bg-zinc-800 h-2.5 rounded-full overflow-hidden border border-zinc-700">
+                            <div
+                              className="bg-gradient-to-r from-red-600 to-emerald-500 h-full rounded-full"
+                              style={{ width: `${p.porcentaje_global}%` }}
+                            />
+                          </div>
+                        </div>
                       </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
+          )}
+        </div>
+      )}
+
+      {/* TAB 1: USERS */}
+      {activeTab === 'usuarios' && (
+        <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 space-y-4">
+          <div className="flex items-center justify-between">
+            <h2 className="text-base font-bold text-white font-heading">Gestión de Cuentas de Usuario</h2>
+            <button
+              onClick={() => setShowAddUserModal(true)}
+              className="flex items-center gap-1.5 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-bold transition-all shadow-md"
+            >
+              <Plus className="w-4 h-4" /> Crear Usuario
+            </button>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs">
+              <thead>
+                <tr className="bg-zinc-950 text-zinc-400 uppercase font-bold text-[10px] tracking-wider border-b border-zinc-800">
+                  <th className="p-3">Nombre</th>
+                  <th className="p-3">Email</th>
+                  <th className="p-3">Rol</th>
+                  <th className="p-3">Estado</th>
+                  <th className="p-3 text-right">Acción</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-zinc-800/60">
+                {users.map((u) => (
+                  <tr key={u.id} className="hover:bg-zinc-850/50 transition-colors">
+                    <td className="p-3 font-bold text-white">{u.nombre} {u.apellidos}</td>
+                    <td className="p-3 text-zinc-400 font-mono text-[11px]">{u.email}</td>
+                    <td className="p-3">
+                      <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-zinc-950 border border-zinc-800 text-red-400 uppercase">
+                        {u.role}
+                      </span>
+                    </td>
+                    <td className="p-3">
+                      <span
+                        className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                          u.activo
+                            ? 'bg-emerald-950 text-emerald-400 border border-emerald-800'
+                            : 'bg-zinc-950 text-zinc-500 border border-zinc-800'
+                        }`}
+                      >
+                        {u.activo ? 'ACTIVO' : 'INACTIVO'}
+                      </span>
+                    </td>
+                    <td className="p-3 text-right">
+                      <button
+                        onClick={() => toggleUserActive(u.id)}
+                        className="px-3 py-1 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-lg text-[11px] font-semibold"
+                      >
+                        {u.activo ? 'Desactivar' : 'Activar'}
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         </div>
       )}
 
       {/* TAB 2: ENROLLMENTS */}
       {activeTab === 'matriculas' && (
-        <div className="space-y-4">
-          <div className="flex justify-between items-center">
-            <h2 className="text-base font-bold text-white">Matrículas de Alumnos por Curso</h2>
+        <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 space-y-4">
+          <div className="flex items-center justify-between">
+            <h2 className="text-base font-bold text-white font-heading">Matrículas Académicas Activas</h2>
             <button
               onClick={() => setShowAddEnrollmentModal(true)}
-              className="flex items-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-bold"
+              className="flex items-center gap-1.5 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-bold transition-all shadow-md"
             >
-              <Plus className="w-4 h-4" /> Asignar Matrícula
+              <Plus className="w-4 h-4" /> Nueva Matrícula
             </button>
           </div>
 
-          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl overflow-hidden shadow-xl">
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs text-zinc-300">
-                <thead className="bg-zinc-950 text-zinc-400 uppercase font-semibold border-b border-zinc-800">
-                  <tr>
-                    <th className="p-3.5">Alumno</th>
-                    <th className="p-3.5">Curso</th>
-                    <th className="p-3.5">Fecha Matrícula</th>
-                    <th className="p-3.5">Estado</th>
-                    <th className="p-3.5 text-right">Acciones</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-zinc-800/60">
-                  {enrollments.map((enr) => {
-                    const student = users.find((u) => u.id === enr.estudianteId);
-                    const course = courses.find((c) => c.id === enr.cursoId);
-
-                    return (
-                      <tr key={enr.id} className="hover:bg-zinc-850/50 transition-colors">
-                        <td className="p-3.5 font-bold text-white">
-                          {student ? `${student.nombre} ${student.apellidos}` : enr.estudianteId}
-                        </td>
-                        <td className="p-3.5 text-red-400 font-semibold">
-                          {course ? course.nombre : enr.cursoId}
-                        </td>
-                        <td className="p-3.5 text-zinc-400">
-                          {new Date(enr.fechaMatricula).toLocaleDateString('es-ES')}
-                        </td>
-                        <td className="p-3.5">
-                          <span className="bg-emerald-950 text-emerald-400 border border-emerald-800 px-2 py-0.5 rounded text-[10px] font-bold">
-                            {enr.estado}
-                          </span>
-                        </td>
-                        <td className="p-3.5 text-right">
-                          <button
-                            onClick={() => removeEnrollment(enr.estudianteId, enr.cursoId)}
-                            className="text-xs text-red-400 hover:text-red-300 underline font-semibold"
-                          >
-                            Dar de baja
-                          </button>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs">
+              <thead>
+                <tr className="bg-zinc-950 text-zinc-400 uppercase font-bold text-[10px] tracking-wider border-b border-zinc-800">
+                  <th className="p-3">Estudiante</th>
+                  <th className="p-3">Curso / Especialidad</th>
+                  <th className="p-3">Fecha Alta</th>
+                  <th className="p-3">Estado</th>
+                  <th className="p-3 text-right">Acción</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-zinc-800/60">
+                {enrollments.map((e) => {
+                  const student = users.find((u) => u.id === e.estudianteId);
+                  const course = courses.find((c) => c.id === e.cursoId);
+                  return (
+                    <tr key={e.id} className="hover:bg-zinc-850/50 transition-colors">
+                      <td className="p-3 font-bold text-white">{student ? `${student.nombre} ${student.apellidos}` : e.estudianteId}</td>
+                      <td className="p-3 text-zinc-300 font-semibold">{course ? course.nombre : e.cursoId}</td>
+                      <td className="p-3 text-zinc-400">{new Date(e.fechaInscripcion).toLocaleDateString('es-ES')}</td>
+                      <td className="p-3">
+                        <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-950 text-emerald-400 border border-emerald-800">
+                          {e.estado}
+                        </span>
+                      </td>
+                      <td className="p-3 text-right">
+                        <button
+                          onClick={() => removeEnrollment(e.estudianteId, e.cursoId)}
+                          className="px-3 py-1 bg-red-950 hover:bg-red-900 text-red-400 rounded-lg text-[11px] font-semibold border border-red-800"
+                        >
+                          Cancelar Matrícula
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
           </div>
         </div>
       )}
 
       {/* TAB 3: SECRETARY */}
       {activeTab === 'secretaria' && (
-        <div className="space-y-4">
-          <h2 className="text-base font-bold text-white">Gestión de Trámites Administrativos</h2>
-          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-4 space-y-3">
-            {secretaryRequests.map((req) => (
-              <div
-                key={req.id}
-                className="bg-zinc-950 border border-zinc-800 p-4 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-4 text-xs"
-              >
-                <div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-zinc-500 font-mono text-[10px]">{req.referencia}</span>
-                    <span className="text-red-400 font-bold uppercase">{req.tipo}</span>
-                  </div>
-                  <div className="font-bold text-white text-sm mt-0.5">{req.asunto}</div>
-                  <div className="text-zinc-400 mt-1">Solicitante: {req.estudianteNombre}</div>
-                </div>
-
-                <div className="flex items-center gap-2">
-                  <select
-                    value={req.estado}
-                    onChange={(e) =>
-                      updateSecretaryStatus(req.id, e.target.value as any)
-                    }
-                    className="bg-zinc-900 border border-zinc-800 text-white rounded-lg px-3 py-1.5 text-xs font-bold"
-                  >
-                    <option value="PENDIENTE">PENDIENTE</option>
-                    <option value="EN_TRAMITE">EN_TRAMITE</option>
-                    <option value="RESUELTA">RESUELTA</option>
-                    <option value="RECHAZADA">RECHAZADA</option>
-                  </select>
-                </div>
-              </div>
-            ))}
+        <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 space-y-4">
+          <h2 className="text-base font-bold text-white font-heading">Trámites y Solicitudes de Secretaría</h2>
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs">
+              <thead>
+                <tr className="bg-zinc-950 text-zinc-400 uppercase font-bold text-[10px] tracking-wider border-b border-zinc-800">
+                  <th className="p-3">Ref</th>
+                  <th className="p-3">Solicitante</th>
+                  <th className="p-3">Tipo</th>
+                  <th className="p-3">Asunto</th>
+                  <th className="p-3">Estado</th>
+                  <th className="p-3 text-right">Gestionar</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-zinc-800/60">
+                {secretaryRequests.map((r) => (
+                  <tr key={r.id} className="hover:bg-zinc-850/50 transition-colors">
+                    <td className="p-3 text-zinc-500 font-mono text-[11px]">{r.referencia}</td>
+                    <td className="p-3 font-bold text-white">{r.estudianteNombre}</td>
+                    <td className="p-3 text-red-400 font-bold">{r.tipo}</td>
+                    <td className="p-3 text-zinc-300 font-medium">{r.asunto}</td>
+                    <td className="p-3">
+                      <span
+                        className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                          r.estado === 'RESUELTA'
+                            ? 'bg-emerald-950 text-emerald-400 border border-emerald-800'
+                            : 'bg-amber-950 text-amber-400 border border-amber-800'
+                        }`}
+                      >
+                        {r.estado}
+                      </span>
+                    </td>
+                    <td className="p-3 text-right flex justify-end gap-2">
+                      <button
+                        onClick={() => updateSecretaryStatus(r.id, 'RESUELTA')}
+                        className="px-2.5 py-1 bg-emerald-950 hover:bg-emerald-900 text-emerald-300 rounded text-[11px] font-bold"
+                      >
+                        Resolver
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         </div>
       )}
 
-      {/* Add User Modal */}
-      {showAddUserModal && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl max-w-md w-full p-6 space-y-4 shadow-2xl">
-            <h3 className="text-lg font-bold text-white">Alta de Nuevo Usuario Autorizado</h3>
-            <form onSubmit={handleCreateUser} className="space-y-3 text-xs">
-              <div>
-                <label className="block text-zinc-400 font-semibold mb-1">Nombre</label>
-                <input
-                  type="text"
-                  required
-                  value={newNombre}
-                  onChange={(e) => setNewNombre(e.target.value)}
-                  className="w-full bg-zinc-950 border border-zinc-800 rounded-xl p-3 text-white"
-                />
-              </div>
-
-              <div>
-                <label className="block text-zinc-400 font-semibold mb-1">Apellidos</label>
-                <input
-                  type="text"
-                  value={newApellidos}
-                  onChange={(e) => setNewApellidos(e.target.value)}
-                  className="w-full bg-zinc-950 border border-zinc-800 rounded-xl p-3 text-white"
-                />
-              </div>
-
-              <div>
-                <label className="block text-zinc-400 font-semibold mb-1">Email</label>
-                <input
-                  type="email"
-                  required
-                  value={newEmail}
-                  onChange={(e) => setNewEmail(e.target.value)}
-                  className="w-full bg-zinc-950 border border-zinc-800 rounded-xl p-3 text-white"
-                />
-              </div>
-
-              <div>
-                <label className="block text-zinc-400 font-semibold mb-1">Rol</label>
-                <select
-                  value={newRole}
-                  onChange={(e) => setNewRole(e.target.value as UserRole)}
-                  className="w-full bg-zinc-950 border border-zinc-800 rounded-xl p-3 text-white"
-                >
-                  <option value="ALUMNO">ALUMNO</option>
-                  <option value="PROFESOR">PROFESOR</option>
-                  <option value="ADMINISTRACION">ADMINISTRACION</option>
-                </select>
-              </div>
-
-              <div className="flex justify-end gap-3 pt-3">
-                <button
-                  type="button"
-                  onClick={() => setShowAddUserModal(false)}
-                  className="px-4 py-2 bg-zinc-800 text-zinc-300 rounded-xl font-bold"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  className="px-5 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl font-bold"
-                >
-                  Crear Usuario
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* Add Enrollment Modal */}
-      {showAddEnrollmentModal && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl max-w-md w-full p-6 space-y-4 shadow-2xl">
-            <h3 className="text-lg font-bold text-white">Asignar Matrícula a Alumno</h3>
-            <form onSubmit={handleCreateEnrollment} className="space-y-4 text-xs">
-              <div>
-                <label className="block text-zinc-400 font-semibold mb-1">Seleccionar Alumno</label>
-                <select
-                  required
-                  value={selectedStudentId}
-                  onChange={(e) => setSelectedStudentId(e.target.value)}
-                  className="w-full bg-zinc-950 border border-zinc-800 rounded-xl p-3 text-white"
-                >
-                  <option value="">Selecciona estudiante...</option>
-                  {students.map((st) => (
-                    <option key={st.id} value={st.id}>
-                      {st.nombre} {st.apellidos} ({st.email})
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-zinc-400 font-semibold mb-1">Seleccionar Curso</label>
-                <select
-                  required
-                  value={selectedEnrollCourseId}
-                  onChange={(e) => setSelectedEnrollCourseId(e.target.value)}
-                  className="w-full bg-zinc-950 border border-zinc-800 rounded-xl p-3 text-white"
-                >
-                  <option value="">Selecciona curso...</option>
-                  {courses.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.codigo} - {c.nombre}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="flex justify-end gap-3 pt-3">
-                <button
-                  type="button"
-                  onClick={() => setShowAddEnrollmentModal(false)}
-                  className="px-4 py-2 bg-zinc-800 text-zinc-300 rounded-xl font-bold"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  className="px-5 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl font-bold"
-                >
-                  Asignar Matrícula
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* Admin Publish PDF Modal */}
+      {/* Admin Publish Material Modal */}
       {showPublishPdfModal && (
         <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-zinc-900 border border-zinc-800 rounded-2xl max-w-lg w-full p-6 space-y-4 shadow-2xl">
             <div className="flex justify-between items-center border-b border-zinc-800 pb-3">
-              <h3 className="text-lg font-bold text-white font-heading">Adjuntar PDF desde PC (Administración)</h3>
+              <h3 className="text-lg font-bold text-white">Publicar Documento / Material Formativo</h3>
               <button onClick={() => setShowPublishPdfModal(false)} className="text-zinc-400 hover:text-white">
                 ✕
               </button>
@@ -530,7 +559,7 @@ export const CampusAdminPanel: React.FC = () => {
 
             <form onSubmit={handleAdminPublishPdf} className="space-y-4 text-xs">
               <div>
-                <label className="block text-zinc-400 font-semibold mb-1">Curso de Destino *</label>
+                <label className="block text-zinc-400 font-semibold mb-1">Curso Destino *</label>
                 <select
                   value={selectedCourseId}
                   onChange={(e) => setSelectedCourseId(e.target.value)}
@@ -545,40 +574,37 @@ export const CampusAdminPanel: React.FC = () => {
               </div>
 
               <div>
-                <label className="block text-zinc-400 font-semibold mb-1">Módulo *</label>
-                <select
-                  value={selectedModuleId}
-                  onChange={(e) => setSelectedModuleId(e.target.value)}
-                  className="w-full bg-zinc-950 border border-zinc-800 rounded-xl p-3 text-white"
-                >
-                  <option value="mod1">Módulo 1: Seguridad y Diagnosis</option>
-                  <option value="mod2">Módulo 2: Componentes y Ensayos Prácticos</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-zinc-400 font-semibold mb-1">Título del Documento *</label>
+                <label className="block text-zinc-400 font-semibold mb-1">Título del Material *</label>
                 <input
                   type="text"
                   required
                   value={pdfTitle}
                   onChange={(e) => setPdfTitle(e.target.value)}
-                  placeholder="Ej. Guía Oficial de Normativa en Taller PDF"
+                  placeholder="Ej. Guía Oficial de Desconexión de Alta Tensión"
                   className="w-full bg-zinc-950 border border-zinc-800 rounded-xl p-3 text-white"
                 />
               </div>
 
+              <div>
+                <label className="block text-zinc-400 font-semibold mb-1">Descripción</label>
+                <textarea
+                  rows={2}
+                  value={pdfDesc}
+                  onChange={(e) => setPdfDesc(e.target.value)}
+                  placeholder="Descripción detallada para el alumnado..."
+                  className="w-full bg-zinc-950 border border-zinc-800 rounded-xl p-3 text-white resize-none"
+                />
+              </div>
+
               <PdfFileUploader
-                label="Seleccionar o arrastrar archivo PDF desde el equipo *"
+                label="Seleccionar o arrastrar PDF desde tu ordenador *"
                 selectedFileName={attachedPdfName}
                 selectedFileSize={attachedPdfSize}
                 onFileSelected={({ name, sizeStr, url }) => {
                   setAttachedPdfName(name);
                   setAttachedPdfSize(sizeStr);
                   setAttachedPdfDataUrl(url);
-                  if (!pdfTitle) {
-                    setPdfTitle(name.replace(/\.pdf$/i, ''));
-                  }
+                  if (!pdfTitle) setPdfTitle(name.replace(/\.pdf$/i, ''));
                 }}
                 onFileRemoved={() => {
                   setAttachedPdfName('');
@@ -586,17 +612,6 @@ export const CampusAdminPanel: React.FC = () => {
                   setAttachedPdfDataUrl('');
                 }}
               />
-
-              <div>
-                <label className="block text-zinc-400 font-semibold mb-1">Descripción / Notas adicionales</label>
-                <textarea
-                  rows={2}
-                  value={pdfDesc}
-                  onChange={(e) => setPdfDesc(e.target.value)}
-                  placeholder="Información relevante para alumnos y docentes..."
-                  className="w-full bg-zinc-950 border border-zinc-800 rounded-xl p-3 text-white resize-none"
-                />
-              </div>
 
               <div className="flex justify-end gap-3 pt-3 border-t border-zinc-800">
                 <button
@@ -608,10 +623,132 @@ export const CampusAdminPanel: React.FC = () => {
                 </button>
                 <button
                   type="submit"
-                  disabled={!attachedPdfDataUrl}
-                  className="px-5 py-2.5 bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white rounded-xl font-extrabold"
+                  className="px-5 py-2.5 bg-red-600 hover:bg-red-700 text-white rounded-xl font-extrabold"
                 >
-                  Publicar Documento PDF
+                  Publicar en el Curso
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Add User Modal */}
+      {showAddUserModal && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl max-w-md w-full p-6 space-y-4 shadow-2xl">
+            <h3 className="text-lg font-bold text-white border-b border-zinc-800 pb-3">Crear Nueva Cuenta</h3>
+            <form onSubmit={handleCreateUser} className="space-y-3 text-xs">
+              <div>
+                <label className="block text-zinc-400 mb-1">Nombre</label>
+                <input
+                  type="text"
+                  required
+                  value={newNombre}
+                  onChange={(e) => setNewNombre(e.target.value)}
+                  className="w-full bg-zinc-950 border border-zinc-800 rounded-xl p-3 text-white"
+                />
+              </div>
+              <div>
+                <label className="block text-zinc-400 mb-1">Apellidos</label>
+                <input
+                  type="text"
+                  value={newApellidos}
+                  onChange={(e) => setNewApellidos(e.target.value)}
+                  className="w-full bg-zinc-950 border border-zinc-800 rounded-xl p-3 text-white"
+                />
+              </div>
+              <div>
+                <label className="block text-zinc-400 mb-1">Email</label>
+                <input
+                  type="email"
+                  required
+                  value={newEmail}
+                  onChange={(e) => setNewEmail(e.target.value)}
+                  className="w-full bg-zinc-950 border border-zinc-800 rounded-xl p-3 text-white"
+                />
+              </div>
+              <div>
+                <label className="block text-zinc-400 mb-1">Rol</label>
+                <select
+                  value={newRole}
+                  onChange={(e) => setNewRole(e.target.value as any)}
+                  className="w-full bg-zinc-950 border border-zinc-800 rounded-xl p-3 text-white"
+                >
+                  <option value="ALUMNO">Alumno</option>
+                  <option value="PROFESOR">Profesor</option>
+                  <option value="ADMINISTRACION">Administración</option>
+                </select>
+              </div>
+              <div className="flex justify-end gap-3 pt-3 border-t border-zinc-800">
+                <button
+                  type="button"
+                  onClick={() => setShowAddUserModal(false)}
+                  className="px-4 py-2 bg-zinc-800 text-zinc-300 rounded-xl font-bold"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2.5 bg-red-600 text-white rounded-xl font-bold"
+                >
+                  Guardar
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Add Enrollment Modal */}
+      {showAddEnrollmentModal && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl max-w-md w-full p-6 space-y-4 shadow-2xl">
+            <h3 className="text-lg font-bold text-white border-b border-zinc-800 pb-3">Formalizar Matrícula</h3>
+            <form onSubmit={handleCreateEnrollment} className="space-y-3 text-xs">
+              <div>
+                <label className="block text-zinc-400 mb-1">Seleccionar Alumno</label>
+                <select
+                  value={selectedStudentId}
+                  onChange={(e) => setSelectedStudentId(e.target.value)}
+                  className="w-full bg-zinc-950 border border-zinc-800 rounded-xl p-3 text-white"
+                >
+                  <option value="">-- Elige un Alumno --</option>
+                  {students.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.nombre} {s.apellidos} ({s.email})
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-zinc-400 mb-1">Seleccionar Curso</label>
+                <select
+                  value={selectedEnrollCourseId}
+                  onChange={(e) => setSelectedEnrollCourseId(e.target.value)}
+                  className="w-full bg-zinc-950 border border-zinc-800 rounded-xl p-3 text-white"
+                >
+                  <option value="">-- Elige un Curso --</option>
+                  {courses.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.codigo} - {c.nombre}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="flex justify-end gap-3 pt-3 border-t border-zinc-800">
+                <button
+                  type="button"
+                  onClick={() => setShowAddEnrollmentModal(false)}
+                  className="px-4 py-2 bg-zinc-800 text-zinc-300 rounded-xl font-bold"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2.5 bg-red-600 text-white rounded-xl font-bold"
+                >
+                  Formalizar
                 </button>
               </div>
             </form>

@@ -13,6 +13,8 @@ import { Footer } from './components/Footer';
 import { CourseDetailModal } from './components/CourseDetailModal';
 import { CampusVirtualModal } from './components/CampusVirtualModal';
 import { ConsultationModal } from './components/ConsultationModal';
+import { EmploymentPoolModal } from './components/EmploymentPoolModal';
+import { InscriptionRequestFormModal } from './components/InscriptionRequestFormModal';
 import { AssistantChatWidget } from './components/AssistantChatWidget';
 import { COURSES } from './data/coursesData';
 import { Course } from './types';
@@ -35,12 +37,17 @@ import { CampusAdminRequests } from './components/campus/CampusAdminRequests';
 import { CampusUserManagement } from './components/campus/CampusUserManagement';
 import { CampusAdminInbox } from './components/campus/CampusAdminInbox';
 import { CampusForcedPasswordChangeModal } from './components/campus/CampusForcedPasswordChangeModal';
+import { CampusAccountActivation } from './components/campus/CampusAccountActivation';
 
 function MainAppContent() {
   const [selectedCourse, setSelectedCourse] = useState<Course | null>(null);
   const [isCampusOpen, setIsCampusOpen] = useState<boolean>(false);
   const [isConsultationOpen, setIsConsultationOpen] = useState<boolean>(false);
   const [isWorkWithUsOpen, setIsWorkWithUsOpen] = useState<boolean>(false);
+  const [isEmploymentPoolOpen, setIsEmploymentPoolOpen] = useState<boolean>(false);
+  const [isInscriptionModalOpen, setIsInscriptionModalOpen] = useState<boolean>(false);
+  const [inscriptionCourseTitle, setInscriptionCourseTitle] = useState<string>('');
+  const [inscriptionCourseId, setInscriptionCourseId] = useState<string>('');
 
   const { isCampusRoute, currentUser, currentView, navigateTo, campusTheme } = useCampus();
 
@@ -54,6 +61,9 @@ function MainAppContent() {
   useEffect(() => {
     const handleLocation = () => {
       const path = window.location.pathname;
+      if (path === '/solicitud-inscripcion') {
+        setIsInscriptionModalOpen(true);
+      }
       if (path.startsWith('/campus') || path.startsWith('/admin') || path.startsWith('/profesor')) {
         if (path === '/campus/login') {
           navigateTo('login');
@@ -95,6 +105,10 @@ function MainAppContent() {
     window.addEventListener('popstate', handleLocation);
     return () => window.removeEventListener('popstate', handleLocation);
   }, []);
+
+  if (window.location.pathname === '/activar-cuenta') {
+    return <CampusAccountActivation />;
+  }
 
   if (isCampusRoute) {
     if (!currentUser || currentView === 'login') {
@@ -139,8 +153,10 @@ function MainAppContent() {
       <Navbar
         onOpenCampus={() => navigateTo('login')}
         onSelectCourse={(course) => setSelectedCourse(course)}
-        onOpenConsultation={() => setIsConsultationOpen(true)}
+        onOpenConsultation={() => setIsInscriptionModalOpen(true)}
         onOpenWorkWithUs={() => setIsWorkWithUsOpen(true)}
+        onOpenEmploymentPool={() => setIsEmploymentPoolOpen(true)}
+        onOpenInscriptionModal={() => setIsInscriptionModalOpen(true)}
       />
 
       {/* Main Content Sections */}
@@ -184,7 +200,8 @@ function MainAppContent() {
       {/* Footer */}
       <Footer
         onOpenCampus={() => navigateTo('login')}
-        onOpenWorkWithUs={() => setIsWorkWithUsOpen(true)}
+        onOpenConsultation={() => setIsConsultationOpen(true)}
+        onOpenEmploymentPool={() => setIsEmploymentPoolOpen(true)}
       />
 
       {/* Floating Action Button */}
@@ -212,6 +229,19 @@ function MainAppContent() {
 
       {isWorkWithUsOpen && (
         <WorkWithUsModal onClose={() => setIsWorkWithUsOpen(false)} />
+      )}
+
+      {isEmploymentPoolOpen && (
+        <EmploymentPoolModal isOpen={isEmploymentPoolOpen} onClose={() => setIsEmploymentPoolOpen(false)} />
+      )}
+
+      {isInscriptionModalOpen && (
+        <InscriptionRequestFormModal
+          isOpen={isInscriptionModalOpen}
+          onClose={() => setIsInscriptionModalOpen(false)}
+          preselectedCourseName={inscriptionCourseTitle}
+          preselectedCourseId={inscriptionCourseId}
+        />
       )}
     </div>
   );

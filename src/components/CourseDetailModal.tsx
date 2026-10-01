@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { Course } from '../types';
 import { CENTER_INFO } from '../data/coursesData';
+import { useCampus } from '../context/CampusContext';
 
 interface CourseDetailModalProps {
   course: Course | null;
@@ -23,6 +24,8 @@ interface CourseDetailModalProps {
 
 export const CourseDetailModal: React.FC<CourseDetailModalProps> = ({ course, onClose }) => {
   if (!course) return null;
+
+  const { submitContactRequest } = useCampus();
 
   const [activeTab, setActiveTab] = useState<'temario' | 'salidas' | 'requisitos' | 'equipamiento'>('temario');
   const [downloading, setDownloading] = useState(false);
@@ -34,6 +37,7 @@ export const CourseDetailModal: React.FC<CourseDetailModalProps> = ({ course, on
   const [email, setEmail] = useState('');
   const [status, setStatus] = useState('desempleado');
   const [submitted, setSubmitted] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const handleDownloadPdf = () => {
     setDownloading(true);
@@ -44,9 +48,29 @@ export const CourseDetailModal: React.FC<CourseDetailModalProps> = ({ course, on
     }, 1200);
   };
 
-  const handleRegister = (e: React.FormEvent) => {
+  const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name || !phone) return;
+    if (!name || !phone || isSubmitting) return;
+
+    setIsSubmitting(true);
+    const nameParts = name.trim().split(' ');
+    const firstName = nameParts[0] || name;
+    const lastName = nameParts.slice(1).join(' ') || '—';
+
+    await submitContactRequest({
+      first_name: firstName,
+      last_name: lastName,
+      email: email ? email.trim() : `${phone}@pendiente-email.es`,
+      phone: phone.trim(),
+      course_id: course.code || course.id || 'TMVG0004',
+      course_code: course.code || course.id || 'TMVG0004',
+      course_name: course.title,
+      employment_status: status === 'desempleado' ? 'Desempleado / Demandante de empleo' : 'Trabajador en activo',
+      comments: `Preinscripción directa en curso: ${course.title} (${course.code})`,
+      source: 'Modal Detalle de Curso',
+    });
+
+    setIsSubmitting(false);
     setSubmitted(true);
   };
 

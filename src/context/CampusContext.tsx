@@ -2,7 +2,6 @@ import React, { createContext, useContext, useState, useEffect } from 'react';
 import {
   UserProfile,
   Enrollment,
-  ModuleSection,
   QuestionThread,
   QuestionMessage,
   SecretaryRequest,
@@ -10,23 +9,25 @@ import {
   Announcement,
   CampusCourse,
   CampusView,
-  SecretaryType,
   ResourceItem,
-  EmailThread,
-  EmailMessage,
   ContactRequest,
   ContactRequestStatus,
+  UserRole,
 } from '../types/campus';
-import {
-  MOCK_USERS,
-  MOCK_ENROLLMENTS,
-  MOCK_COURSES,
-  MOCK_QUESTIONS,
-  MOCK_SECRETARY_REQUESTS,
-  MOCK_ANNOUNCEMENTS,
-  MOCK_CONTACT_REQUESTS,
-  MOCK_EMAIL_THREADS,
-} from '../data/campusMockData';
+import { MOCK_COURSES } from '../data/campusMockData';
+
+interface ActiveEnrollmentData {
+  matricula_id: string;
+  estado: string;
+  fecha_inicio: string;
+  grupo_id: string;
+  grupo_nombre: string;
+  especialidad_id: string;
+  especialidad_codigo: string;
+  especialidad_nombre: string;
+  profesor_id: string;
+  profesor_nombre: string;
+}
 
 interface CampusContextType {
   currentUser: UserProfile | null;
@@ -37,6 +38,7 @@ interface CampusContextType {
   campusTheme: 'dark' | 'light';
   toggleCampusTheme: () => void;
   setCampusTheme: (theme: 'dark' | 'light') => void;
+
   users: UserProfile[];
   courses: CampusCourse[];
   enrollments: Enrollment[];
@@ -47,11 +49,17 @@ interface CampusContextType {
   emailThreads: any[];
   completedLessonIds: string[];
   
+  // Real DB state
+  activeEnrollmentData: ActiveEnrollmentData | null;
+  specialties: any[];
+  groups: any[];
+
   // Navigation & Auth
   navigateTo: (view: CampusView, courseId?: string) => void;
-  login: (email: string, pass: string) => boolean;
-  logout: () => void;
-  
+  login: (email: string, pass: string) => Promise<boolean>;
+  logout: () => Promise<void>;
+  refreshSession: () => Promise<void>;
+
   // Data Queries
   getCourseById: (courseId: string) => CampusCourse | undefined;
   getUserEnrollments: (userId: string) => { course: CampusCourse; enrollment: Enrollment }[];
@@ -69,16 +77,8 @@ interface CampusContextType {
   addAnnouncement: (ann: Omit<Announcement, 'id'>) => void;
   updateUserProfile: (userId: string, data: Partial<UserProfile>) => void;
 
-  // Contact Requests & Lead Management
-  submitContactRequest: (data: Omit<ContactRequest, 'id' | 'created_at' | 'status'>) => ContactRequest;
-  updateContactRequestStatus: (requestId: string, status: ContactRequestStatus, assignedAdminName?: string) => void;
-  saveInternalNotes: (requestId: string, notes: string) => void;
-  enrollContactRequestAsStudent: (requestId: string) => { student: UserProfile; enrollment: Enrollment };
-
   // Material & Email
   publishCourseResource: (courseId: string, moduleId: string, resource: any) => void;
-  unpublishCourseResource: (courseId: string, resourceId: string) => void;
-  sendEmailReply: (threadId: string, replyText: string) => void;
 
   // Admin Actions
   addUser: (user: Omit<UserProfile, 'id'>) => void;
@@ -86,15 +86,15 @@ interface CampusContextType {
   addEnrollment: (studentId: string, courseId: string) => void;
   removeEnrollment: (studentId: string, courseId: string) => void;
   updateSecretaryStatus: (reqId: string, status: SecretaryRequest['estado']) => void;
+  submitContactRequest: (data: Omit<ContactRequest, 'id' | 'status' | 'created_at'>) => Promise<boolean>;
 }
-
 
 const CampusContext = createContext<CampusContextType | undefined>(undefined);
 
 export const CampusProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [currentUser, setCurrentUser] = useState<UserProfile | null>(() => {
     const saved = localStorage.getItem('pendulo_campus_user');
-    return saved ? JSON.parse(saved) : MOCK_USERS[0]; // Default student demo
+    return saved ? JSON.parse(saved) : null;
   });
 
   const [campusTheme, setCampusThemeState] = useState<'dark' | 'light'>(() => {
@@ -119,23 +119,154 @@ export const CampusProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const [activeCourseId, setActiveCourseId] = useState<string | null>('TMVG0004');
   const [authError, setAuthError] = useState<string | null>(null);
 
-  const [users, setUsers] = useState<UserProfile[]>(MOCK_USERS);
+  const [users, setUsers] = useState<UserProfile[]>([]);
   const [courses, setCourses] = useState<CampusCourse[]>(MOCK_COURSES);
-  const [enrollments, setEnrollments] = useState<Enrollment[]>(MOCK_ENROLLMENTS);
-  const [questions, setQuestions] = useState<QuestionThread[]>(MOCK_QUESTIONS);
-  const [secretaryRequests, setSecretaryRequests] = useState<SecretaryRequest[]>(MOCK_SECRETARY_REQUESTS);
-  const [announcements, setAnnouncements] = useState<Announcement[]>(MOCK_ANNOUNCEMENTS);
+  const [enrollments, setEnrollments] = useState<Enrollment[]>([]);
+  const [questions, setQuestions] = useState<QuestionThread[]>([]);
+  const [secretaryRequests, setSecretaryRequests] = useState<SecretaryRequest[]>([]);
+  const [announcements, setAnnouncements] = useState<Announcement[]>([]);
+  const [contactRequests, setContactRequests] = useState<ContactRequest[]>([]);
+  const [emailThreads, setEmailThreads] = useState<any[]>([]);
 
-  const [completedLessonIds, setCompletedLessonIds] = useState<string[]>(['les_1_1', 'les_1_2']);
+  const [activeEnrollmentData, setActiveEnrollmentData] = useState<ActiveEnrollmentData | null>(null);
+  const [specialties, setSpecialties] = useState<any[]>([]);
+  const [groups, setGroups] = useState<any[]>([]);
+
+  const [completedLessonIds, setCompletedLessonIds] = useState<string[]>([]);
   const [lastVisited, setLastVisited] = useState<{ courseId: string; lessonId: string }>({
     courseId: 'TMVG0004',
-    lessonId: 'les_1_3',
+    lessonId: 'les_1_1',
   });
 
-  // Track if current window location is inside /campus
   const [isCampusRoute, setIsCampusRoute] = useState<boolean>(() => {
     return window.location.pathname.startsWith('/campus');
   });
+
+  // Verify auth session on initial load
+  const refreshSession = async () => {
+    try {
+      const res = await fetch('/api/auth/me');
+      if (res.ok) {
+        const data = await res.json();
+        const profile: UserProfile = {
+          id: data.user.id,
+          nombre: data.user.nombre,
+          apellidos: data.user.apellidos,
+          email: data.user.email,
+          role: data.activeRole === 'ADMINISTRADOR' ? 'ADMINISTRACION' : (data.activeRole as any),
+          activo: data.user.estado === 'ACTIVO',
+          fechaAlta: new Date().toISOString(),
+          mustChangePassword: data.mustChangePassword
+        };
+        setCurrentUser(profile);
+        fetchBackendData(profile);
+      } else {
+        setCurrentUser(null);
+      }
+    } catch (e) {
+      console.warn('Session check warning:', e);
+    }
+  };
+
+  const fetchBackendData = async (user: UserProfile) => {
+    try {
+      // 1. Fetch active enrollment if student
+      if (user.role === 'ALUMNO') {
+        const enrRes = await fetch('/api/academic/my-enrollment');
+        if (enrRes.ok) {
+          const enrData = await enrRes.json();
+          if (enrData.activeEnrollment) {
+            setActiveEnrollmentData(enrData.activeEnrollment);
+            // Sync local enrollments representation
+            setEnrollments([
+              {
+                id: enrData.activeEnrollment.matricula_id,
+                estudianteId: user.id,
+                cursoId: 'TMVG0004',
+                fechaMatricula: enrData.activeEnrollment.fecha_inicio,
+                estado: 'active',
+                progresoCalculado: 0,
+              }
+            ]);
+          } else {
+            setActiveEnrollmentData(null);
+            setEnrollments([]);
+          }
+        }
+      }
+
+      // 2. Fetch specialties catalog
+      const specRes = await fetch('/api/academic/specialties');
+      if (specRes.ok) {
+        const specData = await specRes.json();
+        setSpecialties(specData);
+      }
+
+      // 3. Fetch groups catalog
+      const grpRes = await fetch('/api/academic/groups');
+      if (grpRes.ok) {
+        const grpData = await grpRes.json();
+        setGroups(grpData);
+      }
+
+      // 4. Fetch users list if admin
+      if (user.role === 'ADMINISTRACION') {
+        const usrRes = await fetch('/api/admin/users');
+        if (usrRes.ok) {
+          const usrData = await usrRes.json();
+          setUsers(
+            usrData.users.map((u: any) => ({
+              id: u.id,
+              nombre: u.nombre,
+              apellidos: u.apellidos,
+              email: u.email,
+              role: u.roles.includes('ADMINISTRADOR') ? 'ADMINISTRACION' : u.roles[0],
+              activo: u.estado === 'ACTIVO',
+              fechaAlta: u.creado_en
+            }))
+          );
+        }
+      }
+
+      // 5. Fetch doubt conversations
+      const convRes = await fetch('/api/communications/conversations');
+      if (convRes.ok) {
+        const convData = await convRes.json();
+        setQuestions(
+          convData.map((c: any) => ({
+            id: c.id,
+            estudianteId: c.creador_id,
+            estudianteNombre: c.creador_nombre,
+            profesorId: c.responsable_id || 'prof1',
+            cursoId: 'TMVG0004',
+            cursoNombre: 'Mecánica de Vehículos Híbridos',
+            moduloUnidad: 'General',
+            asunto: c.asunto,
+            estado: c.estado === 'ABIERTA' ? 'PENDIENTE' : c.estado,
+            fechaCreacion: c.creado_en,
+            fechaUltimaActualizacion: c.actualizado_en,
+            mensajes: [
+              {
+                id: `msg_${c.id}`,
+                autorId: c.creador_id,
+                autorNombre: c.creador_nombre,
+                autorRol: 'ALUMNO',
+                texto: c.ultimo_mensaje || c.asunto,
+                fechaHora: c.actualizado_en
+              }
+            ]
+          }))
+        );
+      }
+
+    } catch (err) {
+      console.warn('Backend data sync error:', err);
+    }
+  };
+
+  useEffect(() => {
+    refreshSession();
+  }, []);
 
   useEffect(() => {
     const checkPath = () => {
@@ -209,6 +340,7 @@ export const CampusProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       };
 
       setCurrentUser(userProfile);
+      await fetchBackendData(userProfile);
 
       // Automatic Role-Based Redirection
       if (data.activeRole === 'ADMINISTRADOR') {
@@ -226,10 +358,28 @@ export const CampusProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }
   };
 
+  // Explicit Logout: Destroys HTTP session and wipes ALL in-memory private user state
+  const logout = async () => {
+    try {
+      await fetch('/api/auth/logout', { method: 'POST' });
+    } catch (e) {
+      console.warn('Logout API call error:', e);
+    } finally {
+      // Clear in-memory private states completely
+      setCurrentUser(null);
+      setActiveEnrollmentData(null);
+      setUsers([]);
+      setEnrollments([]);
+      setQuestions([]);
+      setSecretaryRequests([]);
+      setAnnouncements([]);
+      setContactRequests([]);
+      setEmailThreads([]);
+      setCompletedLessonIds([]);
 
-  const logout = () => {
-    setCurrentUser(null);
-    navigateTo('login');
+      localStorage.removeItem('pendulo_campus_user');
+      navigateTo('login');
+    }
   };
 
   const getCourseById = (courseId: string) => {
@@ -237,18 +387,22 @@ export const CampusProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   };
 
   const getUserEnrollments = (userId: string) => {
+    if (activeEnrollmentData && userId === currentUser?.id) {
+      const course = courses[0]; // Active course
+      return [{ course, enrollment: enrollments[0] || { id: activeEnrollmentData.matricula_id, estudianteId: userId, cursoId: 'TMVG0004', fechaMatricula: activeEnrollmentData.fecha_inicio, estado: 'active', progresoCalculado: 0 } }];
+    }
     return enrollments
-      .filter((e) => e.estudianteId === userId && e.estado === 'ACTIVA')
-      .map((e) => {
-        const course = courses.find((c) => c.id === e.cursoId);
-        return { course: course!, enrollment: e };
-      })
+      .filter((e) => e.estudianteId === userId && e.estado === 'active')
+      .map((e) => ({ course: courses.find((c) => c.id === e.cursoId)!, enrollment: e }))
       .filter((item) => item.course !== undefined);
   };
 
   const userHasActiveEnrollment = (userId: string, courseId: string) => {
+    if (userId === currentUser?.id && activeEnrollmentData) {
+      return activeEnrollmentData.estado === 'ACTIVA';
+    }
     return enrollments.some(
-      (e) => e.estudianteId === userId && e.cursoId === courseId && e.estado === 'ACTIVA'
+      (e) => e.estudianteId === userId && e.estado === 'active'
     );
   };
 
@@ -281,36 +435,39 @@ export const CampusProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     setLastVisited({ courseId, lessonId });
   };
 
-  const addQuestionThread = (threadData: Omit<QuestionThread, 'id' | 'fechaCreacion' | 'fechaUltimaActualizacion'>) => {
-    const now = new Date().toISOString();
-    const newThread: QuestionThread = {
-      ...threadData,
-      id: `q_${Date.now()}`,
-      fechaCreacion: now,
-      fechaUltimaActualizacion: now,
-    };
-    setQuestions((prev) => [newThread, ...prev]);
+  const addQuestionThread = async (threadData: Omit<QuestionThread, 'id' | 'fechaCreacion' | 'fechaUltimaActualizacion'>) => {
+    try {
+      const res = await fetch('/api/communications/conversations', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          tipo: 'ACADEMICA',
+          asunto: threadData.asunto,
+          grupo_id: activeEnrollmentData?.grupo_id,
+          cuerpo: threadData.mensajes[0]?.texto || threadData.asunto
+        })
+      });
+      if (res.ok) {
+        if (currentUser) fetchBackendData(currentUser);
+      }
+    } catch (e) {
+      console.error('Error adding question thread:', e);
+    }
   };
 
-  const addQuestionMessage = (threadId: string, msgData: Omit<QuestionMessage, 'id'>) => {
-    const newMsg: QuestionMessage = {
-      ...msgData,
-      id: `msg_${Date.now()}`,
-    };
-    setQuestions((prev) =>
-      prev.map((q) => {
-        if (q.id === threadId) {
-          const isProf = msgData.autorRol === 'PROFESOR';
-          return {
-            ...q,
-            estado: isProf ? 'RESPONDIDA' : 'PENDIENTE',
-            fechaUltimaActualizacion: new Date().toISOString(),
-            mensajes: [...q.mensajes, newMsg],
-          };
-        }
-        return q;
-      })
-    );
+  const addQuestionMessage = async (threadId: string, msgData: Omit<QuestionMessage, 'id'>) => {
+    try {
+      const res = await fetch(`/api/communications/conversations/${threadId}/messages`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cuerpo: msgData.texto })
+      });
+      if (res.ok) {
+        if (currentUser) fetchBackendData(currentUser);
+      }
+    } catch (e) {
+      console.error('Error adding question message:', e);
+    }
   };
 
   const addSecretaryRequest = (reqData: Omit<SecretaryRequest, 'id' | 'fechaCreacion' | 'fechaUltimaActualizacion'>) => {
@@ -358,16 +515,41 @@ export const CampusProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }
   };
 
-  const addUser = (userData: Omit<UserProfile, 'id'>) => {
-    const newUser: UserProfile = {
-      ...userData,
-      id: `usr_${Date.now()}`,
-    };
-    setUsers((prev) => [...prev, newUser]);
+  const addUser = async (userData: Omit<UserProfile, 'id'>) => {
+    try {
+      const res = await fetch('/api/admin/users', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          nombre: userData.nombre,
+          apellidos: userData.apellidos,
+          email: userData.email,
+          role: userData.role === 'ADMINISTRACION' ? 'ADMINISTRADOR' : userData.role,
+        })
+      });
+      if (res.ok) {
+        if (currentUser) fetchBackendData(currentUser);
+      }
+    } catch (e) {
+      console.error('Add user error:', e);
+    }
   };
 
-  const toggleUserActive = (userId: string) => {
-    setUsers((prev) => prev.map((u) => (u.id === userId ? { ...u, activo: !u.activo } : u)));
+  const toggleUserActive = async (userId: string) => {
+    const user = users.find((u) => u.id === userId);
+    if (!user) return;
+    try {
+      const res = await fetch(`/api/admin/users/${userId}/status`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ estado: user.activo ? 'INACTIVO' : 'ACTIVO' })
+      });
+      if (res.ok) {
+        if (currentUser) fetchBackendData(currentUser);
+      }
+    } catch (e) {
+      console.error('Toggle user status error:', e);
+    }
   };
 
   const addEnrollment = (studentId: string, courseId: string) => {
@@ -382,12 +564,19 @@ export const CampusProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     setEnrollments((prev) => [...prev, newEnr]);
   };
 
-  const removeEnrollment = (studentId: string, courseId: string) => {
-    setEnrollments((prev) =>
-      prev.map((e) =>
-        e.estudianteId === studentId && e.cursoId === courseId ? { ...e, estado: 'cancelled' } : e
-      )
-    );
+  const removeEnrollment = async (studentId: string, courseId: string) => {
+    try {
+      const res = await fetch('/api/admin/enrollments/finalize', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ studentId })
+      });
+      if (res.ok) {
+        if (currentUser) fetchBackendData(currentUser);
+      }
+    } catch (e) {
+      console.error('Finalize enrollment error:', e);
+    }
   };
 
   const updateSecretaryStatus = (reqId: string, status: SecretaryRequest['estado']) => {
@@ -396,175 +585,71 @@ export const CampusProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     );
   };
 
-  const [contactRequests, setContactRequests] = useState<ContactRequest[]>(MOCK_CONTACT_REQUESTS);
-
-  const submitContactRequest = (data: Omit<ContactRequest, 'id' | 'created_at' | 'status'>): ContactRequest => {
-    const newReq: ContactRequest = {
-      ...data,
-      id: `req-${Date.now()}`,
-      created_at: new Date().toISOString(),
-      status: 'new',
-    };
-
-    setContactRequests((prev) => [newReq, ...prev]);
-
-    // Simulate sending email notification in background without blocking DB record
-    console.log(`[EMAIL DISPATCH] Sending notification email to info@academiaspendulo.com: Nueva solicitud - [${data.course_code}] · [${data.course_name}] from ${data.first_name} ${data.last_name}`);
-
-    return newReq;
-  };
-
-  const updateContactRequestStatus = (requestId: string, status: ContactRequestStatus, assignedAdminName?: string) => {
-    setContactRequests((prev) =>
-      prev.map((r) => {
-        if (r.id === requestId) {
-          return {
-            ...r,
-            status,
-            assigned_admin_name: assignedAdminName || r.assigned_admin_name,
-          };
-        }
-        return r;
-      })
-    );
-  };
-
-  const saveInternalNotes = (requestId: string, notes: string) => {
-    setContactRequests((prev) =>
-      prev.map((r) => (r.id === requestId ? { ...r, internal_notes: notes } : r))
-    );
-  };
-
-  const enrollContactRequestAsStudent = (requestId: string) => {
-    const req = contactRequests.find((r) => r.id === requestId);
-    if (!req) throw new Error('Solicitud no encontrada');
-
-    // 1. Check if user already exists with this email
-    let student = users.find((u) => u.email.toLowerCase() === req.email.toLowerCase().trim());
-
-    if (!student) {
-      student = {
-        id: `usr_st_${Date.now()}`,
-        nombre: req.first_name,
-        apellidos: req.last_name,
-        email: req.email,
-        telefono: req.phone,
-        role: 'ALUMNO',
-        activo: true,
-        fechaAlta: new Date().toISOString(),
-      };
-      setUsers((prev) => [...prev, student!]);
+  const submitContactRequest = async (data: Omit<ContactRequest, 'id' | 'status' | 'created_at'>): Promise<boolean> => {
+    try {
+      const res = await fetch('/api/public/contact', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      });
+      if (res.ok) {
+        const newReq: ContactRequest = {
+          ...data,
+          id: `req_${Date.now()}`,
+          status: 'new',
+          created_at: new Date().toISOString(),
+        };
+        setContactRequests((prev) => [newReq, ...prev]);
+        return true;
+      }
+      return false;
+    } catch (e) {
+      console.error('Submit contact request error:', e);
+      return false;
     }
-
-    // 2. Check if student already enrolled in this course
-    let existingEnrollment = enrollments.find(
-      (e) => e.estudianteId === student!.id && e.cursoId === req.course_id && e.estado === 'ACTIVA'
-    );
-    if (!existingEnrollment) {
-      existingEnrollment = {
-        id: `enr_${Date.now()}`,
-        estudianteId: student.id,
-        cursoId: req.course_id,
-        fechaMatricula: new Date().toISOString(),
-        estado: 'active',
-        progresoCalculado: 0,
-      };
-      setEnrollments((prev) => [...prev, existingEnrollment!]);
-    }
-
-    // 3. Update contact request status to 'enrolled' and associate student_id
-    updateContactRequestStatus(requestId, 'enrolled');
-    setContactRequests((prev) =>
-      prev.map((r) => (r.id === requestId ? { ...r, student_id: student!.id, status: 'enrolled' } : r))
-    );
-
-    return { student, enrollment: existingEnrollment };
   };
 
-  const [emailThreads, setEmailThreads] = useState<EmailThread[]>(MOCK_EMAIL_THREADS);
-
-  const publishCourseResource = (
-    courseId: string,
-    moduleId: string,
-    resource: Omit<ResourceItem, 'id' | 'creadoPor' | 'fechaCreacion'>
-  ) => {
-    const newRes: ResourceItem = {
-      ...resource,
-      id: `res_${Date.now()}`,
-      creadoPor: currentUser ? `${currentUser.nombre} ${currentUser.apellidos}` : 'Administrador',
-      fechaCreacion: new Date().toISOString(),
-    };
-
+  const publishCourseResource = (courseId: string, moduleId: string, resource: any) => {
+    // Local resource append
     setCourses((prev) =>
-      prev.map((course) => {
-        if (course.id === courseId) {
-          const updatedModules = course.modulos.map((mod) => {
-            if (mod.id === moduleId) {
-              const updatedLessons = mod.lecciones.map((les, idx) => {
-                if (idx === 0) {
-                  return { ...les, recursos: [...les.recursos, newRes] };
-                }
-                return les;
-              });
-              return { ...mod, lecciones: updatedLessons };
-            }
-            return mod;
-          });
-          return { ...course, modulos: updatedModules };
-        }
-        return course;
-      })
-    );
-  };
-
-  const unpublishCourseResource = (courseId: string, resourceId: string) => {
-    setCourses((prev) =>
-      prev.map((course) => {
-        if (course.id === courseId) {
-          const updatedModules = course.modulos.map((mod) => ({
-            ...mod,
-            lecciones: mod.lecciones.map((les) => ({
-              ...les,
-              recursos: les.recursos.filter((r) => r.id !== resourceId),
-            })),
-          }));
-          return { ...course, modulos: updatedModules };
-        }
-        return course;
-      })
-    );
-  };
-
-  const sendEmailReply = (threadId: string, replyText: string) => {
-    const now = new Date().toISOString();
-    setEmailThreads((prev) =>
-      prev.map((th) => {
-        if (th.id === threadId) {
-          const newMsg: EmailMessage = {
-            id: `emsg_${Date.now()}`,
-            thread_id: threadId,
-            external_message_id: `gmail-outbound-${Date.now()}`,
-            sender_name: 'Secretaría Academias Péndulo',
-            sender_email: 'secretaria@academiaspendulo.com',
-            recipient_email: th.sender_email,
-            subject: `RE: ${th.subject}`,
-            body: replyText,
-            received_at: now,
-            direction: 'outbound',
-            read: true,
-          };
+      prev.map((c) => {
+        if (c.id === courseId) {
           return {
-            ...th,
-            status: 'RESPONDIDO',
-            last_message_at: now,
-            messages: [...th.messages, newMsg],
+            ...c,
+            modulos: c.modulos.map((m) => {
+              if (m.id === moduleId) {
+                const resList = m.lecciones[0]?.recursos || [];
+                return {
+                  ...m,
+                  lecciones: m.lecciones.map((l, idx) =>
+                    idx === 0
+                      ? {
+                          ...l,
+                          recursos: [
+                            ...resList,
+                            {
+                              id: `res_${Date.now()}`,
+                              titulo: resource.titulo,
+                              tipo: resource.tipo,
+                              urlPrivada: resource.urlPrivada,
+                              tamano: resource.tamano || '2.5 MB',
+                              descripcion: resource.descripcion,
+                              permitirDescarga: resource.permitirDescarga ?? true,
+                            },
+                          ],
+                        }
+                      : l
+                  ),
+                };
+              }
+              return m;
+            }),
           };
         }
-        return th;
+        return c;
       })
     );
   };
-
 
   return (
     <CampusContext.Provider
@@ -586,9 +671,13 @@ export const CampusProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         contactRequests,
         emailThreads,
         completedLessonIds,
+        activeEnrollmentData,
+        specialties,
+        groups,
         navigateTo,
         login,
         logout,
+        refreshSession,
         getCourseById,
         getUserEnrollments,
         userHasActiveEnrollment,
@@ -602,26 +691,19 @@ export const CampusProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         addSecretaryMessage,
         addAnnouncement,
         updateUserProfile,
-        submitContactRequest,
-        updateContactRequestStatus,
-        saveInternalNotes,
-        enrollContactRequestAsStudent,
         publishCourseResource,
-        unpublishCourseResource,
-        sendEmailReply,
         addUser,
         toggleUserActive,
         addEnrollment,
         removeEnrollment,
         updateSecretaryStatus,
+        submitContactRequest,
       }}
     >
       {children}
     </CampusContext.Provider>
   );
 };
-
-
 
 export const useCampus = () => {
   const context = useContext(CampusContext);

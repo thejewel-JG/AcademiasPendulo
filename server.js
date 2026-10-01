@@ -3,6 +3,7 @@ import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
+import nodemailer from 'nodemailer';
 import {
   query, getUserByEmail, getUserById, getUserRoles, countActiveAdmins,
   createUserWithTransaction, revokeUserSessions, switchStudentGroupTransaction,
@@ -12,6 +13,16 @@ import {
   hashPassword, verifyPassword, generateTempPassword, generateToken,
   hashToken, normalizeEmail, encryptPayload, decryptPayload
 } from './authUtils.js';
+import {
+  syncMailbox, syncAllActiveMailboxes, queueOutboundReply,
+  processOutboxQueue, encryptAccountSecret, decryptAccountSecret
+} from './mailEngine.js';
+import {
+  startPlaybackSession, recordProgressTick, toggleManualCompletion,
+  calculateStudentOverallProgress, getLastVisitedMaterial,
+  getTeacherGroupAnalytics, getAdminGlobalAnalytics
+} from './progressEngine.js';
+import { generateInscriptionPDF } from './pdfInscriptionGenerator.js';
 
 dotenv.config();
 
@@ -513,6 +524,41 @@ app.get('/api/academic/my-enrollment', requireAuth, requireNoTempPassword, async
   }
 });
 
+// Get catalog of all 33 specialties
+app.get('/api/academic/specialties', requireAuth, requireNoTempPassword, async (req, res) => {
+  try {
+    const rows = await query(`
+      SELECT id, codigo, nombre, descripcion, activo
+      FROM especialidades
+      ORDER BY nombre ASC
+    `);
+    res.json(rows);
+  } catch (error) {
+    console.error('Fetch specialties error:', error);
+    res.status(500).json({ error: 'Error al consultar las especialidades.' });
+  }
+});
+
+// Get active groups with specialty and main teacher details
+app.get('/api/academic/groups', requireAuth, requireNoTempPassword, async (req, res) => {
+  try {
+    const rows = await query(`
+      SELECT g.id, g.especialidad_id, g.nombre, g.profesor_principal_id, g.capacidad_maxima, g.estado,
+             e.nombre as especialidad_nombre, e.codigo as especialidad_codigo,
+             CONCAT(u.nombre, ' ', u.apellidos) as profesor_nombre,
+             (SELECT COUNT(*) FROM matriculas m WHERE m.grupo_id = g.id AND m.estado = 'ACTIVA') as alumnos_activos
+      FROM grupos g
+      JOIN especialidades e ON g.especialidad_id = e.id
+      LEFT JOIN usuarios u ON g.profesor_principal_id = u.id
+      ORDER BY e.orden ASC, g.nombre ASC
+    `);
+    res.json(rows);
+  } catch (error) {
+    console.error('Fetch groups error:', error);
+    res.status(500).json({ error: 'Error al consultar los grupos.' });
+  }
+});
+
 app.post('/api/admin/enrollments/switch-group', requireAuth, requireNoTempPassword, requireRole('ADMINISTRADOR'), async (req, res) => {
   try {
     const { studentId, newGroupId } = req.body;
@@ -636,8 +682,14 @@ app.get('/api/files/:id/download', requireAuth, requireNoTempPassword, async (re
 
     const fileRec = files[0];
 
-    // AUTHORIZATION CHECK
-    if (!req.user.roles.includes('ADMINISTRADOR')) {
+    // CHECK IF FILE IS AN EMAIL ATTACHMENT
+    const mailCheck = await query(`SELECT correo_id FROM correo_archivos WHERE archivo_id = ? LIMIT 1`, [id]);
+    if (mailCheck.length > 0) {
+      // Email attachments are strictly accessible ONLY to ADMINISTRADOR
+      if (!req.user.roles.includes('ADMINISTRADOR')) {
+        return res.status(403).json({ error: 'Acceso denegado: Los adjuntos de correo corporativo sólo pueden ser consultados por administradores.' });
+      }
+    } else if (!req.user.roles.includes('ADMINISTRADOR')) {
       if (req.user.roles.includes('PROFESOR')) {
         // Teacher must be assigned to the group of the material or conversation
         const matCheck = await query(`
@@ -666,14 +718,18 @@ app.get('/api/files/:id/download', requireAuth, requireNoTempPassword, async (re
       }
     }
 
-    const filePath = path.join(PRIVATE_UPLOADS_DIR, fileRec.clave_almacenamiento);
-    if (!fs.existsSync(filePath)) {
+    let filePath = fileRec.clave_almacenamiento
+      ? path.join(PRIVATE_UPLOADS_DIR, fileRec.clave_almacenamiento)
+      : (fileRec.ruta ? path.join(process.cwd(), fileRec.ruta) : null);
+
+    if (!filePath || !fs.existsSync(filePath)) {
       return res.status(404).json({ error: 'El archivo físico no se encuentra disponible.' });
     }
 
-    res.setHeader('Content-Type', fileRec.mime_type || 'application/pdf');
+    res.setHeader('Content-Type', fileRec.mime_type || 'application/octet-stream');
     res.setHeader('X-Content-Type-Options', 'nosniff');
-    res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(fileRec.nombre_original)}"`);
+    const safeFilename = fileRec.nombre_original || fileRec.nombre || 'adjunto.bin';
+    res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(safeFilename)}"`);
 
     const fileStream = fs.createReadStream(filePath);
     fileStream.pipe(res);
@@ -996,6 +1052,1851 @@ app.post('/api/communications/conversations/:id/messages', requireAuth, requireN
   } catch (error) {
     console.error('Post message error:', error);
     res.status(500).json({ error: 'Error al enviar mensaje.' });
+  }
+});
+
+// ==========================================
+// ADMIN EXTERNAL MAIL INTEGRATION API ROUTES
+// ==========================================
+
+// Get configured mail account(s) and sync status
+app.get('/api/admin/mail/accounts', requireAuth, requireNoTempPassword, async (req, res) => {
+  try {
+    if (!req.user.roles.includes('ADMINISTRADOR')) {
+      return res.status(403).json({ error: 'Acceso restringido a la administración.' });
+    }
+
+    const accounts = await query(`
+      SELECT c.id, c.buzon, c.proveedor, c.estado, c.configuracion, c.creado_en,
+             s.fecha_sincronizacion as ultima_sincronizacion, s.ultimo_error
+      FROM cuentas_correo c
+      LEFT JOIN sincronizacion_correo s ON s.cuenta_id = c.id AND s.carpeta = 'INBOX'
+      ORDER BY c.creado_en ASC
+    `);
+
+    // Parse JSON configuracion without returning secrets
+    const sanitizedAccounts = accounts.map(a => {
+      let cfg = {};
+      try {
+        cfg = typeof a.configuracion === 'string' ? JSON.parse(a.configuracion) : (a.configuracion || {});
+      } catch (e) {}
+      return {
+        id: a.id,
+        buzon: a.buzon,
+        proveedor: a.proveedor,
+        estado: a.estado,
+        imap_host: cfg.imap_host || 'mail.hostinger.com',
+        imap_port: cfg.imap_port || 993,
+        imap_tls: cfg.imap_tls !== false,
+        smtp_host: cfg.smtp_host || 'smtp.hostinger.com',
+        smtp_port: cfg.smtp_port || 465,
+        smtp_tls: cfg.smtp_tls !== false,
+        sync_interval_minutes: cfg.sync_interval_minutes || 5,
+        sync_start_date: cfg.sync_start_date || null,
+        max_msg_size_mb: cfg.max_msg_size_mb || 25,
+        max_attachment_size_mb: cfg.max_attachment_size_mb || 15,
+        ultima_sincronizacion: a.ultima_sincronizacion,
+        ultimo_error: a.ultimo_error
+      };
+    });
+
+    res.json(sanitizedAccounts);
+  } catch (error) {
+    console.error('Fetch mail accounts error:', error);
+    res.status(500).json({ error: 'Error al consultar cuentas de correo.' });
+  }
+});
+
+// Configure or update a mail account
+app.post('/api/admin/mail/accounts', requireAuth, requireNoTempPassword, async (req, res) => {
+  try {
+    if (!req.user.roles.includes('ADMINISTRADOR')) {
+      return res.status(403).json({ error: 'Acceso restringido a la administración.' });
+    }
+
+    const {
+      id, buzon, proveedor, password, imap_host, imap_port, imap_tls,
+      smtp_host, smtp_port, smtp_tls, sync_interval_minutes, sync_start_date,
+      max_msg_size_mb, max_attachment_size_mb
+    } = req.body;
+
+    if (!buzon || !buzon.includes('@')) {
+      return res.status(400).json({ error: 'Dirección de correo de buzón inválida.' });
+    }
+
+    const accountId = id || `acc_${generateToken(8)}`;
+    const configObj = {
+      imap_host: imap_host || 'mail.hostinger.com',
+      imap_port: parseInt(imap_port || '993', 10),
+      imap_tls: imap_tls !== false,
+      smtp_host: smtp_host || 'smtp.hostinger.com',
+      smtp_port: parseInt(smtp_port || '465', 10),
+      smtp_tls: smtp_tls !== false,
+      sync_interval_minutes: parseInt(sync_interval_minutes || '5', 10),
+      sync_start_date: sync_start_date || null,
+      max_msg_size_mb: parseInt(max_msg_size_mb || '25', 10),
+      max_attachment_size_mb: parseInt(max_attachment_size_mb || '15', 10)
+    };
+
+    const configJson = JSON.stringify(configObj);
+    let secretoRef = null;
+
+    if (password) {
+      secretoRef = encryptAccountSecret(password);
+    } else if (id) {
+      // Keep existing password
+      const existingAcc = await query(`SELECT secreto_ref FROM cuentas_correo WHERE id = ? LIMIT 1`, [id]);
+      if (existingAcc.length > 0) secretoRef = existingAcc[0].secreto_ref;
+    }
+
+    if (!secretoRef) {
+      return res.status(400).json({ error: 'La contraseña o token del buzón es requerida.' });
+    }
+
+    await query(`
+      INSERT INTO cuentas_correo (id, buzon, proveedor, estado, secreto_ref, configuracion, creado_en)
+      VALUES (?, ?, ?, 'ACTIVA', ?, ?, NOW())
+      ON DUPLICATE KEY UPDATE
+        buzon = VALUES(buzon),
+        proveedor = VALUES(proveedor),
+        estado = 'ACTIVA',
+        secreto_ref = VALUES(secreto_ref),
+        configuracion = VALUES(configuracion)
+    `, [accountId, buzon.trim().toLowerCase(), proveedor || 'Hostinger IMAP/SMTP', secretoRef, configJson]);
+
+    // Initialize sync status row if missing
+    await query(`
+      INSERT IGNORE INTO sincronizacion_correo (cuenta_id, carpeta, uidvalidity, uid_next, last_uid, fecha_sincronizacion)
+      VALUES (?, 'INBOX', 0, 1, 0, NOW())
+    `, [accountId]);
+
+    // Audit log
+    await query(`
+      INSERT INTO auditoria (actor_id, accion_administrativa, recurso, recurso_id, diff_cambios, creado_en)
+      VALUES (?, 'CONFIGURAR_BUZON_CORREO', 'cuentas_correo', ?, ?, NOW())
+    `, [req.user.id, accountId, JSON.stringify({ buzon, proveedor })]);
+
+    res.status(200).json({ success: true, accountId });
+  } catch (error) {
+    console.error('Save mail account error:', error);
+    res.status(500).json({ error: 'Error al guardar la configuración del buzón.' });
+  }
+});
+
+// Trigger manual mail synchronization
+app.post('/api/admin/mail/sync', requireAuth, requireNoTempPassword, async (req, res) => {
+  try {
+    if (!req.user.roles.includes('ADMINISTRADOR')) {
+      return res.status(403).json({ error: 'Acceso restringido a la administración.' });
+    }
+
+    const { cuentaId } = req.body;
+    if (cuentaId) {
+      const result = await syncMailbox(cuentaId);
+      return res.json(result);
+    } else {
+      await syncAllActiveMailboxes();
+      return res.json({ status: 'OK', message: 'Sincronización completada para todas las cuentas activas.' });
+    }
+  } catch (error) {
+    console.error('Manual mail sync error:', error);
+    res.status(500).json({ error: 'Error durante la sincronización del buzón.' });
+  }
+});
+
+// Get mail threads for Admin Inbox
+app.get('/api/admin/mail/threads', requireAuth, requireNoTempPassword, async (req, res) => {
+  try {
+    if (!req.user.roles.includes('ADMINISTRADOR')) {
+      return res.status(403).json({ error: 'Acceso restringido a la administración.' });
+    }
+
+    const { search, folder } = req.query;
+
+    let sql = `
+      SELECT h.id as thread_id, h.cuenta_id, h.asunto_hilo, h.creado_en as thread_created, h.actualizado_en as thread_updated,
+             c.buzon as cuenta_buzon
+      FROM hilos_correo h
+      JOIN cuentas_correo c ON h.cuenta_id = c.id
+    `;
+    const params = [];
+
+    if (search && search.trim()) {
+      sql += ` WHERE h.asunto_hilo LIKE ? OR h.id IN (
+        SELECT hilo_id FROM correos WHERE remitente LIKE ? OR asunto LIKE ? OR cuerpo_texto LIKE ?
+      )`;
+      const s = `%${search.trim()}%`;
+      params.push(s, s, s, s);
+    }
+
+    sql += ` ORDER BY h.actualizado_en DESC`;
+
+    const threads = await query(sql, params);
+
+    // Fetch messages for each thread
+    const resultThreads = [];
+
+    for (const t of threads) {
+      const messages = await query(`
+        SELECT m.id, m.hilo_id, m.provider_id, m.message_id, m.in_reply_to, m.references_header,
+               m.remitente, m.destinatarios, m.asunto, m.cuerpo_texto, m.cuerpo_html,
+               m.fecha_correo, m.direccion, m.creado_en
+        FROM correos m
+        WHERE m.hilo_id = ?
+        ORDER BY m.fecha_correo ASC
+      `, [t.thread_id]);
+
+      if (messages.length === 0) continue;
+
+      const firstInbound = messages.find(m => m.direccion === 'INBOUND') || messages[0];
+      const lastMsg = messages[messages.length - 1];
+
+      // Parse sender email
+      const senderMatch = firstInbound.remitente.match(/<([^>]+)>/) || [null, firstInbound.remitente];
+      const senderEmail = senderMatch[1] ? senderMatch[1].trim() : firstInbound.remitente.trim();
+      const senderName = firstInbound.remitente.replace(/<[^>]+>/, '').trim() || senderEmail;
+
+      // Determine status
+      const hasOutbound = messages.some(m => m.direccion === 'OUTBOUND');
+      const status = hasOutbound ? 'RESPONDIDO' : 'PENDIENTE';
+
+      // Filter by folder if requested
+      if (folder === 'PENDIENTE' && status !== 'PENDIENTE') continue;
+      if (folder === 'RESPONDIDO' && status !== 'RESPONDIDO') continue;
+
+      // Attachments for all messages in thread
+      const msgIds = messages.map(m => m.id);
+      let attachments = [];
+      if (msgIds.length > 0) {
+        attachments = await query(`
+          SELECT ca.correo_id, a.id as archivo_id, a.nombre_original, a.mime_type, a.tamano_bytes
+          FROM correo_archivos ca
+          JOIN archivos a ON ca.archivo_id = a.id
+          WHERE ca.correo_id IN (?)
+        `, [msgIds]);
+      }
+
+      // Map attachments to messages
+      const formattedMessages = messages.map(m => {
+        let dests = [];
+        try { dests = typeof m.destinatarios === 'string' ? JSON.parse(m.destinatarios) : (m.destinatarios || []); } catch(e){}
+        return {
+          id: m.id,
+          message_id: m.message_id,
+          in_reply_to: m.in_reply_to,
+          references_header: m.references_header,
+          sender_name: m.remitente.replace(/<[^>]+>/, '').trim() || m.remitente,
+          sender_email: (m.remitente.match(/<([^>]+)>/) || [null, m.remitente])[1] || m.remitente,
+          recipients: dests,
+          subject: m.asunto,
+          body_text: m.cuerpo_texto,
+          body_html: m.cuerpo_html,
+          received_at: m.fecha_correo,
+          direction: m.direccion.toLowerCase(),
+          attachments: attachments.filter(a => a.correo_id === m.id)
+        };
+      });
+
+      resultThreads.push({
+        id: t.thread_id,
+        cuenta_id: t.cuenta_id,
+        cuenta_buzon: t.cuenta_buzon,
+        external_thread_id: t.thread_id,
+        subject: t.asunto_hilo || firstInbound.asunto || 'Sin Asunto',
+        sender_name: senderName,
+        sender_email: senderEmail,
+        status,
+        last_message_at: lastMsg.fecha_correo,
+        messages: formattedMessages
+      });
+    }
+
+    res.json(resultThreads);
+  } catch (error) {
+    console.error('Fetch mail threads error:', error);
+    res.status(500).json({ error: 'Error al obtener los hilos de correo.' });
+  }
+});
+
+// Post reply to an email thread
+app.post('/api/admin/mail/reply', requireAuth, requireNoTempPassword, async (req, res) => {
+  try {
+    if (!req.user.roles.includes('ADMINISTRADOR')) {
+      return res.status(403).json({ error: 'Acceso restringido a la administración.' });
+    }
+
+    const { cuentaId, hiloId, destinatarios, asunto, cuerpoTexto, cuerpoHtml, inReplyTo, referencesHeader } = req.body;
+
+    if (!hiloId || !destinatarios || !Array.isArray(destinatarios) || destinatarios.length === 0 || (!cuerpoTexto && !cuerpoHtml)) {
+      return res.status(400).json({ error: 'El hilo, los destinatarios y el mensaje son requeridos.' });
+    }
+
+    // Resolve cuentaId from thread if missing
+    let targetCuentaId = cuentaId;
+    if (!targetCuentaId) {
+      const th = await query(`SELECT cuenta_id FROM hilos_correo WHERE id = ? LIMIT 1`, [hiloId]);
+      if (th.length > 0) targetCuentaId = th[0].cuenta_id;
+    }
+
+    if (!targetCuentaId) {
+      // Fallback to first active cuenta_correo
+      const acc = await query(`SELECT id FROM cuentas_correo WHERE estado = 'ACTIVA' ORDER BY creado_en ASC LIMIT 1`);
+      if (acc.length > 0) targetCuentaId = acc[0].id;
+    }
+
+    if (!targetCuentaId) {
+      return res.status(400).json({ error: 'No existe un buzón de correo activo configurado para enviar la respuesta.' });
+    }
+
+    const replyResult = await queueOutboundReply({
+      cuentaId: targetCuentaId,
+      hiloId,
+      remitenteId: req.user.id,
+      destinatarios,
+      asunto: asunto || 'Re: Mensaje',
+      cuerpoTexto: cuerpoTexto || '',
+      cuerpoHtml: cuerpoHtml || '',
+      inReplyTo,
+      referencesHeader
+    });
+
+    // Immediately trigger outbox worker
+    processOutboxQueue().catch(err => console.error('Outbox trigger error:', err));
+
+    res.status(200).json({ success: true, ...replyResult });
+  } catch (error) {
+    console.error('Queue mail reply error:', error);
+    res.status(500).json({ error: error.message || 'Error al encolar la respuesta.' });
+  }
+});
+
+// Explicit Administrative Action: Convert email sender to contact lead / request
+app.post('/api/admin/mail/leads/convert', requireAuth, requireNoTempPassword, async (req, res) => {
+  try {
+    if (!req.user.roles.includes('ADMINISTRADOR')) {
+      return res.status(403).json({ error: 'Acceso restringido a la administración.' });
+    }
+
+    const { email, nombre, apellidos, especialidad_id, mensaje } = req.body;
+    if (!email || !nombre) {
+      return res.status(400).json({ error: 'Email y Nombre son requeridos para la ficha.' });
+    }
+
+    const convId = `conv-${Date.now().toString(36)}-${generateToken(4)}`;
+    const fullName = `${nombre.trim()} ${apellidos ? apellidos.trim() : ''}`.trim();
+
+    // Create conversation record
+    await query(`
+      INSERT INTO conversaciones (id, tipo, asunto, creador_id, estado, creado_en, actualizado_en)
+      VALUES (?, 'SOLICITUD', ?, ?, 'ABIERTA', NOW(), NOW())
+    `, [convId, `Preinscripción / Solicitud: ${fullName}`, req.user.id]);
+
+    // Create initial conversation message
+    const msgId = `msg-${Date.now().toString(36)}-${generateToken(4)}`;
+    await query(`
+      INSERT INTO mensajes (id, conversacion_id, remitente_id, cuerpo, creado_en)
+      VALUES (?, ?, ?, ?, NOW())
+    `, [msgId, convId, req.user.id, `Ficha creada desde correo: ${email}. Notas: ${mensaje || 'Sin notas adicionales.'}`]);
+
+    // Create solicitudes record
+    const leadId = `sol-${Date.now().toString(36)}-${generateToken(4)}`;
+    await query(`
+      INSERT INTO solicitudes (id, conversacion_id, tipo, solicitante_id, estado, creado_en)
+      VALUES (?, ?, 'OTRO', ?, 'PENDIENTE', NOW())
+    `, [leadId, convId, req.user.id]);
+
+    // Audit log
+    await query(`
+      INSERT INTO auditoria (actor_id, accion_administrativa, recurso, recurso_id, diff_cambios, creado_en)
+      VALUES (?, 'CONVERTIR_CORREO_A_SOLICITUD', 'solicitudes', ?, ?, NOW())
+    `, [req.user.id, leadId, JSON.stringify({ email, nombre, especialidad_id })]);
+
+    res.status(201).json({ success: true, leadId });
+  } catch (error) {
+    console.error('Convert email lead error:', error);
+    res.status(500).json({ error: 'Error al registrar la solicitud de contacto.' });
+  }
+});
+
+// ==========================================
+// ACADEMIC PROGRESS TRACKING API ROUTES
+// ==========================================
+
+// Start/resume a material playback session
+app.post('/api/progress/session/start', requireAuth, requireNoTempPassword, async (req, res) => {
+  try {
+    const { materialId } = req.body;
+    if (!materialId) {
+      return res.status(400).json({ error: 'materialId es requerido.' });
+    }
+
+    const sessionData = await startPlaybackSession(req.user.id, materialId);
+    res.json(sessionData);
+  } catch (error) {
+    console.error('Start progress session error:', error);
+    res.status(400).json({ error: error.message || 'Error al iniciar sesión de progreso.' });
+  }
+});
+
+// Record periodic progress tick / interval update
+app.post('/api/progress/tick', requireAuth, requireNoTempPassword, async (req, res) => {
+  try {
+    const {
+      materialId, sesionReproduccionId, secuencia, posicionSegundos,
+      duracionSegundos, intervaloNuevo, playbackRate, elapsedMs
+    } = req.body;
+
+    if (!materialId || !sesionReproduccionId || secuencia === undefined) {
+      return res.status(400).json({ error: 'materialId, sesionReproduccionId y secuencia son requeridos.' });
+    }
+
+    // Student identity is strictly derived from req.user.id
+    const result = await recordProgressTick({
+      alumnoId: req.user.id,
+      materialId,
+      sesionReproduccionId,
+      secuencia,
+      posicionSegundos,
+      duracionSegundos,
+      intervaloNuevo,
+      playbackRate,
+      elapsedMs
+    });
+
+    res.json(result);
+  } catch (error) {
+    console.error('Record progress tick error:', error);
+    res.status(400).json({ error: error.message || 'Error al registrar progreso.' });
+  }
+});
+
+// Toggle manual completion declaration ("Marcar como revisado")
+app.post('/api/progress/manual-toggle', requireAuth, requireNoTempPassword, async (req, res) => {
+  try {
+    const { materialId, marcadoManual } = req.body;
+    if (!materialId) {
+      return res.status(400).json({ error: 'materialId es requerido.' });
+    }
+
+    const result = await toggleManualCompletion(req.user.id, materialId, Boolean(marcadoManual));
+    res.json(result);
+  } catch (error) {
+    console.error('Manual toggle progress error:', error);
+    res.status(400).json({ error: error.message || 'Error al actualizar declaración manual.' });
+  }
+});
+
+// Get overall active enrollment progress breakdown for Student
+app.get('/api/progress/overall', requireAuth, requireNoTempPassword, async (req, res) => {
+  try {
+    const progressData = await calculateStudentOverallProgress(req.user.id);
+    res.json(progressData);
+  } catch (error) {
+    console.error('Get overall progress error:', error);
+    res.status(500).json({ error: 'Error al consultar el progreso general.' });
+  }
+});
+
+// Get last visited material for Student ("Continuar último material")
+app.get('/api/progress/last-visited', requireAuth, requireNoTempPassword, async (req, res) => {
+  try {
+    const lastItem = await getLastVisitedMaterial(req.user.id);
+    res.json({ lastVisited: lastItem });
+  } catch (error) {
+    console.error('Get last visited error:', error);
+    res.status(500).json({ error: 'Error al consultar el último material visitado.' });
+  }
+});
+
+// Teacher Analytics for assigned groups
+app.get('/api/teacher/progress/analytics', requireAuth, requireNoTempPassword, async (req, res) => {
+  try {
+    if (!req.user.roles.includes('PROFESOR') && !req.user.roles.includes('ADMINISTRADOR')) {
+      return res.status(403).json({ error: 'Acceso restringido a profesores.' });
+    }
+
+    const analytics = await getTeacherGroupAnalytics(req.user.id);
+    res.json(analytics);
+  } catch (error) {
+    console.error('Teacher analytics error:', error);
+    res.status(500).json({ error: 'Error al consultar métricas del grupo.' });
+  }
+});
+
+// Admin Global Analytics
+app.get('/api/admin/progress/analytics', requireAuth, requireNoTempPassword, async (req, res) => {
+  try {
+    if (!req.user.roles.includes('ADMINISTRADOR')) {
+      return res.status(403).json({ error: 'Acceso restringido a administradores.' });
+    }
+
+    const { especialidadId, grupoId, alumnoId } = req.query;
+    const analytics = await getAdminGlobalAnalytics({ especialidadId, grupoId, alumnoId });
+    res.json(analytics);
+  } catch (error) {
+    console.error('Admin analytics error:', error);
+    res.status(500).json({ error: 'Error al consultar analíticas globales de progreso.' });
+  }
+});
+
+// System Health Check (Private status without secret exposure)
+app.get('/api/health', async (req, res) => {
+  try {
+    const dbCheck = await query('SELECT 1 as alive');
+    const isDbAlive = dbCheck && dbCheck.length > 0 && dbCheck[0].alive === 1;
+
+    const syncStatus = await query(`
+      SELECT cuenta_email, estado_sincronizacion, ultimo_error, ultima_sincronizacion
+      FROM cuentas_correo LIMIT 5
+    `);
+
+    res.json({
+      status: isDbAlive ? 'UP' : 'DOWN',
+      database: isDbAlive ? 'HEALTHY' : 'UNAVAILABLE',
+      timestamp: new Date().toISOString(),
+      mail_accounts_monitored: syncStatus.length
+    });
+  } catch (error) {
+    res.status(500).json({ status: 'DOWN', database: 'ERROR', timestamp: new Date().toISOString() });
+  }
+});
+
+// Autonomous Cron Sync Endpoint for Hostinger Cron Jobs
+app.post('/api/internal/cron/sync', async (req, res) => {
+  try {
+    const authHeader = req.headers['x-cron-key'];
+    const expectedKey = process.env.CRON_SECRET_KEY || 'pendulo_internal_cron_2026';
+
+    if (authHeader !== expectedKey && !req.headers.authorization) {
+      return res.status(401).json({ error: 'Clave de cron no autorizada.' });
+    }
+
+    const syncLog = await syncImapMailbox();
+    const mailLog = await processPendingEmailTasks();
+
+    res.json({
+      success: true,
+      timestamp: new Date().toISOString(),
+      syncLog,
+      mailLog
+    });
+  } catch (error) {
+    console.error('Autonomous Cron Sync Error:', error);
+    res.status(500).json({ error: 'Error durante la ejecución del cron autónomo.' });
+  }
+});
+
+// Helper for sending transactional / notification emails via SMTP
+async function sendSystemEmail({ to, subject, html }) {
+  try {
+    const smtpHost = process.env.SMTP_HOST || 'smtp.gmail.com';
+    const smtpPort = Number(process.env.SMTP_PORT || 465);
+    const smtpUser = process.env.SMTP_USER || 'guillerminajoya@gmail.com';
+    const smtpPass = process.env.SMTP_PASS || 'rrinuaklqitwalso';
+
+    const transporter = nodemailer.createTransport({
+      host: smtpHost,
+      port: smtpPort,
+      secure: smtpPort === 465,
+      auth: { user: smtpUser, pass: smtpPass },
+      tls: { rejectUnauthorized: false }
+    });
+
+    const info = await transporter.sendMail({
+      from: `"Academias Péndulo" <${smtpUser}>`,
+      to,
+      subject,
+      html
+    });
+
+    console.log(`[SMTP SYSTEM EMAIL SENT] To: ${to} | ID: ${info.messageId}`);
+    return info;
+  } catch (err) {
+    console.error('[SMTP SYSTEM EMAIL ERROR]', err.message);
+  }
+}
+
+// Public Contact & Course Information Request endpoint
+app.post('/api/public/contact', async (req, res) => {
+  try {
+    const {
+      first_name,
+      last_name,
+      email,
+      phone,
+      course_id,
+      course_code,
+      course_name,
+      preferred_schedule,
+      employment_status,
+      comments,
+      message,
+      source
+    } = req.body;
+
+    if (!first_name || !phone) {
+      return res.status(400).json({ error: 'Nombre y teléfono son obligatorios.' });
+    }
+
+    const reqId = `req_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    const userEmail = email ? email.trim() : `${phone}@pendiente.es`;
+    const userMessage = comments || message || 'Solicitud de información desde formulario público web.';
+    const requestSource = source || 'Formulario Web Principal';
+    const courseTitle = course_name || 'Curso Academias Péndulo';
+
+    // 1. Insert into contact_requests
+    await query(`
+      INSERT INTO contact_requests
+      (id, first_name, last_name, email, phone, course_id, course_code, course_name, preferred_schedule, employment_status, comments, message, source, status, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'new', NOW())
+    `, [
+      reqId,
+      first_name.trim(),
+      last_name ? last_name.trim() : '',
+      userEmail,
+      phone.trim(),
+      course_id || 'TMVG0004',
+      course_code || 'TMVG0004',
+      courseTitle,
+      preferred_schedule || 'Indiferente',
+      employment_status || 'No especificado',
+      userMessage,
+      userMessage,
+      requestSource
+    ]);
+
+    // 2. Insert into solicitudes_secretaria
+    const secRef = `SEC-${Date.now().toString(36).toUpperCase().slice(-6)}`;
+    const fullName = `${first_name.trim()} ${last_name ? last_name.trim() : ''}`.trim();
+    await query(`
+      INSERT INTO solicitudes_secretaria
+      (id, referencia, estudiante_id, estudiante_nombre, tipo, asunto, descripcion, estado, fecha_creacion, fecha_actualizacion)
+      VALUES (?, ?, 'usr_anonimo', ?, 'INFORMACION_CURSO', ?, ?, 'PENDIENTE', NOW(), NOW())
+    `, [
+      `sol_sec_${reqId}`,
+      secRef,
+      fullName,
+      `Solicitud de Información: ${courseTitle}`,
+      `Interesado: ${fullName}\nEmail: ${userEmail}\nTeléfono: ${phone}\nCurso: ${courseTitle}\nHorario: ${preferred_schedule || 'Indiferente'}\nComentarios: ${userMessage}`
+    ]);
+
+    // 3. Send email notification to Secretaría / Admin (guillerminajoya@gmail.com)
+    const adminNotificationEmail = process.env.DEFAULT_NOTIFICATION_EMAIL || process.env.SMTP_USER || 'guillerminajoya@gmail.com';
+    sendSystemEmail({
+      to: adminNotificationEmail,
+      subject: `🔔 Nueva Solicitud de Información: ${fullName} - ${courseTitle}`,
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e5e7eb; border-radius: 12px; background: #ffffff;">
+          <h2 style="color: #4f46e5; margin-top: 0;">Nueva Solicitud de Información en Secretaría</h2>
+          <p>Se ha recibido una nueva solicitud de información / plaza desde la web:</p>
+          <table style="width: 100%; border-collapse: collapse; margin: 15px 0;">
+            <tr style="border-bottom: 1px solid #f3f4f6;"><td style="padding: 8px; font-weight: bold; width: 140px;">Nombre:</td><td style="padding: 8px;">${fullName}</td></tr>
+            <tr style="border-bottom: 1px solid #f3f4f6;"><td style="padding: 8px; font-weight: bold;">Email:</td><td style="padding: 8px;"><a href="mailto:${userEmail}">${userEmail}</a></td></tr>
+            <tr style="border-bottom: 1px solid #f3f4f6;"><td style="padding: 8px; font-weight: bold;">Teléfono:</td><td style="padding: 8px;">${phone}</td></tr>
+            <tr style="border-bottom: 1px solid #f3f4f6;"><td style="padding: 8px; font-weight: bold;">Curso solicitado:</td><td style="padding: 8px;">${courseTitle} (${course_code || 'N/A'})</td></tr>
+            <tr style="border-bottom: 1px solid #f3f4f6;"><td style="padding: 8px; font-weight: bold;">Horario preferido:</td><td style="padding: 8px;">${preferred_schedule || 'Indiferente'}</td></tr>
+            <tr style="border-bottom: 1px solid #f3f4f6;"><td style="padding: 8px; font-weight: bold;">Situación laboral:</td><td style="padding: 8px;">${employment_status || 'No especificada'}</td></tr>
+            <tr style="border-bottom: 1px solid #f3f4f6;"><td style="padding: 8px; font-weight: bold;">Mensaje / Notas:</td><td style="padding: 8px;">${userMessage}</td></tr>
+            <tr style="border-bottom: 1px solid #f3f4f6;"><td style="padding: 8px; font-weight: bold;">Origen:</td><td style="padding: 8px;">${requestSource}</td></tr>
+          </table>
+          <p style="font-size: 12px; color: #6b7280; margin-top: 20px;">Fecha: ${new Date().toLocaleString('es-ES')}</p>
+        </div>
+      `
+    });
+
+    // 4. Send confirmation email to prospective student if valid email provided
+    if (email && email.includes('@') && !email.includes('pendiente')) {
+      sendSystemEmail({
+        to: email.trim(),
+        subject: `✅ Solicitud Recibida - Academias Péndulo (${courseTitle})`,
+        html: `
+          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 25px; border: 1px solid #e0e7ff; border-radius: 12px; background: #ffffff;">
+            <div style="text-align: center; margin-bottom: 20px;">
+              <h1 style="color: #4f46e5; margin: 0;">Academias Péndulo</h1>
+              <p style="color: #6b7280; font-size: 14px; margin-top: 4px;">Centro de Formación Profesional Oficial</p>
+            </div>
+            <hr style="border: none; border-top: 1px solid #f3f4f6; margin: 20px 0;" />
+            <h2 style="color: #1f2937;">¡Hola ${first_name.trim()}! Hemos recibido tu solicitud</h2>
+            <p>Muchas gracias por contactar con <strong>Academias Péndulo</strong>. Hemos registrado correctamente tu solicitud de información sobre el curso:</p>
+            <div style="background-color: #f4f4f5; padding: 16px; border-radius: 8px; margin: 15px 0;">
+              <p style="margin: 0; font-weight: bold; color: #111827;">${courseTitle}</p>
+              ${course_code ? `<p style="margin: 4px 0 0 0; font-size: 12px; color: #4b5563;">Código oficial: ${course_code}</p>` : ''}
+            </div>
+            <p>Un orientador pedagógico de nuestra sede en Almería revisará tus datos y se pondrá en contacto contigo en el teléfono <strong>${phone}</strong> a la mayor brevedad posible.</p>
+            <p style="margin-top: 20px; font-size: 13px; color: #4b5563;">Si deseas consultar cualquier duda urgente, puedes llamarnos o visitarnos en Carrera Doctoral 26, Almería.</p>
+            <hr style="border: none; border-top: 1px solid #f3f4f6; margin: 20px 0;" />
+            <p style="font-size: 11px; color: #9ca3af; text-align: center;">Academias Péndulo · Centro Homologado Nº 0400030892</p>
+          </div>
+        `
+      });
+    }
+
+    res.status(201).json({ success: true, requestId: reqId });
+  } catch (error) {
+    console.error('Public contact request error:', error);
+    res.status(500).json({ error: 'Error al procesar la solicitud de contacto.' });
+  }
+});
+
+// Admin endpoint: Fetch contact requests
+app.get('/api/admin/contact-requests', requireAuth, requireNoTempPassword, async (req, res) => {
+  try {
+    if (!req.user.roles.includes('ADMINISTRADOR')) {
+      return res.status(403).json({ error: 'Acceso restringido.' });
+    }
+    const requests = await query(`SELECT * FROM contact_requests ORDER BY created_at DESC`);
+    res.json(requests);
+  } catch (error) {
+    console.error('Fetch contact requests error:', error);
+    res.status(500).json({ error: 'Error al consultar las solicitudes de contacto.' });
+  }
+});
+
+// Admin endpoint: Update contact request status / notes
+app.patch('/api/admin/contact-requests/:id', requireAuth, requireNoTempPassword, async (req, res) => {
+  try {
+    if (!req.user.roles.includes('ADMINISTRADOR')) {
+      return res.status(403).json({ error: 'Acceso restringido.' });
+    }
+    const { id } = req.params;
+    const { status, internal_notes, assigned_admin_name } = req.body;
+
+    const updates = [];
+    const params = [];
+
+    if (status) {
+      updates.push('status = ?');
+      params.push(status);
+    }
+    if (internal_notes !== undefined) {
+      updates.push('internal_notes = ?');
+      params.push(internal_notes);
+    }
+    if (assigned_admin_name !== undefined) {
+      updates.push('assigned_admin_name = ?');
+      params.push(assigned_admin_name);
+    }
+
+    if (updates.length > 0) {
+      params.push(id);
+      await query(`UPDATE contact_requests SET ${updates.join(', ')} WHERE id = ?`, params);
+    }
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Update contact request error:', error);
+    res.status(500).json({ error: 'Error al actualizar la solicitud.' });
+  }
+});
+
+// Public Employment Pool registration endpoint (Bolsa de Empleo Automoción)
+app.post('/api/public/employment-pool', async (req, res) => {
+  try {
+    const {
+      nombre,
+      telefono,
+      email,
+      ciudad,
+      especialidad,
+      titulacion,
+      experiencia,
+      disponibilidad,
+      observaciones
+    } = req.body;
+
+    if (!nombre || !telefono || !email) {
+      return res.status(400).json({ error: 'Nombre, teléfono y correo son obligatorios.' });
+    }
+
+    const candId = `cand_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    const userEmail = email.trim();
+    const candidateName = nombre.trim();
+    const candidateSpec = especialidad || 'Automoción General';
+
+    // 1. Insert into bolsa_empleo
+    await query(`
+      INSERT INTO bolsa_empleo
+      (id, nombre, telefono, email, ciudad, especialidad, titulacion, experiencia, disponibilidad, observaciones, estado, creado_en)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVO', NOW())
+    `, [
+      candId,
+      candidateName,
+      telefono.trim(),
+      userEmail,
+      ciudad ? ciudad.trim() : 'Almería',
+      candidateSpec,
+      titulacion || 'No especificada',
+      experiencia || 'No especificada',
+      disponibilidad || 'Inmediata',
+      observaciones || 'Inscripción directa a Bolsa de Empleo.'
+    ]);
+
+    // 2. Send email notification to Admin / Secretaría (guillerminajoya@gmail.com)
+    const adminNotificationEmail = process.env.DEFAULT_NOTIFICATION_EMAIL || process.env.SMTP_USER || 'guillerminajoya@gmail.com';
+    sendSystemEmail({
+      to: adminNotificationEmail,
+      subject: `💼 Nueva Candidatura Bolsa de Empleo Automoción: ${candidateName}`,
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e5e7eb; border-radius: 12px; background: #ffffff;">
+          <h2 style="color: #dc2626; margin-top: 0;">Nueva Inscripción en Bolsa de Empleo Automoción</h2>
+          <p>Un nuevo candidato se ha registrado en la Bolsa de Empleo de Academias Péndulo:</p>
+          <table style="width: 100%; border-collapse: collapse; margin: 15px 0;">
+            <tr style="border-bottom: 1px solid #f3f4f6;"><td style="padding: 8px; font-weight: bold; width: 140px;">Candidato:</td><td style="padding: 8px;">${candidateName}</td></tr>
+            <tr style="border-bottom: 1px solid #f3f4f6;"><td style="padding: 8px; font-weight: bold;">Teléfono:</td><td style="padding: 8px;">${telefono}</td></tr>
+            <tr style="border-bottom: 1px solid #f3f4f6;"><td style="padding: 8px; font-weight: bold;">Email:</td><td style="padding: 8px;"><a href="mailto:${userEmail}">${userEmail}</a></td></tr>
+            <tr style="border-bottom: 1px solid #f3f4f6;"><td style="padding: 8px; font-weight: bold;">Ciudad:</td><td style="padding: 8px;">${ciudad || 'Almería'}</td></tr>
+            <tr style="border-bottom: 1px solid #f3f4f6;"><td style="padding: 8px; font-weight: bold;">Especialidad:</td><td style="padding: 8px; font-weight: bold; color: #dc2626;">${candidateSpec}</td></tr>
+            <tr style="border-bottom: 1px solid #f3f4f6;"><td style="padding: 8px; font-weight: bold;">Titulación:</td><td style="padding: 8px;">${titulacion || 'No especificada'}</td></tr>
+            <tr style="border-bottom: 1px solid #f3f4f6;"><td style="padding: 8px; font-weight: bold;">Experiencia:</td><td style="padding: 8px;">${experiencia || 'No especificada'}</td></tr>
+            <tr style="border-bottom: 1px solid #f3f4f6;"><td style="padding: 8px; font-weight: bold;">Disponibilidad:</td><td style="padding: 8px;">${disponibilidad || 'Inmediata'}</td></tr>
+            <tr style="border-bottom: 1px solid #f3f4f6;"><td style="padding: 8px; font-weight: bold;">Observaciones:</td><td style="padding: 8px;">${observaciones || 'Sin observaciones'}</td></tr>
+          </table>
+          <p style="font-size: 12px; color: #6b7280; margin-top: 20px;">Registrado el ${new Date().toLocaleString('es-ES')}</p>
+        </div>
+      `
+    });
+
+    // 3. Send confirmation email to Candidate
+    sendSystemEmail({
+      to: userEmail,
+      subject: `💼 Confirmación Bolsa de Empleo Automoción - Academias Péndulo`,
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 25px; border: 1px solid #e0e7ff; border-radius: 12px; background: #ffffff;">
+          <div style="text-align: center; margin-bottom: 20px;">
+            <h1 style="color: #dc2626; margin: 0;">Academias Péndulo</h1>
+            <p style="color: #6b7280; font-size: 14px; margin-top: 4px;">Bolsa de Empleo Oficial Automoción</p>
+          </div>
+          <hr style="border: none; border-top: 1px solid #f3f4f6; margin: 20px 0;" />
+          <h2 style="color: #1f2937;">¡Hola ${candidateName}! Tu candidatura ha sido registrada</h2>
+          <p>Hemos incorporado correctamente tu perfil a la <strong>Bolsa de Empleo de Academias Péndulo</strong> para la especialidad de <strong>${candidateSpec}</strong>.</p>
+          <div style="background-color: #fef2f2; padding: 16px; border-radius: 8px; margin: 15px 0; border-left: 4px solid #dc2626;">
+            <p style="margin: 0; font-weight: bold; color: #991b1b;">Especialidad seleccionada: ${candidateSpec}</p>
+            <p style="margin: 4px 0 0 0; font-size: 12px; color: #7f1d1d;">Titulación: ${titulacion || 'Formación sector automoción'}</p>
+          </div>
+          <p>Cuando nuestras empresas colaboradoras del sector automoción en Almería soliciten candidatos con tu perfil, nos pondremos en contacto contigo en el teléfono <strong>${telefono}</strong>.</p>
+          <hr style="border: none; border-top: 1px solid #f3f4f6; margin: 20px 0;" />
+          <p style="font-size: 11px; color: #9ca3af; text-align: center;">Academias Péndulo · Centro de Formación Profesional Oficial</p>
+        </div>
+      `
+    });
+
+    res.status(201).json({ success: true, candidateId: candId });
+  } catch (error) {
+    console.error('Public employment pool registration error:', error);
+    res.status(500).json({ error: 'Error al registrar la candidatura en la bolsa de empleo.' });
+  }
+});
+
+// Admin endpoint: Fetch candidates from employment pool
+app.get('/api/admin/employment-pool', requireAuth, requireNoTempPassword, async (req, res) => {
+  try {
+    if (!req.user.roles.includes('ADMINISTRADOR')) {
+      return res.status(403).json({ error: 'Acceso restringido.' });
+    }
+    const candidates = await query(`SELECT * FROM bolsa_empleo ORDER BY creado_en DESC`);
+    res.json(candidates);
+  } catch (error) {
+    console.error('Fetch employment pool error:', error);
+    res.status(500).json({ error: 'Error al consultar candidatos de la bolsa de empleo.' });
+  }
+});
+
+// ==========================================
+// SISTEMA DE SOLICITUDES DE INSCRIPCIÓN API
+// ==========================================
+
+// 1. PUBLIC: Submit new inscription request
+app.post('/api/public/inscription-request', async (req, res) => {
+  try {
+    const clientIp = req.ip || req.headers['x-forwarded-for'] || 'unknown';
+    if (!checkRateLimit(`inscr_req_${clientIp}`, 10, 15 * 60 * 1000)) {
+      return res.status(429).json({ error: 'Demasiadas solicitudes enviadas. Por favor, inténtelo de nuevo en 15 minutos.' });
+    }
+
+    const {
+      course_id,
+      course_name,
+      course_code,
+      center,
+      edition,
+      first_name,
+      last_name_1,
+      last_name_2,
+      dni_nie,
+      birth_date,
+      phone,
+      email,
+      address,
+      postal_code,
+      city,
+      province,
+      employment_status,
+      company_activity,
+      observations,
+      truth_declaration,
+      subsidized_training_acceptance,
+      contact_authorization,
+      privacy_acceptance,
+      marketing_consent,
+      signature_name,
+      signature_date
+    } = req.body;
+
+    // Field Validations
+    if (!course_name || !first_name || !last_name_1 || !dni_nie || !birth_date || !phone || !email || !employment_status || !signature_name || !signature_date) {
+      return res.status(400).json({ error: 'Por favor, complete todos los campos obligatorios marcados con (*).' });
+    }
+
+    if (!truth_declaration || !privacy_acceptance) {
+      return res.status(400).json({ error: 'Debe aceptar la declaración de veracidad y la política de privacidad para tramitar su solicitud.' });
+    }
+
+    // Email format validation
+    const cleanEmail = normalizeEmail(email);
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
+      return res.status(400).json({ error: 'El correo electrónico introducido no tiene un formato válido.' });
+    }
+
+    // DNI/NIE validation (Basic regex pattern)
+    const cleanDni = (dni_nie || '').trim().toUpperCase();
+    if (!/^[0-9XYZ][0-9]{7}[TRWAGMYFPDXBNJZSQVHLCKE]$/i.test(cleanDni)) {
+      return res.status(400).json({ error: 'El DNI/NIE introducido no tiene un formato válido (Ejemplo: 12345678Z o Y1234567Z).' });
+    }
+
+    // Generate Unique Request Number (e.g. PEN-2026-000001)
+    const countRows = await query(`SELECT COUNT(*) as total FROM inscription_requests`);
+    const nextSeq = (countRows[0].total + 1).toString().padStart(6, '0');
+    const currentYear = new Date().getFullYear();
+    const requestNumber = `PEN-${currentYear}-${nextSeq}`;
+
+    // 1. Insert into Database
+    const insertResult = await query(`
+      INSERT INTO inscription_requests (
+        request_number, course_id, course_name, course_code, center, edition,
+        first_name, last_name_1, last_name_2, dni_nie, birth_date, phone, email,
+        address, postal_code, city, province, employment_status, company_activity,
+        observations, truth_declaration, subsidized_training_acceptance, contact_authorization,
+        privacy_acceptance, marketing_consent, signature_name, signature_date, status, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Nueva', NOW())
+    `, [
+      requestNumber,
+      course_id || null,
+      course_name.trim(),
+      course_code ? course_code.trim() : null,
+      center ? center.trim() : 'Academias Péndulo - Almería',
+      edition ? edition.trim() : `Convocatoria ${currentYear}`,
+      first_name.trim(),
+      last_name_1.trim(),
+      last_name_2 ? last_name_2.trim() : null,
+      cleanDni,
+      birth_date,
+      phone.trim(),
+      cleanEmail,
+      address ? address.trim() : null,
+      postal_code ? postal_code.trim() : null,
+      city ? city.trim() : 'Almería',
+      province ? province.trim() : 'Almería',
+      employment_status,
+      company_activity ? company_activity.trim() : null,
+      observations ? observations.trim() : null,
+      truth_declaration ? 1 : 0,
+      subsidized_training_acceptance ? 1 : 0,
+      contact_authorization ? 1 : 0,
+      privacy_acceptance ? 1 : 0,
+      marketing_consent ? 1 : 0,
+      signature_name.trim(),
+      signature_date
+    ]);
+
+    const requestId = insertResult.insertId;
+
+    // 2. Generate PDF and save file path
+    const pdfData = {
+      request_number: requestNumber,
+      course_name: course_name.trim(),
+      course_code: course_code ? course_code.trim() : '',
+      center: center ? center.trim() : 'Academias Péndulo - Almería',
+      edition: edition ? edition.trim() : `Convocatoria ${currentYear}`,
+      first_name: first_name.trim(),
+      last_name_1: last_name_1.trim(),
+      last_name_2: last_name_2 ? last_name_2.trim() : '',
+      dni_nie: cleanDni,
+      birth_date: birth_date,
+      phone: phone.trim(),
+      email: cleanEmail,
+      address: address ? address.trim() : '',
+      postal_code: postal_code ? postal_code.trim() : '',
+      city: city ? city.trim() : 'Almería',
+      province: province ? province.trim() : 'Almería',
+      employment_status,
+      company_activity: company_activity ? company_activity.trim() : '',
+      observations: observations ? observations.trim() : '',
+      truth_declaration: !!truth_declaration,
+      subsidized_training_acceptance: !!subsidized_training_acceptance,
+      contact_authorization: !!contact_authorization,
+      privacy_acceptance: !!privacy_acceptance,
+      marketing_consent: !!marketing_consent,
+      signature_name: signature_name.trim(),
+      signature_date: signature_date
+    };
+
+    let generatedPdfPath = null;
+    try {
+      generatedPdfPath = await generateInscriptionPDF(pdfData);
+      await query(`UPDATE inscription_requests SET pdf_path = ? WHERE id = ?`, [generatedPdfPath, requestId]);
+    } catch (pdfErr) {
+      console.error('PDF Generation Error:', pdfErr);
+    }
+
+    const candidateFullName = `${first_name.trim()} ${last_name_1.trim()} ${last_name_2 ? last_name_2.trim() : ''}`.trim();
+
+    // 3. Send Automatic Email to Applicant (Requirement 9)
+    sendSystemEmail({
+      to: cleanEmail,
+      subject: `Hemos recibido tu solicitud — Academias Péndulo`,
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 25px; border: 1px solid #e5e7eb; border-radius: 12px; background: #ffffff;">
+          <div style="text-align: center; margin-bottom: 20px;">
+            <h1 style="color: #dc2626; margin: 0;">Academias Péndulo</h1>
+            <p style="color: #4b5563; font-size: 14px; margin-top: 4px;">Formación Oficial en Automoción</p>
+          </div>
+          <hr style="border: none; border-top: 1px solid #f3f4f6; margin: 20px 0;" />
+          
+          <p style="font-size: 16px; color: #1f2937;">Hola <strong>${first_name.trim()}</strong>,</p>
+          
+          <p style="font-size: 15px; color: #374151; line-height: 1.5;">Hemos recibido correctamente tu solicitud de inscripción para <strong>${course_name.trim()}</strong>.</p>
+          
+          <div style="background-color: #fef2f2; padding: 18px; border-radius: 10px; margin: 20px 0; border-left: 4px solid #dc2626; text-align: center;">
+            <p style="margin: 0; font-size: 13px; color: #991b1b; text-transform: uppercase; font-weight: bold; letter-spacing: 0.5px;">Tu número de solicitud es:</p>
+            <p style="margin: 8px 0 0 0; font-size: 24px; font-weight: 900; color: #dc2626; letter-spacing: 1px;">${requestNumber}</p>
+          </div>
+          
+          <p style="font-size: 14px; color: #4b5563; line-height: 1.6;">La solicitud ha sido registrada correctamente y nuestro equipo de Secretaría la revisará en breve.</p>
+          <p style="font-size: 14px; color: #4b5563; line-height: 1.6;">Nos pondremos en contacto contigo si necesitamos información adicional o para informarte sobre los siguientes pasos.</p>
+          
+          <p style="font-size: 15px; color: #1f2937; font-weight: bold; margin-top: 25px;">Gracias por confiar en Academias Péndulo — Formación en Automoción.</p>
+          
+          <hr style="border: none; border-top: 1px solid #f3f4f6; margin: 25px 0;" />
+          <p style="font-size: 11px; color: #9ca3af; text-align: center;">Este mensaje ha sido generado automáticamente. No es necesario volver a enviar la solicitud.</p>
+        </div>
+      `
+    });
+
+    // 4. Send Notice to Admin / Secretaría (Requirement 10)
+    const adminNotificationEmail = process.env.DEFAULT_NOTIFICATION_EMAIL || process.env.SMTP_USER || 'guillerminajoya@gmail.com';
+    sendSystemEmail({
+      to: adminNotificationEmail,
+      subject: `📋 Nueva solicitud de inscripción: ${candidateFullName} (${requestNumber})`,
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e5e7eb; border-radius: 12px; background: #ffffff;">
+          <h2 style="color: #dc2626; margin-top: 0;">Nueva Solicitud de Inscripción</h2>
+          <p>Se ha recibido una nueva solicitud de inscripción en el portal web:</p>
+          <table style="width: 100%; border-collapse: collapse; margin: 15px 0;">
+            <tr style="border-bottom: 1px solid #f3f4f6;"><td style="padding: 8px; font-weight: bold; width: 140px;">Nº Solicitud:</td><td style="padding: 8px; font-weight: bold; color: #dc2626;">${requestNumber}</td></tr>
+            <tr style="border-bottom: 1px solid #f3f4f6;"><td style="padding: 8px; font-weight: bold;">Nombre:</td><td style="padding: 8px;">${candidateFullName}</td></tr>
+            <tr style="border-bottom: 1px solid #f3f4f6;"><td style="padding: 8px; font-weight: bold;">DNI/NIE:</td><td style="padding: 8px;">${cleanDni}</td></tr>
+            <tr style="border-bottom: 1px solid #f3f4f6;"><td style="padding: 8px; font-weight: bold;">Curso:</td><td style="padding: 8px; font-weight: bold;">${course_name}</td></tr>
+            <tr style="border-bottom: 1px solid #f3f4f6;"><td style="padding: 8px; font-weight: bold;">Teléfono:</td><td style="padding: 8px;">${phone}</td></tr>
+            <tr style="border-bottom: 1px solid #f3f4f6;"><td style="padding: 8px; font-weight: bold;">Email:</td><td style="padding: 8px;"><a href="mailto:${cleanEmail}">${cleanEmail}</a></td></tr>
+            <tr style="border-bottom: 1px solid #f3f4f6;"><td style="padding: 8px; font-weight: bold;">Situación Laboral:</td><td style="padding: 8px;">${employment_status}</td></tr>
+          </table>
+          <p style="margin-top: 20px; text-align: center;">
+            <a href="http://localhost:3000/#campus" style="background: #dc2626; color: #ffffff; padding: 10px 20px; text-decoration: none; border-radius: 8px; font-weight: bold; inline-block;">Acceder al Panel de Secretaría</a>
+          </p>
+        </div>
+      `
+    });
+
+    res.status(201).json({
+      success: true,
+      request_number: requestNumber,
+      message: 'Solicitud enviada correctamente.'
+    });
+
+  } catch (error) {
+    console.error('Public inscription request error:', error);
+    res.status(500).json({ error: 'Ocurrió un error al procesar la solicitud. Por favor, inténtelo de nuevo.' });
+  }
+});
+
+// 2. ADMIN: List & search inscription requests
+app.get('/api/admin/inscriptions', requireAuth, requireNoTempPassword, async (req, res) => {
+  try {
+    const userRoles = req.user.roles || [];
+    if (!userRoles.includes('ADMINISTRADOR') && !userRoles.includes('SECRETARIA')) {
+      return res.status(403).json({ error: 'Acceso restringido a personal autorizado de Secretaría y Administración.' });
+    }
+
+    const { q, status, course } = req.query;
+
+    let sql = `SELECT * FROM inscription_requests WHERE 1=1`;
+    const params = [];
+
+    if (q && q.trim() !== '') {
+      const searchTerm = `%${q.trim()}%`;
+      sql += ` AND (
+        request_number LIKE ? OR
+        first_name LIKE ? OR
+        last_name_1 LIKE ? OR
+        last_name_2 LIKE ? OR
+        dni_nie LIKE ? OR
+        email LIKE ? OR
+        phone LIKE ? OR
+        course_name LIKE ?
+      )`;
+      params.push(searchTerm, searchTerm, searchTerm, searchTerm, searchTerm, searchTerm, searchTerm, searchTerm);
+    }
+
+    if (status && status.trim() !== '') {
+      sql += ` AND status = ?`;
+      params.push(status.trim());
+    }
+
+    if (course && course.trim() !== '') {
+      sql += ` AND (course_name LIKE ? OR course_id = ?)`;
+      params.push(`%${course.trim()}%`, course.trim());
+    }
+
+    sql += ` ORDER BY created_at DESC`;
+
+    const requests = await query(sql, params);
+
+    // Pending count
+    const pendingRows = await query(`SELECT COUNT(*) as count FROM inscription_requests WHERE status = 'Nueva'`);
+    const pendingCount = pendingRows[0].count;
+
+    res.json({
+      requests,
+      pending_count: pendingCount
+    });
+  } catch (error) {
+    console.error('Fetch inscription requests error:', error);
+    res.status(500).json({ error: 'Error al consultar las solicitudes de inscripción.' });
+  }
+});
+
+// 3. ADMIN: Get single request detail with message history
+app.get('/api/admin/inscriptions/:id', requireAuth, requireNoTempPassword, async (req, res) => {
+  try {
+    const userRoles = req.user.roles || [];
+    if (!userRoles.includes('ADMINISTRADOR') && !userRoles.includes('SECRETARIA')) {
+      return res.status(403).json({ error: 'Acceso restringido.' });
+    }
+
+    const reqId = req.params.id;
+    const requestRows = await query(`SELECT * FROM inscription_requests WHERE id = ? OR request_number = ? LIMIT 1`, [reqId, reqId]);
+
+    if (!requestRows || requestRows.length === 0) {
+      return res.status(404).json({ error: 'Solicitud no encontrada.' });
+    }
+
+    const requestData = requestRows[0];
+
+    // Fetch message history
+    const messages = await query(`
+      SELECT m.*, u.nombre as sender_name, u.apellidos as sender_apellidos
+      FROM inscription_request_messages m
+      LEFT JOIN usuarios u ON m.sender_user_id = u.id
+      WHERE m.request_id = ?
+      ORDER BY m.created_at ASC
+    `, [requestData.id]);
+
+    res.json({
+      request: requestData,
+      messages: messages || []
+    });
+  } catch (error) {
+    console.error('Fetch inscription detail error:', error);
+    res.status(500).json({ error: 'Error al obtener los detalles de la solicitud.' });
+  }
+});
+
+// 4. ADMIN: Update request status & secretary notes
+app.put('/api/admin/inscriptions/:id/status', requireAuth, requireNoTempPassword, async (req, res) => {
+  try {
+    const userRoles = req.user.roles || [];
+    if (!userRoles.includes('ADMINISTRADOR') && !userRoles.includes('SECRETARIA')) {
+      return res.status(403).json({ error: 'Acceso restringido.' });
+    }
+
+    const reqId = req.params.id;
+    const { status, secretary_notes } = req.body;
+
+    const existing = await query(`SELECT * FROM inscription_requests WHERE id = ? LIMIT 1`, [reqId]);
+    if (!existing || existing.length === 0) {
+      return res.status(404).json({ error: 'Solicitud no encontrada.' });
+    }
+
+    const currentStatus = existing[0].status;
+    const newStatus = status || currentStatus;
+
+    let reviewedAt = existing[0].reviewed_at;
+    let closedAt = existing[0].closed_at;
+
+    if (newStatus !== 'Nueva' && !reviewedAt) {
+      reviewedAt = new Date();
+    }
+
+    if (newStatus === 'Cerrada' && !closedAt) {
+      closedAt = new Date();
+    }
+
+    await query(`
+      UPDATE inscription_requests
+      SET status = ?, secretary_notes = ?, reviewed_at = ?, closed_at = ?, updated_at = NOW()
+      WHERE id = ?
+    `, [newStatus, secretary_notes !== undefined ? secretary_notes : existing[0].secretary_notes, reviewedAt, closedAt, reqId]);
+
+    res.json({ success: true, message: 'Estado y notas actualizadas correctamente.' });
+  } catch (error) {
+    console.error('Update inscription status error:', error);
+    res.status(500).json({ error: 'Error al actualizar la solicitud.' });
+  }
+});
+
+// 5. ADMIN: Send email reply to applicant
+app.post('/api/admin/inscriptions/:id/reply', requireAuth, requireNoTempPassword, async (req, res) => {
+  try {
+    const userRoles = req.user.roles || [];
+    if (!userRoles.includes('ADMINISTRADOR') && !userRoles.includes('SECRETARIA')) {
+      return res.status(403).json({ error: 'Acceso restringido.' });
+    }
+
+    const reqId = req.params.id;
+    const { subject, message } = req.body;
+
+    if (!subject || !message) {
+      return res.status(400).json({ error: 'Asunto y mensaje son obligatorios.' });
+    }
+
+    const existing = await query(`SELECT * FROM inscription_requests WHERE id = ? LIMIT 1`, [reqId]);
+    if (!existing || existing.length === 0) {
+      return res.status(404).json({ error: 'Solicitud no encontrada.' });
+    }
+
+    const reqData = existing[0];
+
+    // Send Email via Nodemailer
+    await sendSystemEmail({
+      to: reqData.email,
+      subject: subject.trim(),
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 25px; border: 1px solid #e5e7eb; border-radius: 12px; background: #ffffff;">
+          <div style="text-align: center; margin-bottom: 20px;">
+            <h1 style="color: #dc2626; margin: 0;">Academias Péndulo</h1>
+            <p style="color: #4b5563; font-size: 14px; margin-top: 4px;">Secretaría de Alumnado</p>
+          </div>
+          <hr style="border: none; border-top: 1px solid #f3f4f6; margin: 20px 0;" />
+          
+          <p style="font-size: 15px; color: #1f2937;">Estimado/a <strong>${reqData.first_name} ${reqData.last_name_1}</strong>,</p>
+          
+          <div style="font-size: 14px; color: #374151; line-height: 1.6; white-space: pre-wrap; margin: 20px 0; background: #f9fafb; padding: 16px; border-radius: 8px; border-left: 4px solid #dc2626;">${message.trim()}</div>
+          
+          <p style="font-size: 13px; color: #6b7280;">Ref. Solicitud: <strong>${reqData.request_number}</strong> (${reqData.course_name})</p>
+          
+          <hr style="border: none; border-top: 1px solid #f3f4f6; margin: 25px 0;" />
+          <p style="font-size: 11px; color: #9ca3af; text-align: center;">Academias Péndulo · Secretaría General de Formación Profesional</p>
+        </div>
+      `
+    });
+
+    // Save message log into database
+    await query(`
+      INSERT INTO inscription_request_messages (request_id, sender_user_id, sender_type, recipient_email, subject, message, created_at)
+      VALUES (?, ?, 'secretary', ?, ?, ?, NOW())
+    `, [reqData.id, req.user.id, reqData.email, subject.trim(), message.trim()]);
+
+    // Automatically update status to 'Contactado' if currently 'Nueva'
+    if (reqData.status === 'Nueva') {
+      await query(`UPDATE inscription_requests SET status = 'Contactado', reviewed_at = NOW() WHERE id = ?`, [reqData.id]);
+    }
+
+    res.json({ success: true, message: 'Respuesta enviada al solicitante correctamente.' });
+  } catch (error) {
+    console.error('Send reply error:', error);
+    res.status(500).json({ error: 'Error al enviar la respuesta al solicitante.' });
+  }
+});
+
+// 6. ADMIN: Download / View PDF securely
+app.get('/api/admin/inscriptions/:id/pdf', requireAuth, requireNoTempPassword, async (req, res) => {
+  try {
+    const userRoles = req.user.roles || [];
+    if (!userRoles.includes('ADMINISTRADOR') && !userRoles.includes('SECRETARIA')) {
+      return res.status(403).json({ error: 'Acceso restringido.' });
+    }
+
+    const reqId = req.params.id;
+    const rows = await query(`SELECT request_number, pdf_path FROM inscription_requests WHERE id = ? OR request_number = ? LIMIT 1`, [reqId, reqId]);
+
+    if (!rows || rows.length === 0 || !rows[0].pdf_path) {
+      return res.status(404).json({ error: 'Documento PDF no encontrado.' });
+    }
+
+    const pdfFile = rows[0].pdf_path;
+    if (!fs.existsSync(pdfFile)) {
+      return res.status(404).json({ error: 'El archivo PDF no existe en el almacenamiento privado del servidor.' });
+    }
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="solicitud_${rows[0].request_number}.pdf"`);
+    fs.createReadStream(pdfFile).pipe(res);
+  } catch (error) {
+    console.error('PDF download error:', error);
+    res.status(500).json({ error: 'Error al servir el documento PDF.' });
+  }
+});
+
+// =========================================================
+// PROMPT 2: CONVERTIR SOLICITUD ACEPTADA EN ALUMNO DEL CAMPUS
+// =========================================================
+
+// Helper for logging history
+async function logInscriptionHistory(requestId, userId, eventType, description) {
+  try {
+    await query(`
+      INSERT INTO inscription_request_history (request_id, user_id, event_type, description, created_at)
+      VALUES (?, ?, ?, ?, NOW())
+    `, [requestId, userId || null, eventType, description]);
+  } catch (err) {
+    console.error('History logging error:', err);
+  }
+}
+
+// 7. ADMIN: Pre-creation checks for converting request to student
+app.post('/api/admin/inscriptions/:id/convert-checks', requireAuth, requireNoTempPassword, async (req, res) => {
+  try {
+    const userRoles = req.user.roles || [];
+    if (!userRoles.includes('ADMINISTRADOR') && !userRoles.includes('SECRETARIA')) {
+      return res.status(403).json({ error: 'Acceso restringido a personal autorizado.' });
+    }
+
+    const reqId = req.params.id;
+    const rows = await query(`SELECT * FROM inscription_requests WHERE id = ? LIMIT 1`, [reqId]);
+
+    if (!rows || rows.length === 0) {
+      return res.status(404).json({ error: 'Solicitud no encontrada.' });
+    }
+
+    const reqData = rows[0];
+
+    // Log OPENED_BY_SECRETARY if not logged yet
+    const histOpened = await query(`SELECT id FROM inscription_request_history WHERE request_id = ? AND event_type = 'OPENED_BY_SECRETARY'`, [reqData.id]);
+    if (!histOpened || histOpened.length === 0) {
+      await logInscriptionHistory(reqData.id, req.user.id, 'OPENED_BY_SECRETARY', `Secretaría abrió la solicitud ${reqData.request_number}.`);
+    }
+
+    // Check if already converted (Idempotency)
+    if (reqData.converted_to_student && reqData.student_user_id) {
+      const studentRows = await query(`
+        SELECT u.id, u.nombre, u.apellidos, u.email, u.creado_en,
+               m.id as matricula_id, g.nombre as grupo_nombre, e.nombre as especialidad_nombre
+        FROM usuarios u
+        LEFT JOIN alumno_matricula_activa ama ON u.id = ama.alumno_id
+        LEFT JOIN matriculas m ON ama.matricula_id = m.id
+        LEFT JOIN grupos g ON m.grupo_id = g.id
+        LEFT JOIN especialidades e ON g.especialidad_id = e.id
+        WHERE u.id = ? LIMIT 1
+      `, [reqData.student_user_id]);
+
+      return res.json({
+        alreadyConverted: true,
+        student_user_id: reqData.student_user_id,
+        converted_at: reqData.converted_at,
+        studentData: studentRows[0] || null
+      });
+    }
+
+    // Check 1: Email check
+    const cleanEmail = normalizeEmail(reqData.email);
+    const existingEmailRows = await query(`
+      SELECT id, nombre, apellidos, email, estado, creado_en FROM usuarios WHERE email = ? LIMIT 1
+    `, [cleanEmail]);
+    const existingUserByEmail = existingEmailRows.length > 0 ? existingEmailRows[0] : null;
+
+    // Check 2: DNI/NIE check
+    const cleanDni = (reqData.dni_nie || '').trim().toUpperCase();
+    const existingDniRows = await query(`
+      SELECT u.id, u.nombre, u.apellidos, u.email, ir.dni_nie
+      FROM usuarios u
+      JOIN inscription_requests ir ON ir.student_user_id = u.id
+      WHERE ir.dni_nie = ? AND u.id != ? LIMIT 1
+    `, [cleanDni, existingUserByEmail ? existingUserByEmail.id : 'none']);
+    const existingUserByDni = existingDniRows.length > 0 ? existingDniRows[0] : null;
+
+    // Check 3: Course/Specialty match
+    let matchedGroups = [];
+    if (reqData.course_id) {
+      matchedGroups = await query(`
+        SELECT g.id, g.nombre as grupo_nombre, e.nombre as especialidad_nombre, e.codigo as especialidad_codigo, g.profesor_principal_id
+        FROM grupos g
+        JOIN especialidades e ON g.especialidad_id = e.id
+        WHERE e.id = ? OR e.codigo = ? AND g.estado = 'ACTIVO'
+      `, [reqData.course_id, reqData.course_id]);
+    }
+
+    if (matchedGroups.length === 0 && reqData.course_name) {
+      const searchCourse = `%${reqData.course_name.trim()}%`;
+      matchedGroups = await query(`
+        SELECT g.id, g.nombre as grupo_nombre, e.nombre as especialidad_nombre, e.codigo as especialidad_codigo, g.profesor_principal_id
+        FROM grupos g
+        JOIN especialidades e ON g.especialidad_id = e.id
+        WHERE (e.nombre LIKE ? OR e.id LIKE ?) AND g.estado = 'ACTIVO'
+      `, [searchCourse, searchCourse]);
+    }
+
+    // Fallback: All active groups
+    if (matchedGroups.length === 0) {
+      matchedGroups = await query(`
+        SELECT g.id, g.nombre as grupo_nombre, e.nombre as especialidad_nombre, e.codigo as especialidad_codigo, g.profesor_principal_id
+        FROM grupos g
+        JOIN especialidades e ON g.especialidad_id = e.id
+        WHERE g.estado = 'ACTIVO'
+      `);
+    }
+
+    res.json({
+      alreadyConverted: false,
+      request: reqData,
+      emailExists: !!existingUserByEmail,
+      existingUserByEmail,
+      dniExists: !!existingUserByDni,
+      existingUserByDni,
+      matchedGroups,
+      defaultGroupId: matchedGroups.length > 0 ? matchedGroups[0].id : null
+    });
+
+  } catch (error) {
+    console.error('Convert checks error:', error);
+    res.status(500).json({ error: 'Error al realizar las comprobaciones previas.' });
+  }
+});
+
+// 8. ADMIN: Execute Atomic DB Transaction to Convert Request to Student
+app.post('/api/admin/inscriptions/:id/convert-to-student', requireAuth, requireNoTempPassword, async (req, res) => {
+  const conn = await pool.getConnection();
+
+  try {
+    const userRoles = req.user.roles || [];
+    if (!userRoles.includes('ADMINISTRADOR') && !userRoles.includes('SECRETARIA')) {
+      conn.release();
+      return res.status(403).json({ error: 'Acceso restringido a Secretaría y Administración.' });
+    }
+
+    const reqId = req.params.id;
+    const { groupId } = req.body;
+
+    const [rows] = await conn.execute(`SELECT * FROM inscription_requests WHERE id = ? LIMIT 1`, [reqId]);
+    if (!rows || rows.length === 0) {
+      conn.release();
+      return res.status(404).json({ error: 'Solicitud no encontrada.' });
+    }
+
+    const reqData = rows[0];
+
+    // Idempotency check: Don't double create
+    if (reqData.converted_to_student && reqData.student_user_id) {
+      conn.release();
+      return res.status(400).json({ error: `La solicitud ${reqData.request_number} ya fue convertida en alumno previamente.` });
+    }
+
+    // Verify group selected
+    let targetGroupId = groupId;
+    if (!targetGroupId) {
+      const [defaultGrp] = await conn.execute(`SELECT id FROM grupos WHERE estado = 'ACTIVO' LIMIT 1`);
+      if (!defaultGrp || defaultGrp.length === 0) {
+        conn.release();
+        return res.status(400).json({ error: 'No existe ningún grupo activo en el campus para matricular al alumno.' });
+      }
+      targetGroupId = defaultGrp[0].id;
+    }
+
+    const [groupDetail] = await conn.execute(`
+      SELECT g.id, g.nombre as grupo_nombre, g.profesor_principal_id, e.nombre as especialidad_nombre
+      FROM grupos g
+      JOIN especialidades e ON g.especialidad_id = e.id
+      WHERE g.id = ? LIMIT 1
+    `, [targetGroupId]);
+
+    if (!groupDetail || groupDetail.length === 0) {
+      conn.release();
+      return res.status(400).json({ error: 'El grupo de destino seleccionado no existe.' });
+    }
+
+    const targetGroup = groupDetail[0];
+
+    // ====================================================
+    // BEGIN DATABASE TRANSACTION (Critical Operations)
+    // ====================================================
+    await conn.beginTransaction();
+
+    const cleanEmail = normalizeEmail(reqData.email);
+    let userId = null;
+
+    // Check if user already exists by email
+    const [existingUser] = await conn.execute(`SELECT id FROM usuarios WHERE email = ? LIMIT 1`, [cleanEmail]);
+
+    if (existingUser && existingUser.length > 0) {
+      userId = existingUser[0].id;
+    } else {
+      // Create new user in `usuarios`
+      userId = `usr_student_${Date.now().toString(36)}_${Math.random().toString(36).substring(2, 6)}`;
+      const dummyTempPass = await hashPassword(Math.random().toString(36) + 'AccP@2026!');
+
+      await conn.execute(`
+        INSERT INTO usuarios (
+          id, nombre, apellidos, email, email_original, password_hash, telefono,
+          estado, cambio_password_obligatorio, creado_por, creado_en
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, 'ACTIVO', 1, ?, NOW())
+      `, [
+        userId,
+        reqData.first_name.trim(),
+        `${reqData.last_name_1.trim()} ${reqData.last_name_2 ? reqData.last_name_2.trim() : ''}`.trim(),
+        cleanEmail,
+        reqData.email.trim(),
+        dummyTempPass,
+        reqData.phone.trim(),
+        req.user.id
+      ]);
+
+      // Assign role `ALUMNO` (`rol-alumno`)
+      await conn.execute(`
+        INSERT INTO usuario_roles (usuario_id, rol_id, asignado_por)
+        VALUES (?, 'rol-alumno', ?)
+      `, [userId, req.user.id]);
+    }
+
+    // Create Enrollment in `matriculas`
+    const matId = `mat-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 6)}`;
+    await conn.execute(`
+      INSERT INTO matriculas (id, alumno_id, grupo_id, estado, autor_id, fecha_inicio)
+      VALUES (?, ?, ?, 'ACTIVA', ?, NOW())
+    `, [matId, userId, targetGroupId, req.user.id]);
+
+    // Update or Insert atomic active enrollment `alumno_matricula_activa`
+    await conn.execute(`
+      INSERT INTO alumno_matricula_activa (alumno_id, matricula_id)
+      VALUES (?, ?)
+      ON DUPLICATE KEY UPDATE matricula_id = VALUES(matricula_id)
+    `, [userId, matId]);
+
+    // Update `inscription_requests` record
+    await conn.execute(`
+      UPDATE inscription_requests
+      SET converted_to_student = 1,
+          student_user_id = ?,
+          converted_at = NOW(),
+          status = 'Matriculado',
+          updated_at = NOW()
+      WHERE id = ?
+    `, [userId, reqData.id]);
+
+    // Create Activation Token (Expires in 7 days)
+    const rawActivationToken = crypto.randomBytes(32).toString('hex');
+    const tokenHash = crypto.createHash('sha256').update(rawActivationToken).digest('hex');
+
+    await conn.execute(`
+      INSERT INTO account_activation_tokens (user_id, token_hash, expires_at, created_at)
+      VALUES (?, ?, DATE_ADD(NOW(), INTERVAL 7 DAY), NOW())
+    `, [userId, tokenHash]);
+
+    // Log History Event: STUDENT_CREATED & ENROLLMENT_CREATED
+    await conn.execute(`
+      INSERT INTO inscription_request_history (request_id, user_id, event_type, description, created_at)
+      VALUES (?, ?, 'STUDENT_CREATED', ?, NOW())
+    `, [reqData.id, req.user.id, `La solicitud ${reqData.request_number} fue convertida en alumno.`]);
+
+    await conn.execute(`
+      INSERT INTO inscription_request_history (request_id, user_id, event_type, description, created_at)
+      VALUES (?, ?, 'ENROLLMENT_CREATED', ?, NOW())
+    `, [reqData.id, req.user.id, `Matrícula activa creada en el grupo "${targetGroup.grupo_nombre}" (${targetGroup.especialidad_nombre}).`]);
+
+    // Teacher Notification (Requirement 17)
+    if (targetGroup.profesor_principal_id) {
+      try {
+        const notifId = `notif-${Date.now()}`;
+        const studentFullName = `${reqData.first_name} ${reqData.last_name_1}`;
+        await conn.execute(`
+          INSERT INTO avisos (id, titulo, contenido, destino, autor_id, creado_en)
+          VALUES (?, 'Nuevo alumno incorporado', ?, 'PROFESORES', ?, NOW())
+        `, [notifId, `${studentFullName} ha sido incorporado al curso ${reqData.course_name}.`, req.user.id]);
+      } catch (notifErr) {
+        console.warn('Teacher notification insert warning:', notifErr);
+      }
+    }
+
+    // COMMIT TRANSACTION
+    await conn.commit();
+    conn.release();
+
+    // ====================================================
+    // POST-TRANSACTION: SEND ACTIVATION EMAIL (Requirement 9 & 14)
+    // ====================================================
+    const activationLink = `http://localhost:3000/activar-cuenta?token=${rawActivationToken}`;
+    let emailSent = false;
+    let emailError = null;
+
+    try {
+      await sendSystemEmail({
+        to: cleanEmail,
+        subject: `Tu acceso al Campus de Academias Péndulo`,
+        html: `
+          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 25px; border: 1px solid #e5e7eb; border-radius: 12px; background: #ffffff;">
+            <div style="text-align: center; margin-bottom: 20px;">
+              <h1 style="color: #dc2626; margin: 0;">Academias Péndulo</h1>
+              <p style="color: #4b5563; font-size: 14px; margin-top: 4px;">Campus Virtual · Formación Oficial en Automoción</p>
+            </div>
+            <hr style="border: none; border-top: 1px solid #f3f4f6; margin: 20px 0;" />
+            
+            <p style="font-size: 16px; color: #1f2937;">Hola <strong>${reqData.first_name}</strong>,</p>
+            
+            <p style="font-size: 15px; color: #374151; line-height: 1.5;">
+              Tu solicitud de inscripción en <strong>${reqData.course_name}</strong> ha sido aceptada y tu acceso al Campus Virtual de Academias Péndulo ya está preparado.
+            </p>
+            
+            <div style="text-align: center; margin: 30px 0;">
+              <a href="${activationLink}" style="background-color: #dc2626; color: #ffffff; padding: 14px 28px; text-decoration: none; border-radius: 10px; font-weight: bold; font-size: 14px; display: inline-block; box-shadow: 0 4px 6px rgba(220, 38, 38, 0.2);">
+                ACTIVAR MI CUENTA Y ESTABLECER CONTRASEÑA
+              </a>
+            </div>
+            
+            <div style="background-color: #f9fafb; padding: 16px; border-radius: 8px; margin: 20px 0; border: 1px solid #e5e7eb;">
+              <p style="margin: 0; font-size: 13px; color: #4b5563;">Tu usuario de acceso será:</p>
+              <p style="margin: 4px 0 0 0; font-size: 16px; font-weight: bold; color: #1f2937;">${cleanEmail}</p>
+            </div>
+            
+            <p style="font-size: 14px; color: #4b5563; line-height: 1.6;">
+              Una vez activada tu cuenta podrás acceder a tu curso, materiales, contenidos y comunicaciones desde el Campus Virtual de Academias Péndulo.
+            </p>
+            
+            <p style="font-size: 14px; color: #4b5563; line-height: 1.6;">
+              Si tienes alguna duda, puedes ponerte en contacto con Secretaría.
+            </p>
+            
+            <hr style="border: none; border-top: 1px solid #f3f4f6; margin: 25px 0;" />
+            <p style="font-size: 13px; font-weight: bold; color: #1f2937; margin: 0;">Academias Péndulo</p>
+            <p style="font-size: 12px; color: #6b7280; margin: 2px 0 0 0;">Formación en Automoción</p>
+          </div>
+        `
+      });
+
+      emailSent = true;
+      await logInscriptionHistory(reqData.id, req.user.id, 'ACTIVATION_EMAIL_SENT', `Email de acceso y enlace de activación enviado a ${cleanEmail}.`);
+    } catch (mailErr) {
+      console.error('Activation email send error:', mailErr);
+      emailError = mailErr.message || 'Error al enviar el correo a través de SMTP.';
+      await logInscriptionHistory(reqData.id, req.user.id, 'EMAIL_FAILED', `Alumno creado correctamente, pero falló el envío del correo de activación: ${emailError}`);
+    }
+
+    res.json({
+      success: true,
+      message: 'Alumno creado y matriculado correctamente en el campus.',
+      userId,
+      emailSent,
+      emailError,
+      activationLink
+    });
+
+  } catch (error) {
+    if (conn) {
+      try { await conn.rollback(); } catch (rbErr) {}
+      conn.release();
+    }
+    console.error('Convert to student error:', error);
+    res.status(500).json({ error: 'Error durante la transacción de creación de alumno: ' + error.message });
+  }
+});
+
+// 9. ADMIN: Fetch request history timeline
+app.get('/api/admin/inscriptions/:id/history', requireAuth, requireNoTempPassword, async (req, res) => {
+  try {
+    const userRoles = req.user.roles || [];
+    if (!userRoles.includes('ADMINISTRADOR') && !userRoles.includes('SECRETARIA')) {
+      return res.status(403).json({ error: 'Acceso restringido.' });
+    }
+
+    const reqId = req.params.id;
+    const history = await query(`
+      SELECT h.*, u.nombre as user_name, u.apellidos as user_apellidos
+      FROM inscription_request_history h
+      LEFT JOIN usuarios u ON h.user_id = u.id
+      WHERE h.request_id = ?
+      ORDER BY h.created_at ASC
+    `, [reqId]);
+
+    res.json(history);
+  } catch (error) {
+    console.error('Fetch history error:', error);
+    res.status(500).json({ error: 'Error al consultar el historial de la solicitud.' });
+  }
+});
+
+// 10. ADMIN: Resend activation email
+app.post('/api/admin/inscriptions/:id/resend-activation-email', requireAuth, requireNoTempPassword, async (req, res) => {
+  try {
+    const userRoles = req.user.roles || [];
+    if (!userRoles.includes('ADMINISTRADOR') && !userRoles.includes('SECRETARIA')) {
+      return res.status(403).json({ error: 'Acceso restringido.' });
+    }
+
+    const reqId = req.params.id;
+    const rows = await query(`SELECT * FROM inscription_requests WHERE id = ? LIMIT 1`, [reqId]);
+
+    if (!rows || rows.length === 0 || !rows[0].student_user_id) {
+      return res.status(404).json({ error: 'La solicitud no está vinculada a ningún alumno.' });
+    }
+
+    const reqData = rows[0];
+    const userId = reqData.student_user_id;
+
+    // Generate new token
+    const rawActivationToken = crypto.randomBytes(32).toString('hex');
+    const tokenHash = crypto.createHash('sha256').update(rawActivationToken).digest('hex');
+
+    await query(`
+      INSERT INTO account_activation_tokens (user_id, token_hash, expires_at, created_at)
+      VALUES (?, ?, DATE_ADD(NOW(), INTERVAL 7 DAY), NOW())
+    `, [userId, tokenHash]);
+
+    const cleanEmail = normalizeEmail(reqData.email);
+    const activationLink = `http://localhost:3000/activar-cuenta?token=${rawActivationToken}`;
+
+    await sendSystemEmail({
+      to: cleanEmail,
+      subject: `Tu acceso al Campus de Academias Péndulo`,
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 25px; border: 1px solid #e5e7eb; border-radius: 12px; background: #ffffff;">
+          <div style="text-align: center; margin-bottom: 20px;">
+            <h1 style="color: #dc2626; margin: 0;">Academias Péndulo</h1>
+            <p style="color: #4b5563; font-size: 14px; margin-top: 4px;">Campus Virtual · Formación Oficial en Automoción</p>
+          </div>
+          <hr style="border: none; border-top: 1px solid #f3f4f6; margin: 20px 0;" />
+          
+          <p style="font-size: 16px; color: #1f2937;">Hola <strong>${reqData.first_name}</strong>,</p>
+          <p style="font-size: 15px; color: #374151; line-height: 1.5;">Te reenviamos tu enlace oficial de acceso al Campus Virtual para el curso <strong>${reqData.course_name}</strong>.</p>
+          
+          <div style="text-align: center; margin: 30px 0;">
+            <a href="${activationLink}" style="background-color: #dc2626; color: #ffffff; padding: 14px 28px; text-decoration: none; border-radius: 10px; font-weight: bold; font-size: 14px; display: inline-block;">
+              ACTIVAR MI CUENTA Y ESTABLECER CONTRASEÑA
+            </a>
+          </div>
+          <p style="font-size: 11px; color: #9ca3af; text-align: center;">Academias Péndulo · Formación en Automoción</p>
+        </div>
+      `
+    });
+
+    await logInscriptionHistory(reqData.id, req.user.id, 'ACTIVATION_EMAIL_SENT', `Reenvío de correo de acceso a ${cleanEmail}.`);
+
+    res.json({ success: true, message: 'Correo de acceso reenviado correctamente.' });
+  } catch (error) {
+    console.error('Resend activation email error:', error);
+    res.status(500).json({ error: 'Error al reenviar el correo de acceso: ' + error.message });
+  }
+});
+
+// 11. PUBLIC: Verify Activation Token & Activate Account
+app.get('/api/auth/activation-info', async (req, res) => {
+  try {
+    const { token } = req.query;
+    if (!token) return res.status(400).json({ error: 'Token no proporcionado.' });
+
+    const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+    const rows = await query(`
+      SELECT t.*, u.id as user_id, u.nombre, u.apellidos, u.email
+      FROM account_activation_tokens t
+      JOIN usuarios u ON t.user_id = u.id
+      WHERE t.token_hash = ? AND t.used_at IS NULL AND t.expires_at > NOW()
+      LIMIT 1
+    `, [tokenHash]);
+
+    if (!rows || rows.length === 0) {
+      return res.status(400).json({ error: 'El enlace de activación no es válido, ha caducado o ya ha sido utilizado.' });
+    }
+
+    res.json({
+      valid: true,
+      studentName: `${rows[0].nombre} ${rows[0].apellidos}`,
+      email: rows[0].email
+    });
+  } catch (error) {
+    console.error('Activation info error:', error);
+    res.status(500).json({ error: 'Error al verificar el token de activación.' });
+  }
+});
+
+app.post('/api/auth/activate-account', async (req, res) => {
+  try {
+    const { token, password } = req.body;
+    if (!token || !password || password.length < 6) {
+      return res.status(400).json({ error: 'Proporcione una contraseña válida de al menos 6 caracteres.' });
+    }
+
+    const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+    const rows = await query(`
+      SELECT t.*, u.id as user_id, u.nombre, u.apellidos, u.email
+      FROM account_activation_tokens t
+      JOIN usuarios u ON t.user_id = u.id
+      WHERE t.token_hash = ? AND t.used_at IS NULL AND t.expires_at > NOW()
+      LIMIT 1
+    `, [tokenHash]);
+
+    if (!rows || rows.length === 0) {
+      return res.status(400).json({ error: 'El enlace de activación es inválido o ha caducado.' });
+    }
+
+    const tokenData = rows[0];
+    const newPassHash = await hashPassword(password);
+
+    // Update user password and clear forced change flag
+    await query(`
+      UPDATE usuarios
+      SET password_hash = ?, cambio_password_obligatorio = 0, caducidad_password_temporal = NULL, estado = 'ACTIVO'
+      WHERE id = ?
+    `, [newPassHash, tokenData.user_id]);
+
+    // Mark token as used
+    await query(`UPDATE account_activation_tokens SET used_at = NOW() WHERE id = ?`, [tokenData.id]);
+
+    // Log history
+    const reqRows = await query(`SELECT id FROM inscription_requests WHERE student_user_id = ? LIMIT 1`, [tokenData.user_id]);
+    if (reqRows.length > 0) {
+      await logInscriptionHistory(reqRows[0].id, tokenData.user_id, 'ACCOUNT_ACTIVATED', 'El alumno activo su cuenta y estableció su contraseña.');
+    }
+
+    // Create session cookie for immediate login
+    const sessionToken = generateToken();
+    const sessionHash = hashToken(sessionToken);
+    const sessionId = `sess-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 6)}`;
+    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+
+    await query(`
+      INSERT INTO sesiones (id, usuario_id, token_hash, expiracion, creado_en)
+      VALUES (?, ?, ?, ?, NOW())
+    `, [sessionId, tokenData.user_id, sessionHash, expiresAt]);
+
+    res.cookie('campus_session', sessionToken, {
+      httpOnly: true,
+      secure: false,
+      sameSite: 'lax',
+      expires: expiresAt
+    });
+
+    res.json({
+      success: true,
+      message: 'Cuenta activada correctamente. Redirigiendo al campus...',
+      token: sessionToken,
+      user: {
+        id: tokenData.user_id,
+        nombre: tokenData.nombre,
+        apellidos: tokenData.apellidos,
+        email: tokenData.email,
+        role: 'ALUMNO'
+      }
+    });
+
+  } catch (error) {
+    console.error('Activate account error:', error);
+    res.status(500).json({ error: 'Error al activar la cuenta.' });
   }
 });
 

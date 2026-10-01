@@ -18,20 +18,36 @@ import {
   Mail,
   Sun,
   Moon,
+  ChevronDown,
 } from 'lucide-react';
-import { CampusView } from '../../types/campus';
+import { CampusView, UserRole } from '../../types/campus';
 
 export const CampusSidebarNav: React.FC = () => {
-  const { currentUser, currentView, navigateTo, logout, campusTheme, toggleCampusTheme } = useCampus();
+  const { currentUser, currentView, navigateTo, logout, campusTheme, toggleCampusTheme, updateUserProfile } = useCampus();
   const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false);
 
   if (!currentUser) return null;
 
   const role = currentUser.role;
 
+  // Role switching handler for multi-role users
+  const handleSwitchRole = async (targetRole: UserRole, defaultView: CampusView) => {
+    updateUserProfile(currentUser.id, { role: targetRole });
+    try {
+      await fetch('/api/auth/select-role', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ role: targetRole === 'ADMINISTRACION' ? 'ADMINISTRADOR' : targetRole })
+      });
+    } catch (e) {
+      console.warn('Role select fetch warning:', e);
+    }
+    navigateTo(defaultView);
+  };
+
   // Student Nav Items
   const studentNavItems = [
-    { view: 'dashboard' as CampusView, label: 'Dashboard', icon: LayoutDashboard },
+    { view: 'dashboard' as CampusView, label: 'Dashboard Alumno', icon: LayoutDashboard },
     { view: 'cursos' as CampusView, label: 'Mis Cursos', icon: BookOpen },
     { view: 'dudas' as CampusView, label: 'Dudas al Profesor', icon: HelpCircle },
     { view: 'secretaria' as CampusView, label: 'Secretaría Online', icon: FileText },
@@ -105,7 +121,7 @@ export const CampusSidebarNav: React.FC = () => {
         </div>
       </div>
 
-      {/* Desktop Sidebar (hidden on mobile) */}
+      {/* Desktop Sidebar */}
       <aside className="hidden lg:flex flex-col w-64 bg-zinc-950 border-r border-zinc-800 shrink-0 min-h-screen sticky top-0 h-screen">
         {/* Brand Top Header */}
         <div className="p-5 border-b border-zinc-800/80 flex items-center justify-between">
@@ -125,14 +141,14 @@ export const CampusSidebarNav: React.FC = () => {
             type="button"
             onClick={toggleCampusTheme}
             className="p-2 rounded-xl bg-zinc-900 border border-zinc-800 text-amber-400 hover:scale-105 transition-all shadow"
-            title={campusTheme === 'dark' ? 'Cambiar a Modo Día (Claro)' : 'Cambiar a Modo Noche (Oscuro)'}
+            title={campusTheme === 'dark' ? 'Cambiar a Modo Día' : 'Cambiar a Modo Noche'}
           >
             {campusTheme === 'dark' ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4 text-indigo-400" />}
           </button>
         </div>
 
-        {/* User Card */}
-        <div className="p-4 mx-3 my-3 bg-zinc-900/80 border border-zinc-800 rounded-xl">
+        {/* User Card & Multi-Role Selector */}
+        <div className="p-4 mx-3 my-3 bg-zinc-900/80 border border-zinc-800 rounded-2xl space-y-3">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-full bg-zinc-800 border border-zinc-700 flex items-center justify-center font-bold text-red-400 shrink-0">
               {currentUser.nombre.charAt(0)}
@@ -144,11 +160,48 @@ export const CampusSidebarNav: React.FC = () => {
               </div>
               <div className="flex items-center gap-1.5 mt-0.5">
                 <span className="inline-block w-2 h-2 rounded-full bg-emerald-500" />
-                <span className="text-[10px] uppercase tracking-wider font-semibold text-zinc-400">
+                <span className="text-[10px] uppercase tracking-wider font-semibold text-red-400">
                   {currentUser.role}
                 </span>
               </div>
             </div>
+          </div>
+
+          {/* Quick Role Mode Switcher Buttons */}
+          <div className="pt-2 border-t border-zinc-800/80 flex items-center gap-1">
+            <button
+              onClick={() => handleSwitchRole('ADMINISTRACION', 'admin-panel')}
+              className={`flex-1 py-1 px-1.5 text-[9px] font-bold rounded-lg uppercase tracking-wider transition-all ${
+                role === 'ADMINISTRACION'
+                  ? 'bg-red-600 text-white shadow'
+                  : 'bg-zinc-950 text-zinc-400 hover:text-white border border-zinc-800'
+              }`}
+              title="Ver Panel de Administración"
+            >
+              Admin
+            </button>
+            <button
+              onClick={() => handleSwitchRole('PROFESOR', 'profesor-dashboard')}
+              className={`flex-1 py-1 px-1.5 text-[9px] font-bold rounded-lg uppercase tracking-wider transition-all ${
+                role === 'PROFESOR'
+                  ? 'bg-red-600 text-white shadow'
+                  : 'bg-zinc-950 text-zinc-400 hover:text-white border border-zinc-800'
+              }`}
+              title="Ver Panel de Profesor"
+            >
+              Profesor
+            </button>
+            <button
+              onClick={() => handleSwitchRole('ALUMNO', 'dashboard')}
+              className={`flex-1 py-1 px-1.5 text-[9px] font-bold rounded-lg uppercase tracking-wider transition-all ${
+                role === 'ALUMNO'
+                  ? 'bg-red-600 text-white shadow'
+                  : 'bg-zinc-950 text-zinc-400 hover:text-white border border-zinc-800'
+              }`}
+              title="Ver Panel de Alumno"
+            >
+              Alumno
+            </button>
           </div>
         </div>
 
@@ -174,7 +227,7 @@ export const CampusSidebarNav: React.FC = () => {
           })}
         </nav>
 
-        {/* Footer Actions & Theme Selector */}
+        {/* Footer Actions */}
         <div className="p-3 border-t border-zinc-800/80 space-y-1">
           <button
             onClick={toggleCampusTheme}
@@ -245,13 +298,37 @@ export const CampusSidebarNav: React.FC = () => {
               </button>
             </div>
 
-            <div className="my-4 p-3 bg-zinc-900 rounded-xl border border-zinc-800 flex items-center gap-3">
-              <div className="w-8 h-8 rounded-full bg-zinc-800 text-red-400 flex items-center justify-center font-bold text-xs">
-                {currentUser.nombre.charAt(0)}
+            <div className="my-4 p-3 bg-zinc-900 rounded-xl border border-zinc-800 space-y-2">
+              <div className="flex items-center gap-3">
+                <div className="w-8 h-8 rounded-full bg-zinc-800 text-red-400 flex items-center justify-center font-bold text-xs">
+                  {currentUser.nombre.charAt(0)}
+                </div>
+                <div>
+                  <div className="text-xs font-bold text-white">{currentUser.nombre}</div>
+                  <div className="text-[10px] text-zinc-400 uppercase">{currentUser.role}</div>
+                </div>
               </div>
-              <div>
-                <div className="text-xs font-bold text-white">{currentUser.nombre}</div>
-                <div className="text-[10px] text-zinc-400 uppercase">{currentUser.role}</div>
+
+              {/* Mobile Role Switch Buttons */}
+              <div className="pt-2 border-t border-zinc-800 flex items-center gap-1">
+                <button
+                  onClick={() => { handleSwitchRole('ADMINISTRACION', 'admin-panel'); setMobileDrawerOpen(false); }}
+                  className="flex-1 py-1 text-[9px] font-bold rounded bg-zinc-800 text-white uppercase"
+                >
+                  Admin
+                </button>
+                <button
+                  onClick={() => { handleSwitchRole('PROFESOR', 'profesor-dashboard'); setMobileDrawerOpen(false); }}
+                  className="flex-1 py-1 text-[9px] font-bold rounded bg-zinc-800 text-white uppercase"
+                >
+                  Profesor
+                </button>
+                <button
+                  onClick={() => { handleSwitchRole('ALUMNO', 'dashboard'); setMobileDrawerOpen(false); }}
+                  className="flex-1 py-1 text-[9px] font-bold rounded bg-zinc-800 text-white uppercase"
+                >
+                  Alumno
+                </button>
               </div>
             </div>
 

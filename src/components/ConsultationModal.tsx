@@ -32,7 +32,7 @@ export const ConsultationModal: React.FC<ConsultationModalProps> = ({ isOpen, on
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name || !phone || isSubmitting) {
       setError('Por favor completa los campos obligatorios');
@@ -50,7 +50,7 @@ export const ConsultationModal: React.FC<ConsultationModalProps> = ({ isOpen, on
     const firstName = nameParts[0] || name;
     const lastName = nameParts.slice(1).join(' ') || '—';
 
-    submitContactRequest({
+    await submitContactRequest({
       first_name: firstName,
       last_name: lastName,
       email: email ? email.trim() : `${phone}@pendiente-email.es`,

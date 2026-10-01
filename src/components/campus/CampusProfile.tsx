@@ -15,6 +15,7 @@ export const CampusProfile: React.FC = () => {
   const [newPass, setNewPass] = useState('');
   const [confirmPass, setConfirmPass] = useState('');
 
+  const [loadingPass, setLoadingPass] = useState(false);
   const [successMsg, setSuccessMsg] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
 
@@ -25,13 +26,13 @@ export const CampusProfile: React.FC = () => {
     setTimeout(() => setSuccessMsg(''), 4000);
   };
 
-  const handleChangePassword = (e: React.FormEvent) => {
+  const handleChangePassword = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg('');
     setSuccessMsg('');
 
     if (newPass.length < 6) {
-      setErrorMsg('La contraseña debe tener al menos 6 caracteres.');
+      setErrorMsg('La nueva contraseña debe tener al menos 6 caracteres.');
       return;
     }
 
@@ -40,11 +41,32 @@ export const CampusProfile: React.FC = () => {
       return;
     }
 
-    setSuccessMsg('Contraseña actualizada con éxito.');
-    setCurrentPass('');
-    setNewPass('');
-    setConfirmPass('');
-    setTimeout(() => setSuccessMsg(''), 4000);
+    setLoadingPass(true);
+    try {
+      const res = await fetch('/api/auth/change-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          currentPassword: currentPass,
+          newPassword: newPass
+        })
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        setErrorMsg(data.error || 'Error al actualizar la contraseña.');
+      } else {
+        setSuccessMsg(data.message || 'Contraseña actualizada con éxito en la base de datos.');
+        setCurrentPass('');
+        setNewPass('');
+        setConfirmPass('');
+        setTimeout(() => setSuccessMsg(''), 5000);
+      }
+    } catch (err: any) {
+      setErrorMsg('Error de conexión al servidor de autenticación.');
+    } finally {
+      setLoadingPass(false);
+    }
   };
 
   return (
@@ -198,9 +220,10 @@ export const CampusProfile: React.FC = () => {
           <div className="flex justify-end">
             <button
               type="submit"
-              className="px-5 py-2.5 bg-red-600 hover:bg-red-700 text-white rounded-xl font-bold transition-all shadow-md"
+              disabled={loadingPass}
+              className="px-5 py-2.5 bg-red-600 hover:bg-red-700 text-white rounded-xl font-bold transition-all shadow-md disabled:opacity-50"
             >
-              Actualizar Contraseña
+              {loadingPass ? 'Guardando...' : 'Actualizar Contraseña'}
             </button>
           </div>
         </form>

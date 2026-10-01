@@ -12,7 +12,8 @@ import {
   Facebook,
   Linkedin,
   Instagram,
-  MessageCircle
+  MessageCircle,
+  Briefcase
 } from 'lucide-react';
 import { CENTER_INFO, CATEGORIES, COURSES } from '../data/coursesData';
 import { Course } from '../types';
@@ -22,13 +23,17 @@ interface NavbarProps {
   onSelectCourse: (course: Course) => void;
   onOpenConsultation: () => void;
   onOpenWorkWithUs?: () => void;
+  onOpenEmploymentPool?: () => void;
+  onOpenInscriptionModal?: () => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({ 
   onOpenCampus, 
   onSelectCourse, 
   onOpenConsultation,
-  onOpenWorkWithUs
+  onOpenWorkWithUs,
+  onOpenEmploymentPool,
+  onOpenInscriptionModal
 }) => {
   const [isScrolled, setIsScrolled] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -55,188 +60,213 @@ export const Navbar: React.FC<NavbarProps> = ({
 
   return (
     <header className="fixed top-0 left-0 right-0 z-50 w-full transition-all duration-300">
-      {/* Top Bar - Sleek Dark Black/Zinc */}
-      <div className="bg-gray-950 text-white text-xs py-2 px-4 border-b border-gray-800">
-        <div className="max-w-7xl mx-auto flex justify-between items-center">
+      {/* Top Bar - Sleek Dark Black/Zinc with Subtle Red Accent Accent Line */}
+      <div className="bg-gray-950 text-white text-xs py-2 px-4 sm:px-8 border-b border-gray-800/80 shadow-xs">
+        <div className="max-w-[1440px] mx-auto flex justify-between items-center">
           {/* Contact Information */}
-          <div className="flex items-center gap-4 sm:gap-6">
+          <div className="flex items-center gap-4 sm:gap-8">
             <a 
               href={`mailto:${CENTER_INFO.email}`}
-              className="flex items-center gap-1.5 hover:text-red-200 transition-colors min-h-[32px]"
+              className="flex items-center gap-2 hover:text-red-300 transition-colors min-h-[32px] text-gray-300 hover:scale-105"
             >
-              <Mail className="w-3.5 h-3.5" />
-              <span className="truncate max-w-[140px] sm:max-w-none">{CENTER_INFO.email}</span>
+              <Mail className="w-3.5 h-3.5 text-red-500" />
+              <span className="truncate max-w-[140px] sm:max-w-none font-medium">{CENTER_INFO.email}</span>
             </a>
             <a 
               href={`tel:${CENTER_INFO.phone.replace(/\s+/g, '')}`}
-              className="flex items-center gap-1.5 hover:text-red-200 transition-colors font-bold min-h-[32px]"
+              className="flex items-center gap-2 hover:text-red-300 transition-colors font-bold min-h-[32px] text-gray-200 hover:scale-105"
             >
-              <Phone className="w-3.5 h-3.5" />
+              <Phone className="w-3.5 h-3.5 text-red-500" />
               <span>{CENTER_INFO.phone}</span>
             </a>
           </div>
 
-          {/* Social Icons */}
-          <div className="hidden md:flex items-center gap-3">
-            <a href="#" className="hover:text-red-200"><Twitter className="w-3.5 h-3.5" /></a>
-            <a href="#" className="hover:text-red-200"><Facebook className="w-3.5 h-3.5" /></a>
-            <a href="#" className="hover:text-red-200"><Linkedin className="w-3.5 h-3.5" /></a>
-            <a href="#" className="hover:text-red-200"><Instagram className="w-3.5 h-3.5" /></a>
-            <a href="#" className="hover:text-red-200"><MessageCircle className="w-3.5 h-3.5" /></a>
+          {/* Social Icons & Official Accreditation Badge */}
+          <div className="hidden md:flex items-center gap-4">
+            <span className="text-[11px] text-gray-400 font-semibold tracking-wide border-r border-gray-800 pr-4 flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+              Matrícula Abierta Convocatoria 2026
+            </span>
+            <div className="flex items-center gap-3 text-gray-400">
+              <a href="#" className="hover:text-red-400 transition-colors hover:scale-110"><Twitter className="w-3.5 h-3.5" /></a>
+              <a href="#" className="hover:text-red-400 transition-colors hover:scale-110"><Facebook className="w-3.5 h-3.5" /></a>
+              <a href="#" className="hover:text-red-400 transition-colors hover:scale-110"><Linkedin className="w-3.5 h-3.5" /></a>
+              <a href="#" className="hover:text-red-400 transition-colors hover:scale-110"><Instagram className="w-3.5 h-3.5" /></a>
+              <a href="#" className="hover:text-red-400 transition-colors hover:scale-110"><MessageCircle className="w-3.5 h-3.5" /></a>
+            </div>
           </div>
         </div>
       </div>
 
-      {/* Main Nav Bar - White */}
-      <nav className={`w-full bg-white transition-all duration-300 ${isScrolled ? 'shadow-md py-2' : 'py-3'}`}>
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex items-center justify-between">
+      {/* Main Nav Bar - Glassmorphism & High-Aesthetic Styling */}
+      <nav className={`w-full bg-white/95 backdrop-blur-md border-b border-gray-100 transition-all duration-300 ${isScrolled ? 'shadow-lg py-2.5' : 'shadow-sm py-3.5'}`}>
+        <div className="max-w-[1440px] mx-auto px-4 sm:px-6 lg:px-8 flex items-center justify-between">
           
-          {/* Brand Logo - ACADEMIAS en negro, PÉNDULO en rojo */}
-          <a href="#" className="flex items-center gap-2 group shrink-0">
-            <div className="flex items-center gap-2">
+          {/* Brand Logo - Bigger & Crisp with Clear Spacing */}
+          <a href="#" className="flex items-center gap-3 group shrink-0 py-1">
+            <div className="flex items-center gap-3">
               {CENTER_INFO.logoUrl ? (
-                <img 
-                  src={CENTER_INFO.logoUrl} 
-                  alt="Academia Péndulo Logo" 
-                  className="w-8 h-8 sm:w-10 sm:h-10 rounded-lg object-cover border border-gray-200 shadow-xs group-hover:scale-105 transition-transform" 
-                />
+                <div className="relative">
+                  <img 
+                    src={CENTER_INFO.logoUrl} 
+                    alt="Academia Péndulo Logo" 
+                    className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl object-contain bg-white border border-gray-200/90 shadow-sm p-1 group-hover:scale-105 group-hover:shadow-md transition-all duration-300" 
+                  />
+                  <div className="absolute inset-0 rounded-xl ring-2 ring-red-500/20 group-hover:ring-red-500/40 transition-all pointer-events-none" />
+                </div>
               ) : (
-                <svg className="w-8 h-8 text-[#DC2626]" viewBox="0 0 100 100" fill="currentColor">
-                  <path d="M10 50 Q 50 10, 90 50 Q 50 40, 10 50 Z" />
-                  <path d="M10 65 Q 50 25, 90 65 Q 50 55, 10 65 Z" fill="#8B0000" />
-                </svg>
+                <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl bg-red-50 border border-red-200 flex items-center justify-center text-red-600 shadow-sm">
+                  <GraduationCap className="w-6 h-6" />
+                </div>
               )}
-              <div className="flex flex-col">
-                <span className="font-display font-black text-sm sm:text-xl tracking-tight text-gray-900 leading-none">
-                  ACADEMIAS <span className="text-[#DC2626] font-extrabold">PÉNDULO</span>
+              <div className="flex flex-col justify-center">
+                <span className="font-display font-black text-base sm:text-xl tracking-tight text-gray-900 leading-none group-hover:text-black transition-colors">
+                  ACADEMIAS <span className="text-[#DC2626] font-extrabold group-hover:text-red-700">PÉNDULO</span>
                 </span>
-                <span className="text-[8px] sm:text-[10px] text-gray-500 font-bold tracking-wider">Centro N.º 0400030892</span>
+                <span className="text-[9px] sm:text-[11px] text-gray-500 font-bold tracking-wider mt-0.5 uppercase">
+                  Centro N.º 0400030892
+                </span>
               </div>
             </div>
           </a>
 
-          {/* Desktop Navigation Links */}
-          <div className="hidden lg:flex flex-1 items-center justify-center gap-7 text-sm font-bold text-gray-900 pr-8">
+          {/* Desktop Navigation Links - Compact & Perfectly Spaced */}
+          <div className="hidden lg:flex items-center justify-end flex-1 gap-2 xl:gap-5 text-xs xl:text-sm font-bold text-gray-800 ml-4 xl:ml-8 mr-3">
             
             {/* Cursos Dropdown */}
             <div 
-              className="relative"
+              className="relative group"
               onMouseEnter={() => setActiveDropdown('cursos')}
               onMouseLeave={() => setActiveDropdown(null)}
             >
-              <button className="flex items-center gap-1 hover:text-[#DC2626] py-2 transition-colors">
+              <button className="flex items-center gap-1 hover:text-[#DC2626] py-2 px-1.5 transition-all font-bold cursor-pointer whitespace-nowrap">
                 <span>Cursos</span>
-                <ChevronDown className="w-4 h-4" />
+                <ChevronDown className={`w-3.5 h-3.5 transition-transform duration-200 ${activeDropdown === 'cursos' ? 'rotate-180 text-red-600' : ''}`} />
               </button>
 
               {activeDropdown === 'cursos' && (
-                <div className="absolute top-full left-0 w-64 bg-white rounded-b-xl shadow-xl border-t-2 border-[#DC2626] py-2 text-xs font-semibold animate-in fade-in duration-150">
-                  <a href="#especialidades" className="block px-4 py-2.5 hover:bg-red-50 text-gray-900 hover:text-[#DC2626]">Cursos Online</a>
-                  <a href="#especialidades" className="block px-4 py-2.5 hover:bg-red-50 text-gray-900 hover:text-[#DC2626]">Cursos Presenciales</a>
-                  <a href="#especialidades" className="block px-4 py-2.5 hover:bg-red-50 text-gray-900 hover:text-[#DC2626]">Cursos Privados</a>
-                  <a href="#especialidades" className="block px-4 py-2.5 hover:bg-red-50 text-gray-900 hover:text-[#DC2626]">Cursos por Familias Profesionales</a>
+                <div className="absolute top-full left-0 w-64 bg-white/95 backdrop-blur-xl rounded-2xl shadow-2xl border border-gray-100 border-t-4 border-t-[#DC2626] py-2 text-xs font-semibold animate-in fade-in slide-in-from-top-2 duration-200 z-50">
+                  <a href="#especialidades" className="block px-4 py-2.5 hover:bg-red-50 text-gray-900 hover:text-[#DC2626] transition-colors rounded-lg mx-1">Cursos Online</a>
+                  <a href="#especialidades" className="block px-4 py-2.5 hover:bg-red-50 text-gray-900 hover:text-[#DC2626] transition-colors rounded-lg mx-1">Cursos Presenciales</a>
+                  <a href="#especialidades" className="block px-4 py-2.5 hover:bg-red-50 text-gray-900 hover:text-[#DC2626] transition-colors rounded-lg mx-1">Cursos Privados</a>
+                  <a href="#especialidades" className="block px-4 py-2.5 hover:bg-red-50 text-gray-900 hover:text-[#DC2626] transition-colors rounded-lg mx-1">Cursos por Familias Profesionales</a>
                 </div>
               )}
             </div>
 
             {/* Servicios Dropdown */}
             <div 
-              className="relative"
+              className="relative group"
               onMouseEnter={() => setActiveDropdown('servicios')}
               onMouseLeave={() => setActiveDropdown(null)}
             >
-              <button className="flex items-center gap-1 hover:text-[#DC2626] py-2 transition-colors">
+              <button className="flex items-center gap-1 hover:text-[#DC2626] py-2 px-1.5 transition-all font-bold cursor-pointer whitespace-nowrap">
                 <span>Servicios</span>
-                <ChevronDown className="w-4 h-4" />
+                <ChevronDown className={`w-3.5 h-3.5 transition-transform duration-200 ${activeDropdown === 'servicios' ? 'rotate-180 text-red-600' : ''}`} />
               </button>
 
               {activeDropdown === 'servicios' && (
-                <div className="absolute top-full left-0 w-56 bg-white rounded-b-xl shadow-xl border-t-2 border-[#DC2626] py-2 text-xs font-semibold animate-in fade-in duration-150">
-                  <a href="#empresas" className="block px-4 py-2.5 hover:bg-red-50 text-gray-900 hover:text-[#DC2626]">Formación a Empresas</a>
-                  <a href="#empresas" className="block px-4 py-2.5 hover:bg-red-50 text-gray-900 hover:text-[#DC2626]">Gestión FUNDAE</a>
-                  <a href="#contacto" className="block px-4 py-2.5 hover:bg-red-50 text-gray-900 hover:text-[#DC2626]">Alquiler de Aulas</a>
+                <div className="absolute top-full left-0 w-56 bg-white/95 backdrop-blur-xl rounded-2xl shadow-2xl border border-gray-100 border-t-4 border-t-[#DC2626] py-2 text-xs font-semibold animate-in fade-in slide-in-from-top-2 duration-200 z-50">
+                  <a href="#empresas" className="block px-4 py-2.5 hover:bg-red-50 text-gray-900 hover:text-[#DC2626] transition-colors rounded-lg mx-1">Formación a Empresas</a>
+                  <a href="#empresas" className="block px-4 py-2.5 hover:bg-red-50 text-gray-900 hover:text-[#DC2626] transition-colors rounded-lg mx-1">Gestión FUNDAE</a>
+                  <a href="#contacto" className="block px-4 py-2.5 hover:bg-red-50 text-gray-900 hover:text-[#DC2626] transition-colors rounded-lg mx-1">Alquiler de Aulas</a>
                 </div>
               )}
             </div>
 
-            {/* Certificados de Profesionalidad Dropdown */}
+            {/* Certificados Dropdown */}
             <div 
-              className="relative"
+              className="relative group"
               onMouseEnter={() => setActiveDropdown('certificados')}
               onMouseLeave={() => setActiveDropdown(null)}
             >
-              <button className="flex items-center gap-1 hover:text-[#DC2626] py-2 transition-colors">
-                <span>Certificados de Profesionalidad</span>
-                <ChevronDown className="w-4 h-4" />
+              <button className="flex items-center gap-1 hover:text-[#DC2626] py-2 px-1.5 transition-all font-bold cursor-pointer whitespace-nowrap">
+                <span>Certificados</span>
+                <ChevronDown className={`w-3.5 h-3.5 transition-transform duration-200 ${activeDropdown === 'certificados' ? 'rotate-180 text-red-600' : ''}`} />
               </button>
 
               {activeDropdown === 'certificados' && (
-                <div className="absolute top-full left-0 w-64 bg-white rounded-b-xl shadow-xl border-t-2 border-[#DC2626] py-2 text-xs font-semibold animate-in fade-in duration-150">
-                  <a href="#certificados" className="block px-4 py-2.5 hover:bg-red-50 text-gray-900 hover:text-[#DC2626]">¿Qué es un Certificado?</a>
-                  <a href="#certificados" className="block px-4 py-2.5 hover:bg-red-50 text-gray-900 hover:text-[#DC2626]">Niveles de Acceso 1, 2 y 3</a>
-                  <a href="#certificados" className="block px-4 py-2.5 hover:bg-red-50 text-gray-900 hover:text-[#DC2626]">Convocatorias Junta de Andalucía</a>
+                <div className="absolute top-full left-0 w-64 bg-white/95 backdrop-blur-xl rounded-2xl shadow-2xl border border-gray-100 border-t-4 border-t-[#DC2626] py-2 text-xs font-semibold animate-in fade-in slide-in-from-top-2 duration-200 z-50">
+                  <a href="#certificados" className="block px-4 py-2.5 hover:bg-red-50 text-gray-900 hover:text-[#DC2626] transition-colors rounded-lg mx-1">¿Qué es un Certificado?</a>
+                  <a href="#certificados" className="block px-4 py-2.5 hover:bg-red-50 text-gray-900 hover:text-[#DC2626] transition-colors rounded-lg mx-1">Niveles de Acceso 1, 2 y 3</a>
+                  <a href="#certificados" className="block px-4 py-2.5 hover:bg-red-50 text-gray-900 hover:text-[#DC2626] transition-colors rounded-lg mx-1">Convocatorias Junta de Andalucía</a>
                 </div>
               )}
             </div>
 
             {/* Quienes Somos Dropdown */}
             <div 
-              className="relative"
+              className="relative group"
               onMouseEnter={() => setActiveDropdown('quienes')}
               onMouseLeave={() => setActiveDropdown(null)}
             >
-              <button className="flex items-center gap-1 hover:text-[#DC2626] py-2 transition-colors">
+              <button className="flex items-center gap-1 hover:text-[#DC2626] py-2 px-1.5 transition-all font-bold cursor-pointer whitespace-nowrap">
                 <span>Quienes Somos</span>
-                <ChevronDown className="w-4 h-4" />
+                <ChevronDown className={`w-3.5 h-3.5 transition-transform duration-200 ${activeDropdown === 'quienes' ? 'rotate-180 text-red-600' : ''}`} />
               </button>
 
               {activeDropdown === 'quienes' && (
-                <div className="absolute top-full left-0 w-56 bg-white rounded-b-xl shadow-xl border-t-2 border-[#DC2626] py-2 text-xs font-semibold animate-in fade-in duration-150">
-                  <a href="#talleres" className="block px-4 py-2.5 hover:bg-red-50 text-gray-900 hover:text-[#DC2626]">Nuestros Centros</a>
-                  <a href="#credibilidad" className="block px-4 py-2.5 hover:bg-red-50 text-gray-900 hover:text-[#DC2626]">Acreditaciones Oficiales</a>
-                  <a href="#trabaja-con-nosotros" className="block px-4 py-2.5 hover:bg-red-50 text-[#DC2626] font-bold">Trabaja con Nosotros</a>
+                <div className="absolute top-full left-0 w-56 bg-white/95 backdrop-blur-xl rounded-2xl shadow-2xl border border-gray-100 border-t-4 border-t-[#DC2626] py-2 text-xs font-semibold animate-in fade-in slide-in-from-top-2 duration-200 z-50">
+                  <a href="#talleres" className="block px-4 py-2.5 hover:bg-red-50 text-gray-900 hover:text-[#DC2626] transition-colors rounded-lg mx-1">Nuestros Centros</a>
+                  <a href="#credibilidad" className="block px-4 py-2.5 hover:bg-red-50 text-gray-900 hover:text-[#DC2626] transition-colors rounded-lg mx-1">Acreditaciones Oficiales</a>
+                  {onOpenWorkWithUs ? (
+                    <button 
+                      onClick={onOpenWorkWithUs} 
+                      className="w-full text-left px-4 py-2.5 hover:bg-red-50 text-[#DC2626] font-bold rounded-lg mx-1 block"
+                    >
+                      Trabaja con Nosotros
+                    </button>
+                  ) : (
+                    <a href="#trabaja-con-nosotros" className="block px-4 py-2.5 hover:bg-red-50 text-[#DC2626] font-bold rounded-lg mx-1">Trabaja con Nosotros</a>
+                  )}
                 </div>
               )}
             </div>
 
-            {onOpenWorkWithUs ? (
-              <button 
-                onClick={onOpenWorkWithUs} 
-                className="hover:text-[#DC2626] py-2 transition-colors font-medium text-gray-800 hover:scale-105"
-                id="hero-work-with-us-btn"
+            {/* Bolsa de Empleo Pill Button - Clean single line badge */}
+            {onOpenEmploymentPool && (
+              <button
+                onClick={onOpenEmploymentPool}
+                className="whitespace-nowrap flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-red-50 hover:bg-red-100 text-red-600 font-bold border border-red-200/80 shadow-xs hover:shadow-sm transition-all hover:scale-105 active:scale-95 cursor-pointer"
+                id="nav-btn-bolsa-empleo"
               >
-                Trabaja con Nosotros
+                <Briefcase className="w-3.5 h-3.5 text-red-600 shrink-0" />
+                <span className="tracking-tight text-xs font-extrabold">Bolsa de Empleo</span>
               </button>
-            ) : (
-              <a href="#trabaja-con-nosotros" className="hover:text-[#DC2626] py-2 transition-colors">
-                Trabaja con Nosotros
-              </a>
             )}
 
-            <a href="#contacto" className="hover:text-[#DC2626] py-2 transition-colors">
-              Contacto
+            {/* Contacto Pill Button - Matching Bolsa de Empleo style */}
+            <a 
+              href="#contacto" 
+              className="whitespace-nowrap flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-red-50 hover:bg-red-100 text-red-600 font-bold border border-red-200/80 shadow-xs hover:shadow-sm transition-all hover:scale-105 active:scale-95 cursor-pointer"
+              id="nav-btn-contacto"
+            >
+              <Phone className="w-3.5 h-3.5 text-red-600 shrink-0" />
+              <span className="tracking-tight text-xs font-extrabold">Contacto</span>
             </a>
           </div>
 
           {/* Right Action: Campus Button + Search Icon + Mobile Menu */}
-          <div className="flex shrink-0 items-center gap-1 sm:gap-2">
-            {/* Desktop / Tablet Campus Button */}
+          <div className="flex shrink-0 items-center gap-2">
+            {/* Desktop / Tablet Campus Button with Glowing Hover Micro-animation */}
             <button 
               onClick={onOpenCampus} 
-              className="hidden sm:flex px-4 py-2 bg-[#DC2626] hover:bg-[#B91C1C] text-white font-bold text-xs uppercase tracking-wider rounded-xl shadow-xs transition-all hover:scale-105 active:scale-95 cursor-pointer items-center gap-1.5"
+              className="group relative overflow-hidden hidden sm:flex px-4 py-2.5 bg-gradient-to-r from-red-600 via-red-600 to-red-700 hover:from-red-500 hover:to-red-600 text-white font-extrabold text-xs uppercase tracking-wider rounded-xl shadow-md hover:shadow-[0_0_20px_rgba(220,38,38,0.5)] transition-all duration-300 hover:scale-105 active:scale-95 cursor-pointer items-center gap-2 border border-red-400/50 shrink-0"
             >
-              <GraduationCap className="w-4 h-4" />
-              <span>Campus Virtual</span>
+              {/* Shimmer illumination sweep */}
+              <div className="absolute inset-0 w-full h-full bg-gradient-to-r from-transparent via-white/35 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-1000 ease-out pointer-events-none" />
+              <GraduationCap className="w-4 h-4 text-white group-hover:scale-125 group-hover:rotate-12 transition-transform duration-300 drop-shadow-sm" />
+              <span className="relative z-10 whitespace-nowrap">Campus Virtual</span>
             </button>
 
             {/* Mobile Compact Icon-Only Campus Button */}
             <button 
               onClick={onOpenCampus} 
-              className="sm:hidden flex items-center justify-center p-2 bg-[#DC2626] hover:bg-[#B91C1C] text-white rounded-xl shadow-xs transition-all active:scale-95 cursor-pointer"
+              className="group sm:hidden flex items-center justify-center p-2.5 bg-red-600 hover:bg-red-700 text-white rounded-xl shadow-md hover:shadow-[0_0_15px_rgba(220,38,38,0.6)] transition-all active:scale-95 cursor-pointer"
               title="Campus Virtual"
               aria-label="Campus Virtual"
             >
-              <GraduationCap className="w-4 h-4" />
+              <GraduationCap className="w-4 h-4 group-hover:scale-125 transition-transform" />
             </button>
 
             <button 
@@ -301,6 +331,20 @@ export const Navbar: React.FC<NavbarProps> = ({
                   className="w-full text-left flex items-center justify-between py-3.5 text-base font-bold text-red-600 min-h-[52px]"
                 >
                   <span>Trabaja con Nosotros</span>
+                </button>
+              )}
+              {onOpenEmploymentPool && (
+                <button 
+                  onClick={() => {
+                    setMobileMenuOpen(false);
+                    onOpenEmploymentPool();
+                  }} 
+                  className="w-full text-left flex items-center justify-between py-3.5 text-base font-bold text-red-600 min-h-[52px]"
+                >
+                  <span className="flex items-center gap-2">
+                    <Briefcase className="w-5 h-5 text-red-600 shrink-0" />
+                    Bolsa de Empleo Automoción
+                  </span>
                 </button>
               )}
               <a 

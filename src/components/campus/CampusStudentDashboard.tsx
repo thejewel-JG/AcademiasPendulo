@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { useCampus } from '../../context/CampusContext';
 import {
   BookOpen,
@@ -26,6 +26,46 @@ export const CampusStudentDashboard: React.FC = () => {
     secretaryRequests,
   } = useCampus();
 
+  const [backendLastVisited, setBackendLastVisited] = useState<{
+    material_id: string;
+    titulo: string;
+    tipo: string;
+    posicion_segundos: number;
+    duracion_segundos: number;
+    estado: string;
+  } | null>(null);
+
+  const [overallProgressData, setOverallProgressData] = useState<{
+    total_publicados: number;
+    completados: number;
+    porcentaje_global: number;
+    especialidad_nombre?: string;
+  } | null>(null);
+
+  useEffect(() => {
+    if (!currentUser) return;
+
+    // Fetch last visited material from backend
+    fetch('/api/progress/last-visited')
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (data && data.lastVisited) {
+          setBackendLastVisited(data.lastVisited);
+        }
+      })
+      .catch((e) => console.warn('Last visited error:', e));
+
+    // Fetch overall progress breakdown
+    fetch('/api/progress/overall')
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (data && data.has_active_enrollment) {
+          setOverallProgressData(data);
+        }
+      })
+      .catch((e) => console.warn('Overall progress error:', e));
+  }, [currentUser]);
+
   if (!currentUser) return null;
 
   const enrollments = getUserEnrollments(currentUser.id);
@@ -37,7 +77,13 @@ export const CampusStudentDashboard: React.FC = () => {
   const pendingDoubtsCount = userQuestions.filter((q) => q.estado === 'PENDIENTE').length;
   const userSecretaryRequests = secretaryRequests.filter((r) => r.estudianteId === currentUser.id);
 
-  const lastLessonInfo = getLastVisitedLesson();
+  const fallbackLastLesson = getLastVisitedLesson();
+
+  const formatMinSec = (sec: number) => {
+    const m = Math.floor(sec / 60);
+    const s = Math.floor(sec % 60);
+    return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+  };
 
   return (
     <div className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto space-y-8">
@@ -55,26 +101,51 @@ export const CampusStudentDashboard: React.FC = () => {
               ¡Hola, {currentUser.nombre}!
             </h1>
             <p className="mt-2 text-sm text-zinc-400 max-w-xl leading-relaxed">
-              Tienes <span className="text-white font-semibold">{totalCourses} cursos activos</span> en tu matrícula actual. Continúa con tu aprendizaje técnico profesional.
+              Especialidad: <strong className="text-white">{overallProgressData?.especialidad_nombre || 'Matrícula Activa'}</strong>. Progreso global completado:{' '}
+              <span className="text-red-400 font-bold">{overallProgressData ? overallProgressData.porcentaje_global : 0}%</span>{' '}
+              ({overallProgressData?.completados || 0} de {overallProgressData?.total_publicados || 0} materiales publicados).
             </p>
           </div>
 
-          {lastLessonInfo && (
+          {/* Continue Last Visited Material Card */}
+          {backendLastVisited ? (
+            <div className="bg-zinc-950/80 border border-zinc-800 p-4 rounded-2xl md:w-80 shrink-0 shadow-lg space-y-2">
+              <div className="text-[11px] font-bold text-red-400 uppercase tracking-wider flex items-center gap-1.5">
+                <Clock className="w-3.5 h-3.5" /> Continuar último material
+              </div>
+              <div className="text-xs font-bold text-white truncate">{backendLastVisited.titulo}</div>
+              <div className="text-[11px] text-zinc-400 flex items-center justify-between">
+                <span>Tipo: {backendLastVisited.tipo}</span>
+                {backendLastVisited.posicion_segundos > 0 && (
+                  <span className="text-red-400 font-semibold font-mono">
+                    Posición: {formatMinSec(backendLastVisited.posicion_segundos)}
+                  </span>
+                )}
+              </div>
+              <button
+                onClick={() => navigateTo('curso-detalle', enrollments[0]?.course.id || 'TMVG0004')}
+                className="w-full flex items-center justify-center gap-2 py-2 px-3 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-bold transition-all shadow-md"
+              >
+                <PlayCircle className="w-4 h-4" />
+                Continuar desde {formatMinSec(backendLastVisited.posicion_segundos)}
+              </button>
+            </div>
+          ) : fallbackLastLesson ? (
             <div className="bg-zinc-950/80 border border-zinc-800 p-4 rounded-2xl md:w-80 shrink-0 shadow-lg">
               <div className="text-[11px] font-bold text-red-400 uppercase tracking-wider mb-1 flex items-center gap-1.5">
                 <Clock className="w-3.5 h-3.5" /> Última lección visitada
               </div>
-              <div className="text-xs font-bold text-white truncate">{lastLessonInfo.lesson.titulo}</div>
-              <div className="text-[11px] text-zinc-400 truncate mt-0.5">{lastLessonInfo.course.nombre}</div>
+              <div className="text-xs font-bold text-white truncate">{fallbackLastLesson.lesson.titulo}</div>
+              <div className="text-[11px] text-zinc-400 truncate mt-0.5">{fallbackLastLesson.course.nombre}</div>
               <button
-                onClick={() => navigateTo('curso-detalle', lastLessonInfo.course.id)}
+                onClick={() => navigateTo('curso-detalle', fallbackLastLesson.course.id)}
                 className="mt-3 w-full flex items-center justify-center gap-2 py-2 px-3 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-bold transition-all shadow-md"
               >
                 <PlayCircle className="w-4 h-4" />
                 Continuar Curso
               </button>
             </div>
-          )}
+          ) : null}
         </div>
       </div>
 
@@ -104,7 +175,7 @@ export const CampusStudentDashboard: React.FC = () => {
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {enrollments.map(({ course }) => {
-              const progress = getCourseProgress(course.id);
+              const progress = overallProgressData ? overallProgressData.porcentaje_global : getCourseProgress(course.id);
               return (
                 <div
                   key={course.id}
@@ -135,12 +206,12 @@ export const CampusStudentDashboard: React.FC = () => {
                     {/* Progress Bar */}
                     <div>
                       <div className="flex justify-between items-center text-xs font-semibold mb-1.5">
-                        <span className="text-zinc-400">Progreso del curso</span>
+                        <span className="text-zinc-400">Progreso de Matrícula</span>
                         <span className="text-red-400">{progress}%</span>
                       </div>
                       <div className="w-full bg-zinc-800 h-2 rounded-full overflow-hidden">
                         <div
-                          className="bg-gradient-to-r from-red-600 to-red-500 h-full rounded-full transition-all duration-500"
+                          className="bg-gradient-to-r from-red-600 to-emerald-500 h-full rounded-full transition-all duration-500"
                           style={{ width: `${progress}%` }}
                         />
                       </div>

@@ -1,20 +1,27 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useCampus } from '../../context/CampusContext';
-import { GraduationCap, BookOpen, Users, HelpCircle, Bell, ArrowRight, PlayCircle } from 'lucide-react';
+import { GraduationCap, BookOpen, Users, HelpCircle, Bell, ArrowRight, PlayCircle, CheckCircle2, Clock, ShieldCheck } from 'lucide-react';
 import { PdfFileUploader } from './PdfFileUploader';
+
+interface StudentAnalytics {
+  alumno_id: string;
+  nombre: string;
+  email: string;
+  grupo_id: string;
+  total_publicados: number;
+  completados: number;
+  porcentaje_global: number;
+}
 
 export const CampusTeacherDashboard: React.FC = () => {
   const { currentUser, courses, questions, announcements, navigateTo, publishCourseResource } = useCampus();
 
-  if (!currentUser) return null;
+  const [studentAnalytics, setStudentAnalytics] = useState<StudentAnalytics[]>([]);
+  const [loadingAnalytics, setLoadingAnalytics] = useState<boolean>(true);
 
-  // Filter courses assigned to this teacher
-  const assignedCourses = courses.filter((c) => c.profesorId === currentUser.id);
-  const teacherQuestions = questions.filter((q) => q.profesorId === currentUser.id);
-  const pendingCount = teacherQuestions.filter((q) => q.estado === 'PENDIENTE').length;
-
+  // Material Modal State
   const [showMaterialModal, setShowMaterialModal] = useState(false);
-  const [selectedCourseId, setSelectedCourseId] = useState(assignedCourses[0]?.id || 'TMVG0004');
+  const [selectedCourseId, setSelectedCourseId] = useState('');
   const [selectedModuleId, setSelectedModuleId] = useState('mod1');
   const [resourceTitle, setResourceTitle] = useState('');
   const [resourceDesc, setResourceDesc] = useState('');
@@ -25,6 +32,34 @@ export const CampusTeacherDashboard: React.FC = () => {
   const [attachedPdfDataUrl, setAttachedPdfDataUrl] = useState('');
   const [allowDownload, setAllowDownload] = useState(true);
   const [publishSuccessMsg, setPublishSuccessMsg] = useState('');
+
+  // Assigned courses to teacher
+  const assignedCourses = courses.filter((c) => c.profesorId === currentUser?.id);
+  const teacherQuestions = questions.filter((q) => q.profesorId === currentUser?.id);
+  const pendingCount = teacherQuestions.filter((q) => q.estado === 'PENDIENTE').length;
+
+  useEffect(() => {
+    if (!selectedCourseId && assignedCourses.length > 0) {
+      setSelectedCourseId(assignedCourses[0].id);
+    }
+  }, [assignedCourses]);
+
+  useEffect(() => {
+    if (!currentUser) return;
+    setLoadingAnalytics(true);
+    fetch('/api/teacher/progress/analytics')
+      .then((res) => (res.ok ? res.json() : []))
+      .then((data) => {
+        setStudentAnalytics(Array.isArray(data) ? data : []);
+        setLoadingAnalytics(false);
+      })
+      .catch((e) => {
+        console.warn('Teacher analytics error:', e);
+        setLoadingAnalytics(false);
+      });
+  }, [currentUser]);
+
+  if (!currentUser) return null;
 
   const handlePublishMaterial = (e: React.FormEvent) => {
     e.preventDefault();
@@ -43,7 +78,7 @@ export const CampusTeacherDashboard: React.FC = () => {
     });
 
     setPublishSuccessMsg(
-      `¡Material "${resourceTitle}" publicado con éxito! Todos los alumnos matriculados ya tienen acceso al PDF.`
+      `¡Material "${resourceTitle}" publicado con éxito! Todos los alumnos matriculados en el grupo tienen acceso.`
     );
     setShowMaterialModal(false);
     setResourceTitle('');
@@ -68,7 +103,7 @@ export const CampusTeacherDashboard: React.FC = () => {
             Bienvenido, Profesor {currentUser.nombre}
           </h1>
           <p className="mt-2 text-sm text-zinc-400 max-w-xl">
-            Gestiona únicamente tus asignaturas tutorizadas, atiende consultas de alumnos y publica material formativo (PDFs y vídeos).
+            Gestiona únicamente tus asignaturas tutorizadas, consulta el progreso de tus grupos de alumnos y publica material formativo (PDFs y vídeos).
           </p>
         </div>
 
@@ -99,9 +134,77 @@ export const CampusTeacherDashboard: React.FC = () => {
         </div>
 
         <div className="bg-zinc-900 border border-zinc-800 p-5 rounded-2xl space-y-1">
-          <div className="text-xs text-zinc-400 font-semibold">Total Dudas Atendidas</div>
-          <div className="text-3xl font-extrabold text-emerald-400">{teacherQuestions.length}</div>
+          <div className="text-xs text-zinc-400 font-semibold">Alumnos con Matrícula Activa</div>
+          <div className="text-3xl font-extrabold text-emerald-400">{studentAnalytics.length}</div>
         </div>
+      </div>
+
+      {/* Student Progress Analytics Table for Teacher's Assigned Groups */}
+      <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 space-y-4 shadow-xl">
+        <div className="flex items-center justify-between border-b border-zinc-800 pb-3">
+          <div>
+            <h2 className="text-base font-bold text-white flex items-center gap-2 font-heading">
+              <Users className="w-5 h-5 text-red-500" />
+              Seguimiento Académico del Alumnado de tus Grupos
+            </h2>
+            <p className="text-xs text-zinc-400 mt-0.5">
+              Materiales iniciados, completados y avance global por alumno (denominador = materiales publicados aplicables).
+            </p>
+          </div>
+
+          <span className="text-[10px] bg-zinc-950 border border-zinc-800 px-3 py-1 rounded-full text-zinc-400 font-mono">
+            {studentAnalytics.length} Alumnos en Grupos Asignados
+          </span>
+        </div>
+
+        {loadingAnalytics ? (
+          <div className="text-center py-8 text-xs text-zinc-400">Cargando métricas del alumnado...</div>
+        ) : studentAnalytics.length === 0 ? (
+          <div className="text-center py-8 text-xs text-zinc-500">
+            No se registraron alumnos con matrículas activas en tus grupos asignados.
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs">
+              <thead>
+                <tr className="bg-zinc-950 text-zinc-400 uppercase font-bold text-[10px] tracking-wider border-b border-zinc-800">
+                  <th className="p-3">Alumno</th>
+                  <th className="p-3">Email</th>
+                  <th className="p-3">Grupo</th>
+                  <th className="p-3 text-center">Publicados Aplicables</th>
+                  <th className="p-3 text-center">Completados</th>
+                  <th className="p-3 text-right">Progreso Global</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-zinc-800/60">
+                {studentAnalytics.map((st) => (
+                  <tr key={st.alumno_id} className="hover:bg-zinc-850/50 transition-colors">
+                    <td className="p-3 font-bold text-white">{st.nombre}</td>
+                    <td className="p-3 text-zinc-400 font-mono text-[11px]">{st.email}</td>
+                    <td className="p-3">
+                      <span className="bg-zinc-950 border border-zinc-800 px-2 py-0.5 rounded text-[10px] font-bold text-red-400">
+                        {st.grupo_id}
+                      </span>
+                    </td>
+                    <td className="p-3 text-center font-bold text-zinc-300">{st.total_publicados}</td>
+                    <td className="p-3 text-center font-bold text-emerald-400">{st.completados}</td>
+                    <td className="p-3 text-right">
+                      <div className="flex items-center justify-end gap-2">
+                        <span className="font-extrabold text-white">{st.porcentaje_global}%</span>
+                        <div className="w-16 bg-zinc-800 h-2 rounded-full overflow-hidden border border-zinc-700">
+                          <div
+                            className="bg-gradient-to-r from-red-600 to-emerald-500 h-full rounded-full"
+                            style={{ width: `${st.porcentaje_global}%` }}
+                          />
+                        </div>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
 
       {/* Assigned Courses Grid */}

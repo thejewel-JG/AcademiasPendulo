@@ -6,16 +6,20 @@ import {
   GraduationCap, 
   ShieldCheck, 
   ArrowUp,
-  Award
+  Award,
+  Facebook,
+  Instagram,
+  Youtube
 } from 'lucide-react';
 import { CENTER_INFO, CATEGORIES } from '../data/coursesData';
 
 interface FooterProps {
   onOpenCampus: () => void;
   onOpenConsultation: () => void;
+  onOpenEmploymentPool?: () => void;
 }
 
-export const Footer: React.FC<FooterProps> = ({ onOpenCampus, onOpenConsultation }) => {
+export const Footer: React.FC<FooterProps> = ({ onOpenCampus, onOpenConsultation, onOpenEmploymentPool }) => {
   const scrollToTop = () => {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
@@ -23,8 +27,8 @@ export const Footer: React.FC<FooterProps> = ({ onOpenCampus, onOpenConsultation
   return (
     <footer className="bg-gray-950 text-white text-xs border-t border-gray-800">
       
-      {/* Top Banner inside footer with Official Accreditations Logos */}
-      <div className="border-b border-gray-800 py-6 bg-black/80">
+      {/* Top Banner inside footer with Official Accreditations Logos & Social Media Links */}
+      <div className="border-b border-gray-800 py-6 bg-black/90">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col lg:flex-row items-center justify-between gap-6 text-center lg:text-left">
           
           <div className="flex flex-col sm:flex-row items-center gap-4 sm:gap-6">
@@ -42,7 +46,7 @@ export const Footer: React.FC<FooterProps> = ({ onOpenCampus, onOpenConsultation
               </div>
             </div>
 
-            {/* Official Logos - Separated, Larger & Clearer */}
+            {/* Official Logos */}
             <div className="flex items-center gap-4 shrink-0 pt-2 sm:pt-0">
               <div className="bg-white p-2.5 sm:p-3 rounded-xl border border-gray-200 shadow-sm flex items-center justify-center">
                 <img 
@@ -61,13 +65,57 @@ export const Footer: React.FC<FooterProps> = ({ onOpenCampus, onOpenConsultation
             </div>
           </div>
 
-          <div className="flex items-center gap-3 shrink-0">
-            <button
-              onClick={onOpenConsultation}
-              className="px-5 py-2.5 rounded-xl bg-[#DC2626] hover:bg-[#B91C1C] text-white font-bold text-xs uppercase tracking-wider transition-all shadow-md active:scale-95 cursor-pointer"
+          {/* Social Media Icons (Facebook, TikTok, YouTube, Instagram) */}
+          <div className="flex items-center justify-center lg:justify-end gap-3 shrink-0">
+            {/* Facebook */}
+            <a
+              href="https://facebook.com"
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label="Facebook Academias Péndulo"
+              title="Facebook"
+              className="w-11 h-11 rounded-xl bg-gray-900 border border-gray-800 hover:border-blue-500/60 hover:bg-blue-600/20 text-blue-400 hover:text-white flex items-center justify-center transition-all duration-300 hover:scale-110 shadow-sm cursor-pointer"
             >
-              Solicitar Plaza
-            </button>
+              <Facebook className="w-5 h-5" />
+            </a>
+
+            {/* TikTok */}
+            <a
+              href="https://tiktok.com"
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label="TikTok Academias Péndulo"
+              title="TikTok"
+              className="w-11 h-11 rounded-xl bg-gray-900 border border-gray-800 hover:border-pink-500/60 hover:bg-pink-600/20 text-gray-200 hover:text-white flex items-center justify-center transition-all duration-300 hover:scale-110 shadow-sm cursor-pointer group"
+            >
+              <svg className="w-5 h-5 fill-current text-gray-200 group-hover:text-pink-400 transition-colors" viewBox="0 0 24 24">
+                <path d="M19.59 6.69a4.83 4.83 0 0 1-3.77-4.25V2h-3.45v13.67a2.89 2.89 0 1 1-5.2-1.74 2.89 2.89 0 0 1 2.31-4.64c.29 0 .56.04.83.1v-3.6a6.35 6.35 0 0 0-.83-.05A6.34 6.34 0 1 0 15.82 12V8.42a8.2 8.2 0 0 0 4.77 1.52v-3.25a4.83 4.83 0 0 1-1-.03z" />
+              </svg>
+            </a>
+
+            {/* YouTube */}
+            <a
+              href="https://youtube.com"
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label="YouTube Academias Péndulo"
+              title="YouTube"
+              className="w-11 h-11 rounded-xl bg-gray-900 border border-gray-800 hover:border-red-500/60 hover:bg-red-600/20 text-red-500 hover:text-white flex items-center justify-center transition-all duration-300 hover:scale-110 shadow-sm cursor-pointer"
+            >
+              <Youtube className="w-5 h-5" />
+            </a>
+
+            {/* Instagram */}
+            <a
+              href="https://instagram.com"
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label="Instagram Academias Péndulo"
+              title="Instagram"
+              className="w-11 h-11 rounded-xl bg-gray-900 border border-gray-800 hover:border-pink-500/60 hover:bg-pink-600/20 text-pink-400 hover:text-white flex items-center justify-center transition-all duration-300 hover:scale-110 shadow-sm cursor-pointer"
+            >
+              <Instagram className="w-5 h-5" />
+            </a>
           </div>
 
         </div>
