@@ -1675,7 +1675,7 @@ app.post('/api/internal/cron/sync', async (req, res) => {
 });
 
 // Helper for sending transactional / notification emails via SMTP
-async function sendSystemEmail({ to, subject, html }) {
+async function sendSystemEmail({ to, subject, html, attachments }) {
   try {
     const smtpHost = process.env.SMTP_HOST || 'smtp.gmail.com';
     const smtpPort = Number(process.env.SMTP_PORT || 465);
@@ -1690,12 +1690,18 @@ async function sendSystemEmail({ to, subject, html }) {
       tls: { rejectUnauthorized: false }
     });
 
-    const info = await transporter.sendMail({
+    const mailOptions = {
       from: `"Academias Péndulo" <${smtpUser}>`,
       to,
       subject,
       html
-    });
+    };
+
+    if (attachments && Array.isArray(attachments) && attachments.length > 0) {
+      mailOptions.attachments = attachments;
+    }
+
+    const info = await transporter.sendMail(mailOptions);
 
     console.log(`[SMTP SYSTEM EMAIL SENT] To: ${to} | ID: ${info.messageId}`);
     return info;
@@ -1986,6 +1992,152 @@ app.get('/api/admin/employment-pool', requireAuth, requireNoTempPassword, async 
   } catch (error) {
     console.error('Fetch employment pool error:', error);
     res.status(500).json({ error: 'Error al consultar candidatos de la bolsa de empleo.' });
+  }
+});
+
+// ==========================================
+// TRABAJA CON NOSOTROS (EMPLOYMENT & CV RECRUITMENT)
+// ==========================================
+
+const CVS_UPLOAD_DIR = path.join(__dirname, 'uploads', 'cvs');
+if (!fs.existsSync(CVS_UPLOAD_DIR)) {
+  fs.mkdirSync(CVS_UPLOAD_DIR, { recursive: true });
+}
+
+// Public Work With Us (Trabaja con Nosotros) application endpoint
+app.post('/api/public/work-with-us', async (req, res) => {
+  try {
+    const {
+      name,
+      email,
+      phone,
+      position,
+      notes,
+      cv_filename,
+      cv_base64
+    } = req.body;
+
+    if (!name || !email || !phone) {
+      return res.status(400).json({ error: 'Nombre, email y teléfono son requeridos.' });
+    }
+
+    const candId = `trab_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    const candidateName = name.trim();
+    const userEmail = email.trim();
+    const userPhone = phone.trim();
+    const candidatePosition = position || 'Docente de Automoción';
+
+    let savedCvPath = null;
+    let cvOriginalName = cv_filename || 'CV.pdf';
+    let emailAttachments = [];
+
+    // Handle CV file base64 if provided
+    if (cv_base64) {
+      try {
+        const matches = cv_base64.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
+        let buffer;
+        if (matches && matches.length === 3) {
+          buffer = Buffer.from(matches[2], 'base64');
+        } else {
+          buffer = Buffer.from(cv_base64, 'base64');
+        }
+
+        const ext = path.extname(cvOriginalName) || '.pdf';
+        const safeName = `cv_${Date.now()}_${generateToken(6)}${ext}`;
+        const fullPath = path.join(CVS_UPLOAD_DIR, safeName);
+        fs.writeFileSync(fullPath, buffer);
+        savedCvPath = `/uploads/cvs/${safeName}`;
+
+        emailAttachments.push({
+          filename: cvOriginalName,
+          content: buffer
+        });
+      } catch (cvErr) {
+        console.warn('Error saving CV file on disk:', cvErr);
+      }
+    }
+
+    // 1. Insert into MySQL candidaturas_trabajo
+    await query(`
+      INSERT INTO candidaturas_trabajo
+      (id, nombre, email, telefono, puesto, observaciones, cv_nombre, cv_ruta, estado, creado_en)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'PENDIENTE', NOW())
+    `, [
+      candId,
+      candidateName,
+      userEmail,
+      userPhone,
+      candidatePosition,
+      notes || 'Candidatura enviada desde la web.',
+      cvOriginalName,
+      savedCvPath
+    ]);
+
+    // 2. Email notification to Secretaría / HR Admin
+    const adminNotificationEmail = process.env.DEFAULT_NOTIFICATION_EMAIL || process.env.SMTP_USER || 'guillerminajoya@gmail.com';
+    sendSystemEmail({
+      to: adminNotificationEmail,
+      subject: `💼 Nueva Candidatura Recibida (Trabaja con Nosotros): ${candidateName} - ${candidatePosition}`,
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e5e7eb; border-radius: 12px; background: #ffffff;">
+          <h2 style="color: #dc2626; margin-top: 0;">💼 Nueva Candidatura: Trabaja con Nosotros</h2>
+          <p>Se ha recibido una nueva solicitud de empleo para el equipo de Academias Péndulo:</p>
+          <table style="width: 100%; border-collapse: collapse; margin: 15px 0;">
+            <tr style="border-bottom: 1px solid #f3f4f6;"><td style="padding: 8px; font-weight: bold; width: 140px;">Candidato:</td><td style="padding: 8px;">${candidateName}</td></tr>
+            <tr style="border-bottom: 1px solid #f3f4f6;"><td style="padding: 8px; font-weight: bold;">Puesto de Interés:</td><td style="padding: 8px; font-weight: bold; color: #dc2626;">${candidatePosition}</td></tr>
+            <tr style="border-bottom: 1px solid #f3f4f6;"><td style="padding: 8px; font-weight: bold;">Teléfono:</td><td style="padding: 8px;"><a href="tel:${userPhone}">${userPhone}</a></td></tr>
+            <tr style="border-bottom: 1px solid #f3f4f6;"><td style="padding: 8px; font-weight: bold;">Email:</td><td style="padding: 8px;"><a href="mailto:${userEmail}">${userEmail}</a></td></tr>
+            <tr style="border-bottom: 1px solid #f3f4f6;"><td style="padding: 8px; font-weight: bold;">CV Adjunto:</td><td style="padding: 8px;">${cvOriginalName} (adjunto en este correo)</td></tr>
+            <tr style="border-bottom: 1px solid #f3f4f6;"><td style="padding: 8px; font-weight: bold;">Carta / Mensaje:</td><td style="padding: 8px;">${notes || 'Sin mensaje adicional'}</td></tr>
+          </table>
+          <p style="font-size: 12px; color: #6b7280; margin-top: 20px;">Recibido el ${new Date().toLocaleString('es-ES')}</p>
+        </div>
+      `,
+      attachments: emailAttachments
+    });
+
+    // 3. Confirmation email to the Candidate
+    sendSystemEmail({
+      to: userEmail,
+      subject: `💼 Hemos recibido tu CV - Academias Péndulo`,
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 25px; border: 1px solid #e0e7ff; border-radius: 12px; background: #ffffff;">
+          <div style="text-align: center; margin-bottom: 20px;">
+            <h1 style="color: #dc2626; margin: 0;">Academias Péndulo</h1>
+            <p style="color: #6b7280; font-size: 14px; margin-top: 4px;">Selección y Recursos Humanos</p>
+          </div>
+          <hr style="border: none; border-top: 1px solid #f3f4f6; margin: 20px 0;" />
+          <h2 style="color: #1f2937;">¡Hola ${candidateName}!</h2>
+          <p>Hemos recibido correctamente tu currículum vitae y datos de candidatura para el puesto de <strong>${candidatePosition}</strong>.</p>
+          <div style="background-color: #fef2f2; padding: 16px; border-radius: 8px; margin: 15px 0; border-left: 4px solid #dc2626;">
+            <p style="margin: 0; font-weight: bold; color: #991b1b;">Puesto solicitado: ${candidatePosition}</p>
+            <p style="margin: 4px 0 0 0; font-size: 12px; color: #7f1d1d;">Currículum registrado: ${cvOriginalName}</p>
+          </div>
+          <p>Nuestro equipo directivo y pedagógico revisará tu perfil detalladamente. Si tu experiencia se ajusta a nuestras vacantes actuales o de próximas convocatorias, nos pondremos en contacto contigo a través del teléfono <strong>${userPhone}</strong> o este correo electrónico.</p>
+          <hr style="border: none; border-top: 1px solid #f3f4f6; margin: 20px 0;" />
+          <p style="font-size: 11px; color: #9ca3af; text-align: center;">Academias Péndulo · Centro de Formación Profesional Oficial de Automoción</p>
+        </div>
+      `
+    });
+
+    res.status(201).json({ success: true, id: candId });
+  } catch (error) {
+    console.error('Work with us registration error:', error);
+    res.status(500).json({ error: 'Error al procesar la candidatura. Por favor inténtalo de nuevo.' });
+  }
+});
+
+// Admin endpoint: Fetch all job applications
+app.get('/api/admin/work-with-us', requireAuth, requireNoTempPassword, async (req, res) => {
+  try {
+    if (!req.user.roles.includes('ADMINISTRADOR')) {
+      return res.status(403).json({ error: 'Acceso restringido a la administración.' });
+    }
+    const applications = await query(`SELECT * FROM candidaturas_trabajo ORDER BY creado_en DESC`);
+    res.json(applications);
+  } catch (error) {
+    console.error('Fetch work with us applications error:', error);
+    res.status(500).json({ error: 'Error al consultar candidaturas de empleo.' });
   }
 });
 
