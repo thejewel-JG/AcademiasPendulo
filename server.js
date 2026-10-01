@@ -486,19 +486,50 @@ app.delete('/api/admin/users/:id/roles/:roleCode', requireAuth, requireNoTempPas
 
 app.get('/api/academic/my-enrollment', requireAuth, requireNoTempPassword, async (req, res) => {
   try {
-    // 1. Get current active enrollment
-    const activeRows = await query(`
+    // 1. Get current active enrollment from atomic view/table
+    let activeRows = await query(`
       SELECT m.id as matricula_id, m.estado, m.fecha_inicio,
              g.id as grupo_id, g.nombre as grupo_nombre,
              e.id as especialidad_id, e.codigo as especialidad_codigo, e.nombre as especialidad_nombre,
-             u.id as profesor_id, CONCAT(u.nombre, ' ', u.apellidos) as profesor_nombre
+             u.id as profesor_id, CONCAT(u.nombre, ' ', u.apellidos) as profesor_nombre, u.email as profesor_email
       FROM alumno_matricula_activa ama
       JOIN matriculas m ON ama.matricula_id = m.id
       JOIN grupos g ON m.grupo_id = g.id
       JOIN especialidades e ON g.especialidad_id = e.id
-      JOIN usuarios u ON g.profesor_principal_id = u.id
+      LEFT JOIN usuarios u ON g.profesor_principal_id = u.id
       WHERE ama.alumno_id = ?
       LIMIT 1
+    `, [req.user.id]);
+
+    // Fallback: If not in alumno_matricula_activa, fetch any active matricula for the student
+    if (!activeRows || activeRows.length === 0) {
+      activeRows = await query(`
+        SELECT m.id as matricula_id, m.estado, m.fecha_inicio,
+               g.id as grupo_id, g.nombre as grupo_nombre,
+               e.id as especialidad_id, e.codigo as especialidad_codigo, e.nombre as especialidad_nombre,
+               u.id as profesor_id, CONCAT(u.nombre, ' ', u.apellidos) as profesor_nombre, u.email as profesor_email
+        FROM matriculas m
+        JOIN grupos g ON m.grupo_id = g.id
+        JOIN especialidades e ON g.especialidad_id = e.id
+        LEFT JOIN usuarios u ON g.profesor_principal_id = u.id
+        WHERE m.alumno_id = ? AND m.estado = 'ACTIVA'
+        ORDER BY m.fecha_inicio DESC
+        LIMIT 1
+      `, [req.user.id]);
+    }
+
+    // All active enrollments for this student (in case student is enrolled in multiple courses)
+    const allActiveRows = await query(`
+      SELECT m.id as matricula_id, m.estado, m.fecha_inicio,
+             g.id as grupo_id, g.nombre as grupo_nombre,
+             e.id as especialidad_id, e.codigo as especialidad_codigo, e.nombre as especialidad_nombre,
+             u.id as profesor_id, CONCAT(u.nombre, ' ', u.apellidos) as profesor_nombre, u.email as profesor_email
+      FROM matriculas m
+      JOIN grupos g ON m.grupo_id = g.id
+      JOIN especialidades e ON g.especialidad_id = e.id
+      LEFT JOIN usuarios u ON g.profesor_principal_id = u.id
+      WHERE m.alumno_id = ? AND m.estado = 'ACTIVA'
+      ORDER BY m.fecha_inicio DESC
     `, [req.user.id]);
 
     const activeEnrollment = activeRows.length > 0 ? activeRows[0] : null;
@@ -516,6 +547,7 @@ app.get('/api/academic/my-enrollment', requireAuth, requireNoTempPassword, async
 
     res.json({
       activeEnrollment,
+      activeEnrollments: allActiveRows.length > 0 ? allActiveRows : (activeEnrollment ? [activeEnrollment] : []),
       history: historyRows
     });
   } catch (error) {
@@ -927,11 +959,22 @@ app.post('/api/materials/:id/progress', requireAuth, requireNoTempPassword, asyn
 app.get('/api/communications/conversations', requireAuth, requireNoTempPassword, async (req, res) => {
   try {
     let sql = `
-      SELECT c.id, c.tipo, c.asunto, c.creador_id, c.responsable_id, c.estado, c.creado_en, c.actualizado_en,
+      SELECT c.id, c.tipo, c.asunto, c.creador_id, c.grupo_id, c.responsable_id, c.estado, c.creado_en, c.actualizado_en,
              CONCAT(uc.nombre, ' ', uc.apellidos) as creador_nombre,
-             (SELECT cuerpo FROM mensajes WHERE conversacion_id = c.id ORDER BY creado_en DESC LIMIT 1) as ultimo_mensaje
+             uc.email as creador_email,
+             CONCAT(ur.nombre, ' ', ur.apellidos) as responsable_nombre,
+             ur.email as responsable_email,
+             g.nombre as grupo_nombre,
+             e.id as especialidad_id,
+             e.codigo as especialidad_codigo,
+             e.nombre as especialidad_nombre,
+             (SELECT cuerpo FROM mensajes WHERE conversacion_id = c.id ORDER BY creado_en DESC LIMIT 1) as ultimo_mensaje,
+             (SELECT COUNT(*) FROM mensajes WHERE conversacion_id = c.id) as total_mensajes
       FROM conversaciones c
       JOIN usuarios uc ON c.creador_id = uc.id
+      LEFT JOIN usuarios ur ON c.responsable_id = ur.id
+      LEFT JOIN grupos g ON c.grupo_id = g.id
+      LEFT JOIN especialidades e ON g.especialidad_id = e.id
     `;
     const params = [];
 
@@ -939,10 +982,13 @@ app.get('/api/communications/conversations', requireAuth, requireNoTempPassword,
       // Admin sees all
       sql += ` ORDER BY c.actualizado_en DESC`;
     } else if (req.user.roles.includes('PROFESOR')) {
-      // Teacher sees academic doubts for their assigned groups + their own conversations
+      // Teacher sees academic doubts for their assigned groups + their own conversations / assigned to them
       sql += ` WHERE (
-        c.tipo = 'ACADEMICA' AND c.grupo_id IN (SELECT id FROM grupos WHERE profesor_principal_id = ?)
-      ) OR c.creador_id = ? OR c.responsable_id = ?
+        c.tipo = 'ACADEMICA' AND (
+          c.grupo_id IN (SELECT id FROM grupos WHERE profesor_principal_id = ?)
+          OR c.responsable_id = ?
+        )
+      ) OR c.creador_id = ?
       ORDER BY c.actualizado_en DESC`;
       params.push(req.user.id, req.user.id, req.user.id);
     } else {
@@ -970,15 +1016,33 @@ app.post('/api/communications/conversations', requireAuth, requireNoTempPassword
 
     // If academic doubt, resolve group's teacher as responsable
     let responsableId = null;
-    if (tipo === 'ACADEMICA' && grupo_id) {
-      const g = await query(`SELECT profesor_principal_id FROM grupos WHERE id = ? LIMIT 1`, [grupo_id]);
-      if (g.length > 0) responsableId = g[0].profesor_principal_id;
+    let resolvedGrupoId = grupo_id || null;
+
+    if (tipo === 'ACADEMICA') {
+      if (!resolvedGrupoId) {
+        // Find student's active group
+        const grpStudent = await query(`
+          SELECT g.id, g.profesor_principal_id
+          FROM alumno_matricula_activa ama
+          JOIN matriculas m ON ama.matricula_id = m.id
+          JOIN grupos g ON m.grupo_id = g.id
+          WHERE ama.alumno_id = ?
+          LIMIT 1
+        `, [req.user.id]);
+        if (grpStudent.length > 0) {
+          resolvedGrupoId = grpStudent[0].id;
+          responsableId = grpStudent[0].profesor_principal_id;
+        }
+      } else {
+        const g = await query(`SELECT profesor_principal_id FROM grupos WHERE id = ? LIMIT 1`, [resolvedGrupoId]);
+        if (g.length > 0) responsableId = g[0].profesor_principal_id;
+      }
     }
 
     await query(`
       INSERT INTO conversaciones (id, tipo, asunto, creador_id, grupo_id, responsable_id, estado)
       VALUES (?, ?, ?, ?, ?, ?, 'ABIERTA')
-    `, [convId, tipo, asunto.trim(), req.user.id, grupo_id || null, responsableId]);
+    `, [convId, tipo, asunto.trim(), req.user.id, resolvedGrupoId, responsableId]);
 
     // Insert initial message
     const msgId = `msg-${Date.now().toString(36)}-${generateToken(4)}`;
@@ -987,7 +1051,7 @@ app.post('/api/communications/conversations', requireAuth, requireNoTempPassword
       VALUES (?, ?, ?, ?)
     `, [msgId, convId, req.user.id, cuerpo.trim()]);
 
-    res.status(201).json({ success: true, id: convId });
+    res.status(201).json({ success: true, id: convId, responsable_id: responsableId });
   } catch (error) {
     console.error('Create conversation error:', error);
     res.status(500).json({ error: 'Error al iniciar conversación.' });
@@ -1009,7 +1073,13 @@ app.get('/api/communications/conversations/:id/messages', requireAuth, requireNo
       if (req.user.roles.includes('PROFESOR')) {
         const isAssignedTeacher = conv.responsable_id === req.user.id;
         const isCreator = conv.creador_id === req.user.id;
-        if (!isAssignedTeacher && !isCreator) {
+        // Also check if teacher owns the group
+        let isGroupTeacher = false;
+        if (conv.grupo_id) {
+          const g = await query(`SELECT id FROM grupos WHERE id = ? AND profesor_principal_id = ? LIMIT 1`, [conv.grupo_id, req.user.id]);
+          if (g.length > 0) isGroupTeacher = true;
+        }
+        if (!isAssignedTeacher && !isCreator && !isGroupTeacher) {
           return res.status(403).json({ error: 'Acceso denegado a la conversación.' });
         }
       } else if (conv.creador_id !== req.user.id) {
@@ -1019,7 +1089,9 @@ app.get('/api/communications/conversations/:id/messages', requireAuth, requireNo
 
     const messages = await query(`
       SELECT m.id, m.conversacion_id, m.remitente_id, m.cuerpo, m.estado, m.creado_en,
-             CONCAT(u.nombre, ' ', u.apellidos) as remitente_nombre
+             CONCAT(u.nombre, ' ', u.apellidos) as remitente_nombre,
+             u.email as remitente_email,
+             (SELECT rol_codigo FROM usuario_roles WHERE usuario_id = u.id LIMIT 1) as remitente_rol
       FROM mensajes m
       JOIN usuarios u ON m.remitente_id = u.id
       WHERE m.conversacion_id = ?
@@ -1052,6 +1124,22 @@ app.post('/api/communications/conversations/:id/messages', requireAuth, requireN
   } catch (error) {
     console.error('Post message error:', error);
     res.status(500).json({ error: 'Error al enviar mensaje.' });
+  }
+});
+
+app.patch('/api/communications/conversations/:id/status', requireAuth, requireNoTempPassword, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { estado } = req.body;
+    if (!['ABIERTA', 'EN_TRAMITE', 'RESUELTA', 'CERRADA'].includes(estado)) {
+      return res.status(400).json({ error: 'Estado no válido.' });
+    }
+
+    await query(`UPDATE conversaciones SET estado = ?, actualizado_en = CURRENT_TIMESTAMP WHERE id = ?`, [estado, id]);
+    res.json({ success: true, estado });
+  } catch (error) {
+    console.error('Update conversation status error:', error);
+    res.status(500).json({ error: 'Error al actualizar estado.' });
   }
 });
 

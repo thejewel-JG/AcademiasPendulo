@@ -233,29 +233,38 @@ export const CampusProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       if (convRes.ok) {
         const convData = await convRes.json();
         setQuestions(
-          convData.map((c: any) => ({
-            id: c.id,
-            estudianteId: c.creador_id,
-            estudianteNombre: c.creador_nombre,
-            profesorId: c.responsable_id || 'prof1',
-            cursoId: 'TMVG0004',
-            cursoNombre: 'Mecánica de Vehículos Híbridos',
-            moduloUnidad: 'General',
-            asunto: c.asunto,
-            estado: c.estado === 'ABIERTA' ? 'PENDIENTE' : c.estado,
-            fechaCreacion: c.creado_en,
-            fechaUltimaActualizacion: c.actualizado_en,
-            mensajes: [
-              {
-                id: `msg_${c.id}`,
-                autorId: c.creador_id,
-                autorNombre: c.creador_nombre,
-                autorRol: 'ALUMNO',
-                texto: c.ultimo_mensaje || c.asunto,
-                fechaHora: c.actualizado_en
-              }
-            ]
-          }))
+          convData.map((c: any) => {
+            const courseTitle = c.especialidad_nombre
+              ? (c.especialidad_codigo ? `${c.especialidad_codigo} - ${c.especialidad_nombre}` : c.especialidad_nombre)
+              : (c.grupo_nombre || 'Curso General');
+            return {
+              id: c.id,
+              estudianteId: c.creador_id,
+              estudianteNombre: c.creador_nombre || 'Estudiante',
+              profesorId: c.responsable_id || '',
+              profesorNombre: c.responsable_nombre || 'Profesor por asignar',
+              cursoId: c.especialidad_id || c.grupo_id || 'TMVG0004',
+              cursoNombre: courseTitle,
+              grupoId: c.grupo_id,
+              grupoNombre: c.grupo_nombre,
+              moduloUnidad: 'General',
+              asunto: c.asunto,
+              estado: c.estado === 'ABIERTA' ? 'PENDIENTE' : c.estado === 'RESUELTA' ? 'RESPONDIDA' : c.estado,
+              totalMensajes: c.total_mensajes || 1,
+              fechaCreacion: c.creado_en,
+              fechaUltimaActualizacion: c.actualizado_en,
+              mensajes: [
+                {
+                  id: `msg_${c.id}`,
+                  autorId: c.creador_id,
+                  autorNombre: c.creador_nombre || 'Estudiante',
+                  autorRol: 'ALUMNO',
+                  texto: c.ultimo_mensaje || c.asunto,
+                  fechaHora: c.actualizado_en
+                }
+              ]
+            };
+          })
         );
       }
 
@@ -443,7 +452,7 @@ export const CampusProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         body: JSON.stringify({
           tipo: 'ACADEMICA',
           asunto: threadData.asunto,
-          grupo_id: activeEnrollmentData?.grupo_id,
+          grupo_id: threadData.grupoId || activeEnrollmentData?.grupo_id,
           cuerpo: threadData.mensajes[0]?.texto || threadData.asunto
         })
       });

@@ -158,13 +158,17 @@ export interface QuestionThread {
   estudianteId: string;
   estudianteNombre: string;
   profesorId: string;
+  profesorNombre?: string;
   cursoId: string;
   cursoNombre: string;
+  grupoId?: string;
+  grupoNombre?: string;
   moduloUnidad: string;
   asunto: string;
   estado: 'PENDIENTE' | 'RESPONDIDA' | 'CERRADA';
   adjuntoUrl?: string;
   mensajes: QuestionMessage[];
+  totalMensajes?: number;
   fechaCreacion: string;
   fechaUltimaActualizacion: string;
 }
