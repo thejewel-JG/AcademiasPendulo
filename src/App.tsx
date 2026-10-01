@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { CheckCircle2, X, Download } from 'lucide-react';
 import { Navbar } from './components/Navbar';
 import { HeroSection } from './components/HeroSection';
 import { CredibilitySection } from './components/CredibilitySection';
@@ -51,6 +52,7 @@ function MainAppContent() {
   const [isInscriptionModalOpen, setIsInscriptionModalOpen] = useState<boolean>(false);
   const [inscriptionCourseTitle, setInscriptionCourseTitle] = useState<string>('');
   const [inscriptionCourseId, setInscriptionCourseId] = useState<string>('');
+  const [successInscriptionAlert, setSuccessInscriptionAlert] = useState<{ requestNumber: string; courseName: string } | null>(null);
 
   const { isCampusRoute, currentUser, currentView, navigateTo, campusTheme } = useCampus();
 
@@ -258,7 +260,57 @@ function MainAppContent() {
           onClose={() => setIsInscriptionModalOpen(false)}
           preselectedCourseName={inscriptionCourseTitle}
           preselectedCourseId={inscriptionCourseId}
+          onSuccess={(reqNum, cName) => {
+            setSuccessInscriptionAlert({ requestNumber: reqNum, courseName: cName });
+          }}
         />
+      )}
+
+      {/* Floating Success Notification Banner on Web Return */}
+      {successInscriptionAlert && (
+        <div className="fixed bottom-6 right-6 z-50 max-w-md w-full bg-gray-950 text-white rounded-2xl shadow-2xl border-2 border-emerald-500/60 p-5 animate-in fade-in slide-in-from-bottom-5 duration-300">
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center font-bold shrink-0">
+                <CheckCircle2 className="w-6 h-6" />
+              </div>
+              <div>
+                <h4 className="font-extrabold text-sm text-white flex items-center gap-2">
+                  ¡Solicitud Enviada con Éxito!
+                </h4>
+                <p className="text-xs text-gray-300 mt-0.5">
+                  N.º Oficial: <span className="font-mono text-red-400 font-bold">{successInscriptionAlert.requestNumber}</span>
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={() => setSuccessInscriptionAlert(null)}
+              className="text-gray-400 hover:text-white p-1 rounded-lg cursor-pointer"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+          <p className="text-xs text-gray-300 mt-3">
+            Hemos registrado tu solicitud para <strong>{successInscriptionAlert.courseName}</strong> y enviado la copia PDF oficial a tu correo electrónico y a Secretaría.
+          </p>
+          <div className="mt-4 flex gap-2">
+            <a
+              href={`/api/public/inscriptions/${successInscriptionAlert.requestNumber}/pdf`}
+              download={`Solicitud_Inscripcion_${successInscriptionAlert.requestNumber}.pdf`}
+              className="flex-1 py-2.5 px-3 bg-red-600 hover:bg-red-700 text-white text-xs font-bold rounded-xl flex items-center justify-center gap-1.5 transition-all text-center shadow-md cursor-pointer"
+            >
+              <Download className="w-3.5 h-3.5" />
+              <span>Descargar Copia en PDF</span>
+            </a>
+            <button
+              type="button"
+              onClick={() => setSuccessInscriptionAlert(null)}
+              className="py-2.5 px-4 bg-gray-800 hover:bg-gray-700 text-gray-300 text-xs font-semibold rounded-xl cursor-pointer"
+            >
+              Cerrar
+            </button>
+          </div>
+        </div>
       )}
     </div>
   );

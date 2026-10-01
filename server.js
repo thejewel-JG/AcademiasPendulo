@@ -47,6 +47,7 @@ const PORT = process.env.PORT || 3000;
 
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
+app.use(express.static(path.join(__dirname, 'dist')));
 
 // Helper to parse cookies from header
 function parseCookies(req) {

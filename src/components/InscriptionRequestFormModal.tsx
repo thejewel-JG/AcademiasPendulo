@@ -22,6 +22,7 @@ interface InscriptionRequestFormModalProps {
   preselectedCourseName?: string;
   preselectedCourseId?: string;
   preselectedCourseCode?: string;
+  onSuccess?: (requestNumber: string, courseName: string) => void;
 }
 
 export const InscriptionRequestFormModal: React.FC<InscriptionRequestFormModalProps> = ({
@@ -29,7 +30,8 @@ export const InscriptionRequestFormModal: React.FC<InscriptionRequestFormModalPr
   onClose,
   preselectedCourseName = '',
   preselectedCourseId = '',
-  preselectedCourseCode = ''
+  preselectedCourseCode = '',
+  onSuccess
 }) => {
   const [loading, setLoading] = useState(false);
   const [submittedRequestNumber, setSubmittedRequestNumber] = useState<string | null>(null);
@@ -174,6 +176,32 @@ export const InscriptionRequestFormModal: React.FC<InscriptionRequestFormModalPr
       }
 
       setSubmittedRequestNumber(resData.request_number);
+
+      // Trigger automatic PDF download in the background
+      try {
+        const pdfRes = await fetch(`/api/public/inscriptions/${resData.request_number}/pdf`);
+        if (pdfRes.ok) {
+          const blob = await pdfRes.blob();
+          const url = window.URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = `Solicitud_Inscripcion_${resData.request_number}.pdf`;
+          document.body.appendChild(a);
+          a.click();
+          window.URL.revokeObjectURL(url);
+          document.body.removeChild(a);
+        }
+      } catch (dlErr) {
+        console.warn('Auto PDF download trigger error:', dlErr);
+      }
+
+      // If parent has onSuccess handler, notify and close modal to return cleanly to the web
+      if (onSuccess) {
+        setTimeout(() => {
+          onSuccess(resData.request_number, formData.course_name);
+          onClose();
+        }, 1000);
+      }
     } catch (err: any) {
       setErrorMsg(err.message || 'Error de conexión con el servidor.');
     } finally {
