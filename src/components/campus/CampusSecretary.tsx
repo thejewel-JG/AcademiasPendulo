@@ -8,8 +8,19 @@ import { CampusSecretaryInscriptions } from './CampusSecretaryInscriptions';
 export const CampusSecretary: React.FC = () => {
   const { currentUser, secretaryRequests, addSecretaryRequest, addSecretaryMessage } = useCampus();
 
+  const isStaff = Boolean(
+    currentUser && (
+      currentUser.role === 'ADMINISTRACION' ||
+      currentUser.role === 'SECRETARIA' ||
+      currentUser.role === 'ADMINISTRADOR' ||
+      currentUser.role === 'ADMIN' ||
+      currentUser.role === 'DIRECCION' ||
+      currentUser.role !== 'ALUMNO'
+    )
+  );
+
   const [activeTab, setActiveTab] = useState<'inscriptions' | 'tramites'>(
-    currentUser?.role === 'ADMINISTRACION' ? 'inscriptions' : 'tramites'
+    isStaff ? 'inscriptions' : 'tramites'
   );
 
   const [selectedRequest, setSelectedRequest] = useState<SecretaryRequest | null>(null);
@@ -94,7 +105,7 @@ export const CampusSecretary: React.FC = () => {
             Secretaría General
           </h1>
           <p className="text-xs sm:text-sm text-zinc-400 mt-1">
-            Gestión de solicitudes de inscripción para cursos subvencionados, certificados y trámites de expediente.
+            Gestión de solicitudes de inscripción para cursos subvencionados, candidaturas de empleo, certificados y trámites.
           </p>
         </div>
 
@@ -110,25 +121,25 @@ export const CampusSecretary: React.FC = () => {
       </div>
 
       {/* Admin / Secretary Tab Switcher */}
-      {currentUser.role === 'ADMINISTRACION' && (
-        <div className="flex items-center gap-2 border-b border-zinc-800 pb-2">
+      {isStaff && (
+        <div className="flex flex-wrap items-center gap-2 border-b border-zinc-800 pb-2">
           <button
             onClick={() => setActiveTab('inscriptions')}
             className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-extrabold transition-all ${
               activeTab === 'inscriptions'
-                ? 'bg-red-600 text-white shadow-lg'
+                ? 'bg-red-600 text-white shadow-lg shadow-red-950/50'
                 : 'bg-zinc-900 text-zinc-400 hover:text-white border border-zinc-800'
             }`}
           >
             <Inbox className="w-4 h-4" />
-            <span>Solicitudes de Inscripción (Cursos Subvencionados)</span>
+            <span>Solicitudes & Candidaturas (Inscripciones, CVs y Bolsa)</span>
           </button>
 
           <button
             onClick={() => setActiveTab('tramites')}
             className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-extrabold transition-all ${
               activeTab === 'tramites'
-                ? 'bg-red-600 text-white shadow-lg'
+                ? 'bg-red-600 text-white shadow-lg shadow-red-950/50'
                 : 'bg-zinc-900 text-zinc-400 hover:text-white border border-zinc-800'
             }`}
           >
@@ -138,8 +149,8 @@ export const CampusSecretary: React.FC = () => {
         </div>
       )}
 
-      {/* Tab 1: Inscriptions Panel */}
-      {activeTab === 'inscriptions' && currentUser.role === 'ADMINISTRACION' ? (
+      {/* Tab 1: Inscriptions & Candidaturas Panel */}
+      {activeTab === 'inscriptions' && isStaff ? (
         <CampusSecretaryInscriptions />
       ) : (
         /* Tab 2: Existing Tramites Panel */

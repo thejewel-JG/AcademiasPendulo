@@ -20,8 +20,10 @@ import {
   Save,
   UserPlus,
   Sparkles,
+  Layers,
 } from 'lucide-react';
 import { ContactRequest, ContactRequestStatus } from '../../types/campus';
+import { CampusSecretaryInscriptions } from './CampusSecretaryInscriptions';
 
 export const CampusAdminRequests: React.FC = () => {
   const {
@@ -33,6 +35,18 @@ export const CampusAdminRequests: React.FC = () => {
     enrollContactRequestAsStudent,
   } = useCampus();
 
+  const isStaff = Boolean(
+    currentUser && (
+      currentUser.role === 'ADMINISTRACION' ||
+      currentUser.role === 'SECRETARIA' ||
+      currentUser.role === 'ADMINISTRADOR' ||
+      currentUser.role === 'ADMIN' ||
+      currentUser.role === 'DIRECCION' ||
+      currentUser.role !== 'ALUMNO'
+    )
+  );
+
+  const [mainTab, setMainTab] = useState<'inscriptions' | 'leads'>('inscriptions');
   const [selectedRequestId, setSelectedRequestId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [filterCourse, setFilterCourse] = useState<string>('ALL');
@@ -42,13 +56,13 @@ export const CampusAdminRequests: React.FC = () => {
   const [notesInput, setNotesInput] = useState('');
   const [enrollSuccessMsg, setEnrollSuccessMsg] = useState('');
 
-  if (!currentUser || currentUser.role !== 'ADMINISTRACION') {
+  if (!currentUser || !isStaff) {
     return (
       <div className="p-8 text-center text-white space-y-4">
         <Shield className="w-12 h-12 text-red-500 mx-auto" />
         <h2 className="text-xl font-bold">Acceso Restringido</h2>
         <p className="text-xs text-zinc-400">
-          Esta sección de gestión de solicitudes de información y matrículas está reservada exclusivamente para el rol de ADMINISTRACIÓN.
+          Esta sección de gestión de solicitudes y secretaría está reservada para el personal autorizado.
         </p>
       </div>
     );
@@ -171,9 +185,40 @@ export const CampusAdminRequests: React.FC = () => {
         </div>
       </div>
 
-      {/* Filters & Search Control Bar */}
-      <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-4 grid grid-cols-1 sm:grid-cols-3 gap-3">
-        {/* Search */}
+      {/* Primary Section Tabs */}
+      <div className="flex flex-wrap items-center gap-2 border-b border-zinc-800 pb-3">
+        <button
+          onClick={() => setMainTab('inscriptions')}
+          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-extrabold text-xs sm:text-sm transition-all ${
+            mainTab === 'inscriptions'
+              ? 'bg-red-600 text-white shadow-lg shadow-red-950/50'
+              : 'bg-zinc-900 text-zinc-400 hover:text-white border border-zinc-800'
+          }`}
+        >
+          <FileText className="w-4 h-4" />
+          <span>Inscripciones Oficiales, Candidaturas (CVs) & Bolsa</span>
+        </button>
+
+        <button
+          onClick={() => setMainTab('leads')}
+          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-extrabold text-xs sm:text-sm transition-all ${
+            mainTab === 'leads'
+              ? 'bg-red-600 text-white shadow-lg shadow-red-950/50'
+              : 'bg-zinc-900 text-zinc-400 hover:text-white border border-zinc-800'
+          }`}
+        >
+          <Inbox className="w-4 h-4" />
+          <span>Leads y Mensajes Rápidos Web ({newRequestsCount})</span>
+        </button>
+      </div>
+
+      {mainTab === 'inscriptions' ? (
+        <CampusSecretaryInscriptions />
+      ) : (
+        <>
+          {/* Filters & Search Control Bar */}
+          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-4 grid grid-cols-1 sm:grid-cols-3 gap-3">
+            {/* Search */}
         <div className="relative">
           <Search className="w-4 h-4 text-zinc-500 absolute left-3.5 top-3" />
           <input
@@ -484,6 +529,8 @@ export const CampusAdminRequests: React.FC = () => {
           )}
         </div>
       </div>
+        </>
+      )}
     </div>
   );
 };

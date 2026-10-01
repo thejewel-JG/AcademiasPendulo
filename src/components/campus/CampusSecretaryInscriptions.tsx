@@ -13,6 +13,8 @@ import {
   Mail, 
   Phone, 
   User, 
+  Users,
+  Briefcase,
   BookOpen, 
   ShieldCheck, 
   RefreshCw,
