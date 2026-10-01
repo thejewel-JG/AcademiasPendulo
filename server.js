@@ -2903,6 +2903,430 @@ app.post('/api/auth/activate-account', async (req, res) => {
 // Serve static files from the dist directory
 app.use(express.static(path.join(__dirname, 'dist')));
 
+// ============================================================
+// MÓDULO 010: ASISTENCIA
+// ============================================================
+
+// GET asistencia de un grupo en una fecha
+app.get('/api/academic/groups/:groupId/attendance', requireAuth, requireNoTempPassword, async (req, res) => {
+  const { groupId } = req.params;
+  const { fecha } = req.query;
+  try {
+    const rows = await query(`
+      SELECT a.*, u.nombre, u.apellidos, u.email
+      FROM asistencia a
+      JOIN usuarios u ON a.alumno_id = u.id
+      WHERE a.grupo_id = ? ${fecha ? 'AND a.fecha = ?' : ''}
+      ORDER BY u.apellidos, u.nombre
+    `, fecha ? [groupId, fecha] : [groupId]);
+    res.json({ attendance: rows });
+  } catch (err) {
+    console.error('Error fetching attendance:', err);
+    res.status(500).json({ error: 'Error al obtener la asistencia.' });
+  }
+});
+
+// GET resumen de asistencia de un alumno en una matrícula
+app.get('/api/academic/my-attendance', requireAuth, requireNoTempPassword, async (req, res) => {
+  const userId = req.user.id;
+  try {
+    const rows = await query(`
+      SELECT v.*, sc.titulo, sc.fecha, sc.hora_inicio, sc.hora_fin, sc.tipo
+      FROM v_resumen_asistencia v
+      LEFT JOIN sesiones_clase sc ON sc.grupo_id = v.grupo_id
+      WHERE v.alumno_id = ?
+      ORDER BY sc.fecha DESC
+    `, [userId]);
+    const summary = await query(`SELECT * FROM v_resumen_asistencia WHERE alumno_id = ?`, [userId]);
+    res.json({ summary: summary[0] || null, records: rows });
+  } catch (err) {
+    console.error('Error fetching my attendance:', err);
+    res.status(500).json({ error: 'Error al obtener tu asistencia.' });
+  }
+});
+
+// POST registrar / actualizar asistencia (profesor y admin)
+app.post('/api/academic/groups/:groupId/attendance', requireAuth, requireNoTempPassword, async (req, res) => {
+  const { groupId } = req.params;
+  const { records, fecha } = req.body; // records: [{alumno_id, matricula_id, estado, justificacion}]
+  if (!records || !fecha) return res.status(400).json({ error: 'Faltan datos de asistencia.' });
+
+  try {
+    for (const r of records) {
+      await query(`
+        INSERT INTO asistencia (matricula_id, alumno_id, grupo_id, fecha, estado, justificacion, registrado_por)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        ON DUPLICATE KEY UPDATE estado = VALUES(estado), justificacion = VALUES(justificacion), registrado_por = VALUES(registrado_por)
+      `, [r.matricula_id, r.alumno_id, groupId, fecha, r.estado || 'PRESENTE', r.justificacion || null, req.user.id]);
+    }
+    res.json({ success: true, message: `Asistencia del ${fecha} guardada correctamente.` });
+  } catch (err) {
+    console.error('Error saving attendance:', err);
+    res.status(500).json({ error: 'Error al guardar la asistencia.' });
+  }
+});
+
+// ============================================================
+// MÓDULO 010: CALENDARIO DE SESIONES DE CLASE
+// ============================================================
+
+// GET sesiones de clase de un grupo
+app.get('/api/academic/groups/:groupId/sessions', requireAuth, requireNoTempPassword, async (req, res) => {
+  const { groupId } = req.params;
+  try {
+    const rows = await query(`
+      SELECT sc.*, u.nombre as creado_por_nombre
+      FROM sesiones_clase sc
+      LEFT JOIN usuarios u ON sc.creado_por = u.id
+      WHERE sc.grupo_id = ?
+      ORDER BY sc.fecha ASC, sc.hora_inicio ASC
+    `, [groupId]);
+    res.json({ sessions: rows });
+  } catch (err) {
+    res.status(500).json({ error: 'Error al obtener el calendario de clases.' });
+  }
+});
+
+// POST crear sesión de clase (profesor / admin)
+app.post('/api/academic/groups/:groupId/sessions', requireAuth, requireNoTempPassword, async (req, res) => {
+  const { groupId } = req.params;
+  const { titulo, descripcion, fecha, hora_inicio, hora_fin, tipo, aula } = req.body;
+  if (!fecha || !hora_inicio || !hora_fin) return res.status(400).json({ error: 'Fecha y horas son obligatorias.' });
+  const id = `sc-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  try {
+    await query(`
+      INSERT INTO sesiones_clase (id, grupo_id, titulo, descripcion, fecha, hora_inicio, hora_fin, tipo, aula, creado_por)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `, [id, groupId, titulo || null, descripcion || null, fecha, hora_inicio, hora_fin, tipo || 'PRESENCIAL', aula || null, req.user.id]);
+    res.json({ success: true, session_id: id });
+  } catch (err) {
+    res.status(500).json({ error: 'Error al crear la sesión.' });
+  }
+});
+
+// DELETE sesión de clase
+app.delete('/api/academic/sessions/:sessionId', requireAuth, requireNoTempPassword, async (req, res) => {
+  try {
+    await query(`DELETE FROM sesiones_clase WHERE id = ?`, [req.params.sessionId]);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: 'Error al eliminar la sesión.' });
+  }
+});
+
+// ============================================================
+// MÓDULO 010: EXÁMENES & PREGUNTAS
+// ============================================================
+
+// GET exámenes del grupo del alumno o de un grupo específico
+app.get('/api/academic/exams', requireAuth, requireNoTempPassword, async (req, res) => {
+  const { group_id } = req.query;
+  try {
+    let whereClause = 'e.estado = "PUBLICADO"';
+    const params = [];
+    if (group_id) {
+      whereClause += ' AND e.grupo_id = ?';
+      params.push(group_id);
+    }
+    const rows = await query(`
+      SELECT e.*, esp.nombre as especialidad_nombre,
+        (SELECT COUNT(*) FROM preguntas_examen pq WHERE pq.examen_id = e.id) as num_preguntas
+      FROM examenes e
+      JOIN especialidades esp ON e.especialidad_id = esp.id
+      WHERE ${whereClause}
+      ORDER BY e.fecha_apertura DESC
+    `, params);
+    res.json({ exams: rows });
+  } catch (err) {
+    res.status(500).json({ error: 'Error al obtener los exámenes.' });
+  }
+});
+
+// GET exámenes de un grupo (para el profesor/admin con todos los estados)
+app.get('/api/academic/groups/:groupId/exams', requireAuth, requireNoTempPassword, async (req, res) => {
+  const { groupId } = req.params;
+  try {
+    const rows = await query(`
+      SELECT e.*,
+        (SELECT COUNT(*) FROM preguntas_examen pq WHERE pq.examen_id = e.id) as num_preguntas,
+        (SELECT COUNT(*) FROM resultados_examenes re WHERE re.examen_id = e.id AND re.estado = 'COMPLETADO') as num_completados
+      FROM examenes e
+      WHERE e.grupo_id = ?
+      ORDER BY e.creado_en DESC
+    `, [groupId]);
+    res.json({ exams: rows });
+  } catch (err) {
+    res.status(500).json({ error: 'Error al obtener los exámenes.' });
+  }
+});
+
+// GET detalle de un examen con preguntas (para el alumno que va a realizarlo)
+app.get('/api/academic/exams/:examId/take', requireAuth, requireNoTempPassword, async (req, res) => {
+  const { examId } = req.params;
+  const userId = req.user.id;
+  try {
+    const [exam] = await query(`SELECT * FROM examenes WHERE id = ? AND estado = 'PUBLICADO'`, [examId]);
+    if (!exam) return res.status(404).json({ error: 'Examen no encontrado o no disponible.' });
+
+    // Check attempts
+    const [attemptCount] = await query(`SELECT COUNT(*) as cnt FROM resultados_examenes WHERE examen_id = ? AND alumno_id = ? AND estado = 'COMPLETADO'`, [examId, userId]);
+    if (attemptCount.cnt >= exam.intentos_permitidos) {
+      return res.status(403).json({ error: 'Has agotado todos tus intentos para este examen.' });
+    }
+
+    let questions = await query(`SELECT id, enunciado, tipo, opciones, puntuacion, orden, imagen_url FROM preguntas_examen WHERE examen_id = ? ORDER BY orden ASC`, [examId]);
+    if (exam.mezclar_preguntas) questions = questions.sort(() => Math.random() - 0.5);
+
+    res.json({ exam, questions, current_attempt: attemptCount.cnt + 1 });
+  } catch (err) {
+    res.status(500).json({ error: 'Error al cargar el examen.' });
+  }
+});
+
+// POST crear examen (profesor/admin)
+app.post('/api/academic/groups/:groupId/exams', requireAuth, requireNoTempPassword, async (req, res) => {
+  const { groupId } = req.params;
+  const { titulo, descripcion, tipo, nota_minima_aprobado, duracion_minutos, intentos_permitidos, mezclar_preguntas, mostrar_resultado_inmediato, fecha_apertura, fecha_cierre, especialidad_id, preguntas } = req.body;
+  if (!titulo || !especialidad_id) return res.status(400).json({ error: 'Título y especialidad son obligatorios.' });
+
+  const examId = `exam-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const puntuacion_maxima = (preguntas || []).reduce((sum, p) => sum + (parseFloat(p.puntuacion) || 1), 0) || 10;
+
+  try {
+    await query(`
+      INSERT INTO examenes (id, grupo_id, especialidad_id, titulo, descripcion, tipo, nota_minima_aprobado, puntuacion_maxima, duracion_minutos, intentos_permitidos, mezclar_preguntas, mostrar_resultado_inmediato, fecha_apertura, fecha_cierre, estado, creado_por)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'BORRADOR', ?)
+    `, [examId, groupId, especialidad_id, titulo, descripcion || null, tipo || 'TEST', nota_minima_aprobado || 5, puntuacion_maxima, duracion_minutos || null, intentos_permitidos || 1, mezclar_preguntas ? 1 : 0, mostrar_resultado_inmediato ? 1 : 0, fecha_apertura || null, fecha_cierre || null, req.user.id]);
+
+    for (let i = 0; i < (preguntas || []).length; i++) {
+      const p = preguntas[i];
+      const pId = `pq-${Date.now()}-${i}-${Math.random().toString(36).slice(2, 6)}`;
+      await query(`
+        INSERT INTO preguntas_examen (id, examen_id, enunciado, tipo, opciones, respuesta_correcta, puntuacion, orden, explicacion)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `, [pId, examId, p.enunciado, p.tipo || 'OPCION_MULTIPLE', JSON.stringify(p.opciones || []), p.respuesta_correcta || null, p.puntuacion || 1, i, p.explicacion || null]);
+    }
+
+    res.json({ success: true, exam_id: examId });
+  } catch (err) {
+    console.error('Error creating exam:', err);
+    res.status(500).json({ error: 'Error al crear el examen.' });
+  }
+});
+
+// PATCH cambiar estado del examen (borrador → publicado, etc.)
+app.patch('/api/academic/exams/:examId/status', requireAuth, requireNoTempPassword, async (req, res) => {
+  const { estado } = req.body;
+  if (!['BORRADOR', 'PUBLICADO', 'CERRADO', 'ARCHIVADO'].includes(estado)) return res.status(400).json({ error: 'Estado inválido.' });
+  try {
+    await query(`UPDATE examenes SET estado = ? WHERE id = ?`, [estado, req.params.examId]);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: 'Error al actualizar estado del examen.' });
+  }
+});
+
+// POST enviar respuestas del examen (alumno)
+app.post('/api/academic/exams/:examId/submit', requireAuth, requireNoTempPassword, async (req, res) => {
+  const { examId } = req.params;
+  const userId = req.user.id;
+  const { respuestas, matricula_id, tiempo_empleado_segundos } = req.body;
+  if (!respuestas || !matricula_id) return res.status(400).json({ error: 'Faltan datos.' });
+
+  try {
+    const [exam] = await query(`SELECT * FROM examenes WHERE id = ?`, [examId]);
+    if (!exam) return res.status(404).json({ error: 'Examen no encontrado.' });
+
+    const preguntas = await query(`SELECT * FROM preguntas_examen WHERE examen_id = ?`, [examId]);
+    const [attemptCount] = await query(`SELECT COUNT(*) as cnt FROM resultados_examenes WHERE examen_id = ? AND alumno_id = ? AND estado = 'COMPLETADO'`, [examId, userId]);
+    const intento = attemptCount.cnt + 1;
+
+    // Auto-correct test questions
+    let puntos_obtenidos = 0;
+    const respuestas_detalle = preguntas.map(p => {
+      const respuesta_alumno = respuestas[p.id];
+      const correcta = p.tipo !== 'TEXTO_LIBRE' && respuesta_alumno == p.respuesta_correcta;
+      if (correcta) puntos_obtenidos += parseFloat(p.puntuacion);
+      return { pregunta_id: p.id, respuesta_alumno, respuesta_correcta: p.respuesta_correcta, correcta, puntuacion: p.puntuacion };
+    });
+
+    const nota = exam.puntuacion_maxima > 0 ? Math.round((puntos_obtenidos / parseFloat(exam.puntuacion_maxima)) * 10 * 100) / 100 : 0;
+    const aprobado = nota >= parseFloat(exam.nota_minima_aprobado) ? 1 : 0;
+
+    const resultId = `res-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    await query(`
+      INSERT INTO resultados_examenes (id, examen_id, alumno_id, matricula_id, intento, nota, puntos_obtenidos, puntos_maximos, aprobado, respuestas, tiempo_empleado_segundos, finalizado_en, estado)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), 'COMPLETADO')
+    `, [resultId, examId, userId, matricula_id, intento, nota, puntos_obtenidos, exam.puntuacion_maxima, aprobado, JSON.stringify(respuestas_detalle), tiempo_empleado_segundos || null]);
+
+    const mostrar = exam.mostrar_resultado_inmediato ? { nota, aprobado: !!aprobado, puntos_obtenidos, puntos_maximos: exam.puntuacion_maxima, respuestas_detalle } : {};
+    res.json({ success: true, result_id: resultId, ...mostrar });
+  } catch (err) {
+    console.error('Error submitting exam:', err);
+    res.status(500).json({ error: 'Error al procesar el examen.' });
+  }
+});
+
+// GET resultados del alumno autenticado
+app.get('/api/academic/my-results', requireAuth, requireNoTempPassword, async (req, res) => {
+  const userId = req.user.id;
+  try {
+    const rows = await query(`
+      SELECT re.*, e.titulo as examen_titulo, e.tipo as examen_tipo, e.nota_minima_aprobado,
+             esp.nombre as especialidad_nombre
+      FROM resultados_examenes re
+      JOIN examenes e ON re.examen_id = e.id
+      JOIN especialidades esp ON e.especialidad_id = esp.id
+      WHERE re.alumno_id = ? AND re.estado = 'COMPLETADO'
+      ORDER BY re.finalizado_en DESC
+    `, [userId]);
+    res.json({ results: rows });
+  } catch (err) {
+    res.status(500).json({ error: 'Error al obtener tus resultados.' });
+  }
+});
+
+// GET resultados de todos los alumnos de un examen (profesor/admin)
+app.get('/api/academic/exams/:examId/results', requireAuth, requireNoTempPassword, async (req, res) => {
+  const { examId } = req.params;
+  try {
+    const rows = await query(`
+      SELECT re.*, u.nombre, u.apellidos, u.email
+      FROM resultados_examenes re
+      JOIN usuarios u ON re.alumno_id = u.id
+      WHERE re.examen_id = ? AND re.estado = 'COMPLETADO'
+      ORDER BY re.nota DESC, re.finalizado_en ASC
+    `, [examId]);
+    res.json({ results: rows });
+  } catch (err) {
+    res.status(500).json({ error: 'Error al obtener los resultados del examen.' });
+  }
+});
+
+// ============================================================
+// MÓDULO 010: CERTIFICADOS
+// ============================================================
+
+// GET certificados de un alumno
+app.get('/api/academic/my-certificates', requireAuth, requireNoTempPassword, async (req, res) => {
+  const userId = req.user.id;
+  try {
+    const rows = await query(`
+      SELECT c.*, esp.nombre as especialidad_nombre, g.nombre as grupo_nombre
+      FROM certificados_emitidos c
+      JOIN especialidades esp ON c.especialidad_id = esp.id
+      JOIN grupos g ON c.grupo_id = g.id
+      WHERE c.alumno_id = ? AND c.estado = 'EMITIDO'
+      ORDER BY c.fecha_emision DESC
+    `, [userId]);
+    res.json({ certificates: rows });
+  } catch (err) {
+    res.status(500).json({ error: 'Error al obtener tus certificados.' });
+  }
+});
+
+// GET todos los certificados (secretaría/admin)
+app.get('/api/admin/certificates', requireAuth, requireNoTempPassword, async (req, res) => {
+  const { alumno_id, grupo_id, estado } = req.query;
+  try {
+    let where = '1=1';
+    const params = [];
+    if (alumno_id) { where += ' AND c.alumno_id = ?'; params.push(alumno_id); }
+    if (grupo_id) { where += ' AND c.grupo_id = ?'; params.push(grupo_id); }
+    if (estado) { where += ' AND c.estado = ?'; params.push(estado); }
+    const rows = await query(`
+      SELECT c.*, u.nombre, u.apellidos, u.email,
+             esp.nombre as especialidad_nombre, g.nombre as grupo_nombre
+      FROM certificados_emitidos c
+      JOIN usuarios u ON c.alumno_id = u.id
+      JOIN especialidades esp ON c.especialidad_id = esp.id
+      JOIN grupos g ON c.grupo_id = g.id
+      WHERE ${where}
+      ORDER BY c.fecha_emision DESC
+    `, params);
+    res.json({ certificates: rows });
+  } catch (err) {
+    res.status(500).json({ error: 'Error al obtener los certificados.' });
+  }
+});
+
+// POST emitir certificado (secretaría/admin)
+app.post('/api/admin/certificates', requireAuth, requireNoTempPassword, async (req, res) => {
+  const { alumno_id, matricula_id, especialidad_id, grupo_id, tipo, nota_final, horas_cursadas, porcentaje_asistencia, fecha_inicio_curso, fecha_fin_curso } = req.body;
+  if (!alumno_id || !matricula_id || !especialidad_id || !grupo_id) return res.status(400).json({ error: 'Faltan datos obligatorios.' });
+
+  const year = new Date().getFullYear();
+  const [lastCert] = await query(`SELECT numero_certificado FROM certificados_emitidos ORDER BY creado_en DESC LIMIT 1`).catch(() => [null]);
+  const lastNum = lastCert ? parseInt(lastCert.numero_certificado.split('-').pop() || '0') : 0;
+  const numero_certificado = `CERT-PEND-${year}-${String(lastNum + 1).padStart(4, '0')}`;
+  const certId = `cert-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+  try {
+    await query(`
+      INSERT INTO certificados_emitidos (id, numero_certificado, alumno_id, matricula_id, especialidad_id, grupo_id, tipo, nota_final, horas_cursadas, porcentaje_asistencia, fecha_inicio_curso, fecha_fin_curso, fecha_emision, expedido_por)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURDATE(), ?)
+    `, [certId, numero_certificado, alumno_id, matricula_id, especialidad_id, grupo_id, tipo || 'APROVECHAMIENTO', nota_final || null, horas_cursadas || null, porcentaje_asistencia || null, fecha_inicio_curso || null, fecha_fin_curso || null, req.user.id]);
+
+    res.json({ success: true, cert_id: certId, numero_certificado });
+  } catch (err) {
+    console.error('Error issuing certificate:', err);
+    res.status(500).json({ error: 'Error al emitir el certificado.' });
+  }
+});
+
+// ============================================================
+// MÓDULO 010: EVALUACIÓN DEL FORMADOR
+// ============================================================
+
+// POST enviar evaluación del formador (alumno)
+app.post('/api/academic/groups/:groupId/evaluate-teacher', requireAuth, requireNoTempPassword, async (req, res) => {
+  const { groupId } = req.params;
+  const userId = req.user.id;
+  const { matricula_id, puntuacion_metodologia, puntuacion_conocimientos, puntuacion_materiales, puntuacion_organizacion, puntuacion_global, comentarios_abiertos, recomendaria } = req.body;
+
+  const id = `ef-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  try {
+    await query(`
+      INSERT INTO evaluaciones_formador (id, grupo_id, alumno_id, matricula_id, puntuacion_metodologia, puntuacion_conocimientos, puntuacion_materiales, puntuacion_organizacion, puntuacion_global, comentarios_abiertos, recomendaria, completada_en)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
+      ON DUPLICATE KEY UPDATE
+        puntuacion_metodologia = VALUES(puntuacion_metodologia),
+        puntuacion_conocimientos = VALUES(puntuacion_conocimientos),
+        puntuacion_materiales = VALUES(puntuacion_materiales),
+        puntuacion_organizacion = VALUES(puntuacion_organizacion),
+        puntuacion_global = VALUES(puntuacion_global),
+        comentarios_abiertos = VALUES(comentarios_abiertos),
+        recomendaria = VALUES(recomendaria),
+        completada_en = NOW()
+    `, [id, groupId, userId, matricula_id, puntuacion_metodologia, puntuacion_conocimientos, puntuacion_materiales, puntuacion_organizacion, puntuacion_global, comentarios_abiertos || null, recomendaria ? 1 : 0]);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Error submitting teacher evaluation:', err);
+    res.status(500).json({ error: 'Error al enviar la evaluación.' });
+  }
+});
+
+// GET resultado de evaluaciones del formador (profesor/admin — datos anónimos)
+app.get('/api/academic/groups/:groupId/teacher-evaluations', requireAuth, requireNoTempPassword, async (req, res) => {
+  const { groupId } = req.params;
+  try {
+    const [avg] = await query(`
+      SELECT
+        COUNT(*) as total_evaluaciones,
+        ROUND(AVG(puntuacion_metodologia), 2) as avg_metodologia,
+        ROUND(AVG(puntuacion_conocimientos), 2) as avg_conocimientos,
+        ROUND(AVG(puntuacion_materiales), 2) as avg_materiales,
+        ROUND(AVG(puntuacion_organizacion), 2) as avg_organizacion,
+        ROUND(AVG(puntuacion_global), 2) as avg_global,
+        SUM(recomendaria) as recomendarian
+      FROM evaluaciones_formador WHERE grupo_id = ?
+    `, [groupId]);
+    res.json({ summary: avg });
+  } catch (err) {
+    res.status(500).json({ error: 'Error al obtener evaluaciones del formador.' });
+  }
+});
+
 // SPA fallback: send index.html for any unknown route
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'dist', 'index.html'));
