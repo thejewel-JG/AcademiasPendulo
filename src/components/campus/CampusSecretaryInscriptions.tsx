@@ -280,6 +280,77 @@ export const CampusSecretaryInscriptions: React.FC = () => {
     }
   };
 
+  const [downloadingId, setDownloadingId] = useState<number | string | null>(null);
+
+  const handleDownloadInscriptionPdf = async (reqId: number, reqNumber: string) => {
+    setDownloadingId(reqId);
+    try {
+      const res = await fetch(`/api/admin/inscriptions/${reqId}/pdf`);
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        alert(err.error || 'Error al descargar el documento PDF.');
+        return;
+      }
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `solicitud_${reqNumber}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+    } catch (e) {
+      console.error('Download inscription PDF error:', e);
+      alert('Error de conexión al descargar el PDF.');
+    } finally {
+      setDownloadingId(null);
+    }
+  };
+
+  const handleViewInscriptionPdf = async (reqId: number) => {
+    try {
+      const res = await fetch(`/api/admin/inscriptions/${reqId}/pdf`);
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        alert(err.error || 'Error al abrir el PDF.');
+        return;
+      }
+      const blob = await res.blob();
+      const fileUrl = window.URL.createObjectURL(blob);
+      window.open(fileUrl, '_blank');
+    } catch (e) {
+      console.error('View PDF error:', e);
+      alert('Error al abrir el visor de PDF.');
+    }
+  };
+
+  const handleDownloadCv = async (appId: string, filename: string) => {
+    setDownloadingId(appId);
+    try {
+      const res = await fetch(`/api/admin/work-with-us/${appId}/cv`);
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        alert(err.error || 'Error al descargar el CV.');
+        return;
+      }
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename || 'CV.pdf';
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+    } catch (e) {
+      console.error('Download CV error:', e);
+      alert('Error al descargar el currículum.');
+    } finally {
+      setDownloadingId(null);
+    }
+  };
+
   const handleUpdateStatusAndNotes = async () => {
     if (!selectedRequest) return;
     setSavingStatus(true);
@@ -702,15 +773,15 @@ export const CampusSecretaryInscriptions: React.FC = () => {
                         </td>
                         <td className="p-4 whitespace-nowrap">
                           {app.cv_nombre ? (
-                            <a
-                              href={`/api/admin/work-with-us/${app.id}/cv`}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="inline-flex items-center gap-1.5 px-3 py-1 bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 rounded-lg text-xs font-bold transition-all"
+                            <button
+                              type="button"
+                              onClick={() => handleDownloadCv(app.id, app.cv_nombre)}
+                              disabled={downloadingId === app.id}
+                              className="inline-flex items-center gap-1.5 px-3 py-1 bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 rounded-lg text-xs font-bold transition-all cursor-pointer disabled:opacity-50"
                             >
                               <Download className="w-3.5 h-3.5" />
-                              <span className="truncate max-w-[150px]">{app.cv_nombre}</span>
-                            </a>
+                              <span className="truncate max-w-[150px]">{downloadingId === app.id ? 'Descargando...' : app.cv_nombre}</span>
+                            </button>
                           ) : (
                             <span className="text-gray-400 italic">Sin archivo</span>
                           )}
@@ -870,15 +941,15 @@ export const CampusSecretaryInscriptions: React.FC = () => {
               {selectedWorkApp.cv_nombre && (
                 <div>
                   <div className="text-[11px] font-bold text-gray-700 uppercase mb-1.5">Currículum Vitae (CV)</div>
-                  <a
-                    href={`/api/admin/work-with-us/${selectedWorkApp.id}/cv`}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="w-full py-3 bg-red-600 hover:bg-red-700 text-white font-bold rounded-xl flex items-center justify-center gap-2 shadow-md transition-all"
+                  <button
+                    type="button"
+                    onClick={() => handleDownloadCv(selectedWorkApp.id, selectedWorkApp.cv_nombre)}
+                    disabled={downloadingId === selectedWorkApp.id}
+                    className="w-full py-3 bg-red-600 hover:bg-red-700 text-white font-bold rounded-xl flex items-center justify-center gap-2 shadow-md transition-all cursor-pointer disabled:opacity-50"
                   >
                     <Download className="w-4 h-4" />
-                    <span>Descargar {selectedWorkApp.cv_nombre}</span>
-                  </a>
+                    <span>{downloadingId === selectedWorkApp.id ? 'Descargando...' : `Descargar ${selectedWorkApp.cv_nombre}`}</span>
+                  </button>
                 </div>
               )}
 
@@ -1009,24 +1080,24 @@ export const CampusSecretaryInscriptions: React.FC = () => {
                   </div>
 
                   <div className="flex items-center gap-2 w-full sm:w-auto">
-                    <a
-                      href={`/api/admin/inscriptions/${selectedRequest.id}/pdf`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="flex-1 sm:flex-none px-4 py-2 bg-white hover:bg-gray-50 text-gray-900 border border-gray-300 font-bold text-xs rounded-xl shadow-xs flex items-center justify-center gap-1.5 transition-all"
+                    <button
+                      type="button"
+                      onClick={() => handleViewInscriptionPdf(selectedRequest.id)}
+                      className="flex-1 sm:flex-none px-4 py-2 bg-white hover:bg-gray-50 text-gray-900 border border-gray-300 font-bold text-xs rounded-xl shadow-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer"
                     >
                       <Eye className="w-3.5 h-3.5 text-red-600" />
                       <span>Ver PDF</span>
-                    </a>
+                    </button>
 
-                    <a
-                      href={`/api/admin/inscriptions/${selectedRequest.id}/pdf`}
-                      download={`solicitud_${selectedRequest.request_number}.pdf`}
-                      className="flex-1 sm:flex-none px-4 py-2 bg-red-600 hover:bg-red-700 text-white font-bold text-xs rounded-xl shadow-md flex items-center justify-center gap-1.5 transition-all"
+                    <button
+                      type="button"
+                      onClick={() => handleDownloadInscriptionPdf(selectedRequest.id, selectedRequest.request_number)}
+                      disabled={downloadingId === selectedRequest.id}
+                      className="flex-1 sm:flex-none px-4 py-2 bg-red-600 hover:bg-red-700 text-white font-bold text-xs rounded-xl shadow-md flex items-center justify-center gap-1.5 transition-all cursor-pointer disabled:opacity-50"
                     >
                       <Download className="w-3.5 h-3.5" />
-                      <span>Descargar PDF</span>
-                    </a>
+                      <span>{downloadingId === selectedRequest.id ? 'Descargando...' : 'Descargar PDF'}</span>
+                    </button>
                   </div>
                 </div>
 
