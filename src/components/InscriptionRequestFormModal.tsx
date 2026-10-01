@@ -11,7 +11,8 @@ import {
   User, 
   Briefcase, 
   PenTool,
-  Sparkles
+  Sparkles,
+  Download
 } from 'lucide-react';
 import { COURSES } from '../data/coursesData';
 
