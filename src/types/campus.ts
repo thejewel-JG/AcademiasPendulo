@@ -9,11 +9,18 @@ export type CampusView =
   | 'secretaria'
   | 'avisos'
   | 'perfil'
+  | 'mis-examenes'
+  | 'mi-asistencia'
+  | 'mis-certificados'
   | 'profesor-dashboard'
+  | 'profesor-alumnos'
+  | 'profesor-asistencia'
+  | 'profesor-examenes'
   | 'admin-panel'
   | 'admin-solicitudes'
   | 'admin-usuarios'
-  | 'admin-correo';
+  | 'admin-correo'
+  | 'admin-certificados';
 
 export type SecretaryType =
   | 'Solicitud de certificado'

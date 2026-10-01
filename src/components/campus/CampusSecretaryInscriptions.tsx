@@ -21,7 +21,8 @@ import {
   UserCheck,
   AlertTriangle,
   Check,
-  History
+  History,
+  Trash2
 } from 'lucide-react';
 
 interface InscriptionRequest {
@@ -118,6 +119,11 @@ export const CampusSecretaryInscriptions: React.FC = () => {
   const [resendingEmail, setResendingEmail] = useState(false);
   const [resendEmailResult, setResendEmailResult] = useState<string | null>(null);
 
+  // Delete state
+  const [deleteTarget, setDeleteTarget] = useState<InscriptionRequest | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+
   const fetchRequests = async () => {
     setLoading(true);
     try {
@@ -152,6 +158,28 @@ export const CampusSecretaryInscriptions: React.FC = () => {
       }
     } catch (err) {
       console.error('Error fetching history:', err);
+    }
+  };
+
+  const handleDeleteRequest = async () => {
+    if (!deleteTarget) return;
+    setIsDeleting(true);
+    setDeleteError(null);
+    try {
+      const res = await fetch(`/api/admin/inscriptions/${deleteTarget.id}`, { method: 'DELETE' });
+      const data = await res.json();
+      if (res.ok) {
+        setDeleteTarget(null);
+        // If we were viewing this request, close the detail
+        if (selectedRequest?.id === deleteTarget.id) setSelectedRequest(null);
+        fetchRequests();
+      } else {
+        setDeleteError(data.error || 'No se pudo eliminar la solicitud.');
+      }
+    } catch (err) {
+      setDeleteError('Error de conexión. Inténtalo de nuevo.');
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -466,13 +494,24 @@ export const CampusSecretaryInscriptions: React.FC = () => {
                       {getStatusBadge(req.status)}
                     </td>
                     <td className="p-4 text-right whitespace-nowrap">
-                      <button
-                        onClick={() => openDetail(req)}
-                        className="px-3.5 py-1.5 bg-gray-900 hover:bg-black text-white font-bold text-xs rounded-xl shadow-xs transition-all flex items-center gap-1.5 ml-auto"
-                      >
-                        <Eye className="w-3.5 h-3.5" />
-                        <span>Ver Ficha</span>
-                      </button>
+                      <div className="flex items-center gap-2 justify-end">
+                        <button
+                          onClick={() => openDetail(req)}
+                          className="px-3.5 py-1.5 bg-gray-900 hover:bg-black text-white font-bold text-xs rounded-xl shadow-xs transition-all flex items-center gap-1.5"
+                        >
+                          <Eye className="w-3.5 h-3.5" />
+                          <span>Ver Ficha</span>
+                        </button>
+                        {(req.status === 'Rechazada' || req.status === 'Cerrada') && (
+                          <button
+                            onClick={() => { setDeleteTarget(req); setDeleteError(null); }}
+                            className="px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs rounded-xl shadow-xs transition-all flex items-center gap-1.5"
+                            title="Eliminar solicitud"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -481,6 +520,58 @@ export const CampusSecretaryInscriptions: React.FC = () => {
           </div>
         )}
       </div>
+
+      {/* ─── DELETE CONFIRMATION MODAL ─────────────────────────────────── */}
+      {deleteTarget && (
+        <div className="fixed inset-0 z-[60] overflow-y-auto bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 animate-fadeIn">
+          <div className="w-full max-w-md bg-white rounded-2xl shadow-2xl border border-gray-100 overflow-hidden">
+            <div className="bg-rose-600 p-5 flex items-center gap-3">
+              <div className="w-10 h-10 bg-white/20 rounded-xl flex items-center justify-center">
+                <Trash2 className="w-5 h-5 text-white" />
+              </div>
+              <div>
+                <h2 className="text-white font-black text-base">¿Eliminar solicitud?</h2>
+                <p className="text-rose-100 text-xs">Esta acción es permanente e irreversible.</p>
+              </div>
+            </div>
+            <div className="p-6 space-y-4">
+              <div className="bg-rose-50 border border-rose-200 rounded-xl p-4 space-y-1">
+                <p className="text-xs font-black text-rose-900">Solicitud a eliminar:</p>
+                <p className="font-extrabold text-gray-900">{deleteTarget.request_number}</p>
+                <p className="text-sm text-gray-700">{deleteTarget.first_name} {deleteTarget.last_name_1} — <span className="font-mono">{deleteTarget.dni_nie}</span></p>
+                <p className="text-xs text-gray-500">{deleteTarget.course_name}</p>
+                <p className="text-xs font-bold text-rose-700 mt-1">Estado: {deleteTarget.status}</p>
+              </div>
+              {deleteError && (
+                <div className="bg-red-50 border border-red-200 rounded-xl p-3 text-xs font-bold text-red-800">
+                  ⚠️ {deleteError}
+                </div>
+              )}
+              <p className="text-xs text-gray-500 text-center">
+                Se eliminará el expediente completo, historial y mensajes. Esta acción queda registrada en auditoría.
+              </p>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setDeleteTarget(null)}
+                  disabled={isDeleting}
+                  className="flex-1 py-2.5 border border-gray-200 rounded-xl text-sm font-bold text-gray-700 hover:bg-gray-50 transition-all"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={handleDeleteRequest}
+                  disabled={isDeleting}
+                  className="flex-1 py-2.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-sm font-extrabold transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+                >
+                  {isDeleting
+                    ? <><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />Eliminando...</>
+                    : <><Trash2 className="w-4 h-4" />Sí, eliminar definitivamente</>}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* DETAIL MODAL / DRAWER */}
       {selectedRequest && (

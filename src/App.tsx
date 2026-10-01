@@ -38,6 +38,9 @@ import { CampusUserManagement } from './components/campus/CampusUserManagement';
 import { CampusAdminInbox } from './components/campus/CampusAdminInbox';
 import { CampusForcedPasswordChangeModal } from './components/campus/CampusForcedPasswordChangeModal';
 import { CampusAccountActivation } from './components/campus/CampusAccountActivation';
+import { CampusMisExamenes } from './components/campus/CampusMisExamenes';
+import { CampusProfesorAsistencia } from './components/campus/CampusProfesorAsistencia';
+import { CampusProfesorAlumnos } from './components/campus/CampusProfesorAlumnos';
 
 function MainAppContent() {
   const [selectedCourse, setSelectedCourse] = useState<Course | null>(null);
@@ -136,7 +139,10 @@ function MainAppContent() {
           {currentView === 'secretaria' && <CampusSecretary />}
           {currentView === 'avisos' && <CampusAnnouncements />}
           {currentView === 'perfil' && <CampusProfile />}
+          {currentView === 'mis-examenes' && <CampusMisExamenes />}
           {currentView === 'profesor-dashboard' && <CampusTeacherDashboard />}
+          {currentView === 'profesor-asistencia' && <CampusProfesorAsistencia />}
+          {currentView === 'profesor-alumnos' && <CampusProfesorAlumnos />}
           {currentView === 'admin-panel' && <CampusAdminPanel />}
           {currentView === 'admin-solicitudes' && <CampusAdminRequests />}
           {currentView === 'admin-usuarios' && <CampusUserManagement />}

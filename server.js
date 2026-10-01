@@ -2363,6 +2363,101 @@ async function logInscriptionHistory(requestId, userId, eventType, description) 
   }
 }
 
+// 6b. ADMIN: DELETE inscription request (soft-delete, only Rechazada/Cerrada allowed)
+app.delete('/api/admin/inscriptions/:id', requireAuth, requireNoTempPassword, async (req, res) => {
+  try {
+    const userRoles = req.user.roles || [];
+    if (!userRoles.includes('ADMINISTRADOR') && !userRoles.includes('SECRETARIA')) {
+      return res.status(403).json({ error: 'Acceso restringido a personal autorizado.' });
+    }
+    const reqId = req.params.id;
+    const rows = await query(`SELECT * FROM inscription_requests WHERE id = ? LIMIT 1`, [reqId]);
+    if (!rows || rows.length === 0) return res.status(404).json({ error: 'Solicitud no encontrada.' });
+    const req_data = rows[0];
+
+    // Only allow deleting Rechazada or Cerrada requests
+    const allowedStatuses = ['Rechazada', 'Cerrada'];
+    if (!allowedStatuses.includes(req_data.status)) {
+      return res.status(400).json({
+        error: `No se puede eliminar una solicitud en estado "${req_data.status}". Solo se pueden eliminar solicitudes Rechazadas o Cerradas.`
+      });
+    }
+
+    // Archive to auditoria before deleting
+    await query(`
+      INSERT INTO auditoria (actor_id, accion_administrativa, recurso, recurso_id, diff_cambios, ip)
+      VALUES (?, 'DELETE_INSCRIPTION_REQUEST', 'inscription_requests', ?, ?, ?)
+    `, [req.user.id, String(req_data.id), JSON.stringify({ request_number: req_data.request_number, status: req_data.status, email: req_data.email }), req.ip]);
+
+    // Delete related records first (FK)
+    await query(`DELETE FROM inscription_request_history WHERE request_id = ?`, [req_data.id]);
+    await query(`DELETE FROM inscription_request_messages WHERE request_id = ?`, [req_data.id]);
+    await query(`DELETE FROM inscription_requests WHERE id = ?`, [req_data.id]);
+
+    res.json({ success: true, message: `Solicitud ${req_data.request_number} eliminada correctamente.` });
+  } catch (err) {
+    console.error('Delete inscription request error:', err);
+    res.status(500).json({ error: 'Error al eliminar la solicitud.' });
+  }
+});
+
+// ============================================================
+// GRUPOS & ALUMNOS POR GRUPO (para pase de lista, mis alumnos)
+// ============================================================
+
+// GET grupos asignados al profesor autenticado (o todos si admin)
+app.get('/api/academic/groups', requireAuth, requireNoTempPassword, async (req, res) => {
+  try {
+    const userRoles = req.user.roles || [];
+    const isAdmin = userRoles.includes('ADMINISTRADOR') || userRoles.includes('SECRETARIA');
+    const userId = req.user.id;
+
+    let rows;
+    if (isAdmin) {
+      rows = await query(`
+        SELECT g.*, e.nombre as especialidad_nombre, u.nombre as profesor_nombre, u.apellidos as profesor_apellidos
+        FROM grupos g
+        JOIN especialidades e ON g.especialidad_id = e.id
+        LEFT JOIN usuarios u ON g.profesor_principal_id = u.id
+        ORDER BY g.creado_en DESC
+      `);
+    } else {
+      rows = await query(`
+        SELECT g.*, e.nombre as especialidad_nombre, u.nombre as profesor_nombre, u.apellidos as profesor_apellidos
+        FROM grupos g
+        JOIN especialidades e ON g.especialidad_id = e.id
+        LEFT JOIN usuarios u ON g.profesor_principal_id = u.id
+        WHERE g.profesor_principal_id = ?
+        ORDER BY g.creado_en DESC
+      `, [userId]);
+    }
+    res.json(rows);
+  } catch (err) {
+    console.error('Error fetching groups:', err);
+    res.status(500).json({ error: 'Error al obtener los grupos.' });
+  }
+});
+
+// GET alumnos de un grupo específico
+app.get('/api/academic/groups/:groupId/students', requireAuth, requireNoTempPassword, async (req, res) => {
+  const { groupId } = req.params;
+  try {
+    const students = await query(`
+      SELECT
+        m.id as matricula_id, m.estado as matricula_estado, m.fecha_inicio,
+        u.id as alumno_id, u.nombre, u.apellidos, u.email, u.telefono
+      FROM matriculas m
+      JOIN usuarios u ON m.alumno_id = u.id
+      WHERE m.grupo_id = ? AND m.estado = 'ACTIVA'
+      ORDER BY u.apellidos ASC, u.nombre ASC
+    `, [groupId]);
+    res.json({ students });
+  } catch (err) {
+    console.error('Error fetching group students:', err);
+    res.status(500).json({ error: 'Error al obtener los alumnos del grupo.' });
+  }
+});
+
 // 7. ADMIN: Pre-creation checks for converting request to student
 app.post('/api/admin/inscriptions/:id/convert-checks', requireAuth, requireNoTempPassword, async (req, res) => {
   try {

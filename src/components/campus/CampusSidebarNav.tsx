@@ -19,7 +19,9 @@ import {
   Sun,
   Moon,
   ChevronDown,
+  ClipboardList,
 } from 'lucide-react';
+
 import { CampusView, UserRole } from '../../types/campus';
 
 export const CampusSidebarNav: React.FC = () => {
@@ -49,6 +51,7 @@ export const CampusSidebarNav: React.FC = () => {
   const studentNavItems = [
     { view: 'dashboard' as CampusView, label: 'Dashboard Alumno', icon: LayoutDashboard },
     { view: 'cursos' as CampusView, label: 'Mis Cursos', icon: BookOpen },
+    { view: 'mis-examenes' as CampusView, label: 'Mis Exámenes', icon: GraduationCap },
     { view: 'dudas' as CampusView, label: 'Dudas al Profesor', icon: HelpCircle },
     { view: 'secretaria' as CampusView, label: 'Secretaría Online', icon: FileText },
     { view: 'avisos' as CampusView, label: 'Avisos y Noticias', icon: Bell },
@@ -58,6 +61,8 @@ export const CampusSidebarNav: React.FC = () => {
   // Teacher Nav Items
   const teacherNavItems = [
     { view: 'profesor-dashboard' as CampusView, label: 'Panel Profesor', icon: GraduationCap },
+    { view: 'profesor-alumnos' as CampusView, label: 'Mis Alumnos', icon: Users },
+    { view: 'profesor-asistencia' as CampusView, label: 'Pase de Lista', icon: ClipboardList },
     { view: 'cursos' as CampusView, label: 'Cursos Asignados', icon: BookOpen },
     { view: 'dudas' as CampusView, label: 'Consultas Alumnos', icon: HelpCircle },
     { view: 'avisos' as CampusView, label: 'Avisos del Curso', icon: Bell },
