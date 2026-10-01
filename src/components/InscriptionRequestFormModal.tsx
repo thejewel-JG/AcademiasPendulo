@@ -20,23 +20,26 @@ interface InscriptionRequestFormModalProps {
   onClose: () => void;
   preselectedCourseName?: string;
   preselectedCourseId?: string;
+  preselectedCourseCode?: string;
 }
 
 export const InscriptionRequestFormModal: React.FC<InscriptionRequestFormModalProps> = ({
   isOpen,
   onClose,
   preselectedCourseName = '',
-  preselectedCourseId = ''
+  preselectedCourseId = '',
+  preselectedCourseCode = ''
 }) => {
   const [loading, setLoading] = useState(false);
   const [submittedRequestNumber, setSubmittedRequestNumber] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [downloadingSubmittedPdf, setDownloadingSubmittedPdf] = useState(false);
 
   // Form State
   const [formData, setFormData] = useState({
     course_id: preselectedCourseId,
     course_name: preselectedCourseName || (COURSES[0] ? COURSES[0].title : 'Mantenimiento Electromecánico de Vehículos'),
-    course_code: 'TMVG0209',
+    course_code: preselectedCourseCode || 'TMVG0209',
     center: 'Academias Péndulo - Almería',
     edition: 'Convocatoria 2026',
     first_name: '',
@@ -46,9 +49,9 @@ export const InscriptionRequestFormModal: React.FC<InscriptionRequestFormModalPr
     birth_date: '',
     phone: '',
     email: '',
-    address: 'Carrera Doctoral 26',
-    postal_code: '04005',
-    city: 'Almería',
+    address: '',
+    postal_code: '',
+    city: '',
     province: 'Almería',
     employment_status: 'desempleado/a',
     company_activity: '',
@@ -62,6 +65,22 @@ export const InscriptionRequestFormModal: React.FC<InscriptionRequestFormModalPr
     signature_date: new Date().toISOString().split('T')[0]
   });
 
+  React.useEffect(() => {
+    if (isOpen) {
+      setSubmittedRequestNumber(null);
+      setErrorMsg(null);
+      if (preselectedCourseName) {
+        const found = COURSES.find(c => c.id === preselectedCourseId || c.title === preselectedCourseName);
+        setFormData(prev => ({
+          ...prev,
+          course_id: preselectedCourseId || (found ? found.id : prev.course_id),
+          course_name: preselectedCourseName || (found ? found.title : prev.course_name),
+          course_code: preselectedCourseCode || (found ? found.code : prev.course_code),
+        }));
+      }
+    }
+  }, [isOpen, preselectedCourseName, preselectedCourseId, preselectedCourseCode]);
+
   if (!isOpen) return null;
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
@@ -71,6 +90,33 @@ export const InscriptionRequestFormModal: React.FC<InscriptionRequestFormModalPr
       setFormData(prev => ({ ...prev, [name]: checked }));
     } else {
       setFormData(prev => ({ ...prev, [name]: value }));
+    }
+  };
+
+  const handleDownloadSubmittedPdf = async () => {
+    if (!submittedRequestNumber) return;
+    setDownloadingSubmittedPdf(true);
+    try {
+      const res = await fetch(`/api/public/inscriptions/${submittedRequestNumber}/pdf`);
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        alert(err.error || 'Error al descargar la solicitud en PDF.');
+        return;
+      }
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `Solicitud_Inscripcion_${submittedRequestNumber}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+    } catch (e) {
+      console.error('Download error:', e);
+      alert('Error de conexión al descargar el PDF.');
+    } finally {
+      setDownloadingSubmittedPdf(false);
     }
   };
 
@@ -146,9 +192,9 @@ export const InscriptionRequestFormModal: React.FC<InscriptionRequestFormModalPr
             </div>
             <div>
               <h2 className="text-base sm:text-xl font-extrabold text-white tracking-tight flex items-center gap-2">
-                Solicitud Oficial de Inscripción
+                Solicitud Oficial de Inscripción y Reserva de Plaza
                 <span className="hidden sm:inline-block text-[10px] bg-red-600/30 text-red-400 border border-red-500/40 px-2 py-0.5 rounded-full font-bold uppercase">
-                  Subvencionada
+                  100% Subvencionada
                 </span>
               </h2>
               <p className="text-xs text-gray-400">Academias Péndulo · Centro de Formación Profesional N.º 0400030892</p>
@@ -157,7 +203,7 @@ export const InscriptionRequestFormModal: React.FC<InscriptionRequestFormModalPr
 
           <button
             onClick={onClose}
-            className="text-gray-400 hover:text-white p-2 rounded-xl hover:bg-gray-800 transition-colors"
+            className="text-gray-400 hover:text-white p-2 rounded-xl hover:bg-gray-800 transition-colors cursor-pointer"
           >
             <X className="w-6 h-6" />
           </button>
@@ -168,24 +214,44 @@ export const InscriptionRequestFormModal: React.FC<InscriptionRequestFormModalPr
 
           {/* CONFIRMATION SCREEN AFTER SUBMISSION */}
           {submittedRequestNumber ? (
-            <div className="py-12 text-center space-y-6 animate-fadeIn">
+            <div className="py-10 text-center space-y-6 animate-fadeIn">
               <div className="w-20 h-20 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto shadow-inner border-2 border-emerald-300">
                 <CheckCircle2 className="w-12 h-12" />
               </div>
 
               <div className="space-y-2">
                 <h3 className="text-2xl sm:text-3xl font-black text-gray-900">
-                  ✅ Solicitud Enviada Correctamente
+                  ✅ Solicitud Registrada y Enviada
                 </h3>
                 <p className="text-gray-600 text-sm max-w-lg mx-auto">
-                  Hemos recibido correctamente tu solicitud de inscripción. Te hemos enviado un correo electrónico de confirmación con los detalles.
+                  Hemos registrado correctamente tu solicitud de inscripción y enviado una copia oficial con el PDF adjunto a tu correo electrónico y a Secretaría.
                 </p>
               </div>
 
               <div className="bg-red-50 border-2 border-red-200 rounded-2xl p-6 max-w-md mx-auto shadow-sm">
-                <p className="text-xs text-red-700 font-bold uppercase tracking-wider">Número de Solicitud Registrado</p>
+                <p className="text-xs text-red-700 font-bold uppercase tracking-wider">Número Oficial de Solicitud</p>
                 <p className="text-3xl sm:text-4xl font-black text-red-600 tracking-wider mt-1">{submittedRequestNumber}</p>
-                <p className="text-xs text-gray-500 mt-2">Documento oficial PDF generado y archivado en Secretaría.</p>
+                <p className="text-xs text-gray-500 mt-2">Documento oficial PDF firmado y archivado en Secretaría.</p>
+              </div>
+
+              <div className="flex flex-col sm:flex-row items-center justify-center gap-3 max-w-md mx-auto">
+                <button
+                  type="button"
+                  onClick={handleDownloadSubmittedPdf}
+                  disabled={downloadingSubmittedPdf}
+                  className="w-full sm:flex-1 py-3.5 px-4 bg-red-600 hover:bg-red-700 text-white font-extrabold text-xs sm:text-sm rounded-xl shadow-lg flex items-center justify-center gap-2 transition-all cursor-pointer hover:scale-102"
+                >
+                  <Download className="w-4 h-4" />
+                  <span>{downloadingSubmittedPdf ? 'Descargando...' : 'Descargar mi Solicitud en PDF'}</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={onClose}
+                  className="w-full sm:w-auto px-6 py-3.5 bg-gray-900 hover:bg-black text-white font-extrabold text-xs sm:text-sm rounded-xl shadow-md transition-all cursor-pointer"
+                >
+                  Cerrar
+                </button>
               </div>
 
               <div className="bg-gray-50 p-4 rounded-xl text-left text-xs text-gray-600 max-w-lg mx-auto space-y-2 border border-gray-200">
@@ -193,16 +259,9 @@ export const InscriptionRequestFormModal: React.FC<InscriptionRequestFormModalPr
                   <ShieldCheck className="w-4 h-4 text-emerald-600" />
                   Siguientes pasos:
                 </p>
-                <p>1. Nuestro equipo de Secretaría revisará los datos introducidos.</p>
-                <p>2. Si se requiere documentación adicional (copia DNI/cabecera nómina/demanda empleo), nos pondremos en contacto contigo por email o teléfono.</p>
+                <p>1. El equipo de Secretaría revisará los datos introducidos en tu expediente.</p>
+                <p>2. Te contactaremos a través del teléfono o email facilitado para confirmar tu grupo o plaza.</p>
               </div>
-
-              <button
-                onClick={onClose}
-                className="px-8 py-3.5 bg-gray-900 hover:bg-black text-white font-extrabold text-sm rounded-xl shadow-lg transition-all hover:scale-105"
-              >
-                Cerrar Ventana
-              </button>
             </div>
           ) : (
 

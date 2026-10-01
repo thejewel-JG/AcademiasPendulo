@@ -20,9 +20,15 @@ import { useCampus } from '../context/CampusContext';
 interface CourseDetailModalProps {
   course: Course | null;
   onClose: () => void;
+  onOpenConsultation?: () => void;
+  onOpenInscription?: (course: Course) => void;
 }
 
-export const CourseDetailModal: React.FC<CourseDetailModalProps> = ({ course, onClose }) => {
+export const CourseDetailModal: React.FC<CourseDetailModalProps> = ({ 
+  course, 
+  onClose, 
+  onOpenInscription 
+}) => {
   if (!course) return null;
 
   const { submitContactRequest } = useCampus();
@@ -337,15 +343,29 @@ export const CourseDetailModal: React.FC<CourseDetailModalProps> = ({ course, on
                   </select>
                 </div>
 
-                <div className="sm:col-span-3">
+                <div className="sm:col-span-3 space-y-2">
                   <button
                     type="submit"
                     id="btn-confirm-reserve"
                     className="w-full py-3 bg-red-600 hover:bg-red-700 text-white font-bold rounded-xl text-xs sm:text-sm flex items-center justify-center gap-2 transition-all cursor-pointer shadow-md shadow-red-600/20 btn-hover"
                   >
                     <Send className="w-4 h-4" />
-                    <span>Confirmar Preinscripción Gratuita en {course.code}</span>
+                    <span>Confirmar Preinscripción Rápida en {course.code}</span>
                   </button>
+
+                  {onOpenInscription && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onClose();
+                        onOpenInscription(course);
+                      }}
+                      className="w-full py-2.5 bg-gradient-to-r from-red-700 to-amber-600 hover:from-red-600 hover:to-amber-500 text-white font-bold rounded-xl text-xs flex items-center justify-center gap-2 transition-all cursor-pointer shadow-sm"
+                    >
+                      <Sparkles className="w-4 h-4 text-amber-300 animate-pulse" />
+                      <span>Abrir Solicitud Oficial de Inscripción (Formulario 2 Páginas / Firma Digital / PDF)</span>
+                    </button>
+                  )}
                 </div>
               </form>
             )}

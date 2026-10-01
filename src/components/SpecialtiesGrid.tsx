@@ -24,11 +24,13 @@ import { Course } from '../types';
 interface SpecialtiesGridProps {
   onSelectCourse: (course: Course) => void;
   onOpenConsultation: () => void;
+  onOpenInscription?: (course: Course) => void;
 }
 
 export const SpecialtiesGrid: React.FC<SpecialtiesGridProps> = ({ 
   onSelectCourse, 
-  onOpenConsultation 
+  onOpenConsultation,
+  onOpenInscription
 }) => {
   const [activeCategory, setActiveCategory] = useState<string>('all');
   const [expandedCourseId, setExpandedCourseId] = useState<string | null>(null);
@@ -323,7 +325,13 @@ export const SpecialtiesGrid: React.FC<SpecialtiesGridProps> = ({
                   </button>
 
                   <button
-                    onClick={() => onSelectCourse(course)}
+                    onClick={() => {
+                      if (onOpenInscription) {
+                        onOpenInscription(course);
+                      } else {
+                        onSelectCourse(course);
+                      }
+                    }}
                     id={`btn-reserva-${course.id}`}
                     className="group relative overflow-hidden w-full sm:w-1/2 py-3 px-4 rounded-xl bg-gradient-to-r from-red-600 via-red-600 to-amber-600 hover:from-red-500 hover:via-red-600 hover:to-amber-500 text-white text-xs sm:text-sm font-extrabold flex items-center justify-center gap-2 transition-all duration-300 shadow-md hover:shadow-[0_10px_25px_rgba(239,68,68,0.4)] hover:scale-[1.03] active:scale-95 cursor-pointer min-h-[48px] border border-red-400/50"
                   >

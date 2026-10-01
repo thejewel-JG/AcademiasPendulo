@@ -2540,6 +2540,67 @@ app.post('/api/public/inscription-request', async (req, res) => {
   }
 });
 
+// PUBLIC: Download applicant's own inscription PDF
+app.get('/api/public/inscriptions/:requestNumber/pdf', async (req, res) => {
+  try {
+    const { requestNumber } = req.params;
+    const rows = await query(`SELECT * FROM inscription_requests WHERE request_number = ? LIMIT 1`, [requestNumber]);
+    if (!rows || rows.length === 0) {
+      return res.status(404).json({ error: 'Solicitud no encontrada.' });
+    }
+
+    const item = rows[0];
+    let pdfFile = item.pdf_path;
+
+    if (!pdfFile || !fs.existsSync(pdfFile)) {
+      try {
+        const pdfData = {
+          request_number: item.request_number,
+          course_name: item.course_name || 'Curso Oficial',
+          course_code: item.course_code || '',
+          center: item.center || 'Academias Péndulo - Almería',
+          edition: item.edition || `Convocatoria ${new Date().getFullYear()}`,
+          first_name: item.first_name,
+          last_name_1: item.last_name_1,
+          last_name_2: item.last_name_2 || '',
+          dni_nie: item.dni_nie,
+          birth_date: item.birth_date ? new Date(item.birth_date).toISOString().split('T')[0] : '',
+          phone: item.phone,
+          email: item.email,
+          address: item.address || '',
+          postal_code: item.postal_code || '',
+          city: item.city || 'Almería',
+          province: item.province || 'Almería',
+          employment_status: item.employment_status || 'Desempleado',
+          company_activity: item.company_activity || '',
+          observations: item.observations || '',
+          truth_declaration: Boolean(item.truth_declaration),
+          subsidized_training_acceptance: Boolean(item.subsidized_training_acceptance),
+          contact_authorization: Boolean(item.contact_authorization),
+          privacy_acceptance: Boolean(item.privacy_acceptance),
+          marketing_consent: Boolean(item.marketing_consent),
+          signature_name: item.signature_name || `${item.first_name} ${item.last_name_1}`,
+          signature_date: item.signature_date ? new Date(item.signature_date).toISOString().split('T')[0] : new Date().toISOString().split('T')[0]
+        };
+
+        pdfFile = await generateInscriptionPDF(pdfData);
+        await query(`UPDATE inscription_requests SET pdf_path = ? WHERE id = ?`, [pdfFile, item.id]);
+      } catch (genErr) {
+        console.error('Error generating on-the-fly public inscription PDF:', genErr);
+      }
+    }
+
+    if (!pdfFile || !fs.existsSync(pdfFile)) {
+      return res.status(404).json({ error: 'No se pudo generar el archivo PDF de la solicitud.' });
+    }
+
+    res.download(pdfFile, `Solicitud_Inscripcion_${item.request_number}.pdf`);
+  } catch (error) {
+    console.error('Public download inscription PDF error:', error);
+    res.status(500).json({ error: 'Error al descargar la solicitud en PDF.' });
+  }
+});
+
 // 2. ADMIN: List & search inscription requests
 app.get('/api/admin/inscriptions', requireAuth, requireNoTempPassword, async (req, res) => {
   try {

@@ -181,6 +181,11 @@ function MainAppContent() {
         <SpecialtiesGrid
           onSelectCourse={(course) => setSelectedCourse(course)}
           onOpenConsultation={() => setIsConsultationOpen(true)}
+          onOpenInscription={(course) => {
+            setInscriptionCourseTitle(course.title);
+            setInscriptionCourseId(course.id || course.code);
+            setIsInscriptionModalOpen(true);
+          }}
         />
 
         {/* 4. Official Certificates Guide with Tabs & Levels */}
@@ -223,6 +228,11 @@ function MainAppContent() {
           course={selectedCourse}
           onClose={() => setSelectedCourse(null)}
           onOpenConsultation={() => setIsConsultationOpen(true)}
+          onOpenInscription={(course) => {
+            setInscriptionCourseTitle(course.title);
+            setInscriptionCourseId(course.id || course.code);
+            setIsInscriptionModalOpen(true);
+          }}
         />
       )}
 
