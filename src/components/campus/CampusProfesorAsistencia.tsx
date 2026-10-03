@@ -119,9 +119,9 @@ export const CampusProfesorAsistencia: React.FC = () => {
     }
   };
 
-  const presentesCount = Object.values(records).filter(r => r.estado === 'PRESENTE' || r.estado === 'RETRASO').length;
-  const ausentesCount = Object.values(records).filter(r => r.estado === 'AUSENTE').length;
-  const justificadasCount = Object.values(records).filter(r => r.estado === 'JUSTIFICADA').length;
+  const presentesCount = (Object.values(records) as AttendanceRecord[]).filter(r => r.estado === 'PRESENTE' || r.estado === 'RETRASO').length;
+  const ausentesCount = (Object.values(records) as AttendanceRecord[]).filter(r => r.estado === 'AUSENTE').length;
+  const justificadasCount = (Object.values(records) as AttendanceRecord[]).filter(r => r.estado === 'JUSTIFICADA').length;
 
   const estadoBg: Record<string, string> = {
     PRESENTE: 'bg-emerald-50 border-emerald-200',

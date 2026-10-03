@@ -341,7 +341,7 @@ export const InscriptionRequestFormModal: React.FC<InscriptionRequestFormModalPr
                     >
                       {COURSES.map(c => (
                         <option key={c.id} value={c.title}>
-                          {c.title} ({c.hours}h - {c.modality})
+                          {c.title} ({c.totalHours}h - {c.modality})
                         </option>
                       ))}
                     </select>
