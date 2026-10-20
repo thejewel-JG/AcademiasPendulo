@@ -149,10 +149,50 @@ export function generateInscriptionPDF(data) {
       doc.fillColor(DARK_GRAY).font('Helvetica').fontSize(9).text(data.province || '', 365, y + 16);
       y += 45;
 
-      // Section 3: SITUACIÓN LABORAL
-      doc.fillColor(DARK_GRAY).font('Helvetica-Bold').fontSize(10).text('3. SITUACIÓN LABORAL', 40, y);
+      // Section 3: ESTUDIOS Y FORMACIÓN ACADÉMICA
+      doc.fillColor(DARK_GRAY).font('Helvetica-Bold').fontSize(10).text('3. ESTUDIOS Y FORMACIÓN ACADÉMICA', 40, y);
       doc.moveTo(40, y + 14).lineTo(555, y + 14).strokeColor(RED).lineWidth(1).stroke();
       y += 22;
+
+      const ACADEMIC_LEVEL_LABELS = {
+        sin_estudios: 'Sin estudios finalizados',
+        primaria: 'Educación Primaria',
+        eso: 'Educación Secundaria Obligatoria (ESO)',
+        bachillerato: 'Bachillerato',
+        fp_basica: 'Formación Profesional Básica',
+        fp_grado_medio: 'Formación Profesional de Grado Medio',
+        fp_grado_superior: 'Formación Profesional de Grado Superior',
+        grado_universitario: 'Grado universitario o equivalente',
+        master_posgrado: 'Máster o estudios de posgrado',
+        doctorado: 'Doctorado',
+        otros: 'Otros estudios'
+      };
+
+      const academicLevelLabel = ACADEMIC_LEVEL_LABELS[data.academic_level] || data.academic_level || 'No especificado';
+      const academicDegreeText = data.academic_degree || 'No especificado';
+      const additionalTrainingText = data.additional_training || 'No especificada';
+
+      // Nivel de estudios & Titulación
+      doc.fillColor('#374151').font('Helvetica-Bold').fontSize(8).text('Nivel de estudios finalizados *', 40, y);
+      doc.text('Estudios o titulación *', 270, y);
+
+      doc.rect(40, y + 10, 220, 22).strokeColor(BORDER_COLOR).stroke();
+      doc.fillColor(DARK_GRAY).font('Helvetica').fontSize(8.5).text(academicLevelLabel, 45, y + 16, { width: 210, ellipsis: true });
+
+      doc.rect(270, y + 10, 285, 22).strokeColor(BORDER_COLOR).stroke();
+      doc.fillColor(DARK_GRAY).font('Helvetica').fontSize(8.5).text(academicDegreeText, 275, y + 16, { width: 275, ellipsis: true });
+      y += 38;
+
+      // Formación complementaria
+      doc.fillColor('#374151').font('Helvetica-Bold').fontSize(8).text('Otros cursos o formación complementaria', 40, y);
+      doc.rect(40, y + 10, 515, 24).strokeColor(BORDER_COLOR).stroke();
+      doc.fillColor(DARK_GRAY).font('Helvetica').fontSize(8).text(additionalTrainingText, 45, y + 15, { width: 505, ellipsis: true });
+      y += 42;
+
+      // Section 4: SITUACIÓN LABORAL
+      doc.fillColor(DARK_GRAY).font('Helvetica-Bold').fontSize(10).text('4. SITUACIÓN LABORAL', 40, y);
+      doc.moveTo(40, y + 14).lineTo(555, y + 14).strokeColor(RED).lineWidth(1).stroke();
+      y += 20;
 
       // Checkboxes
       const empStatus = (data.employment_status || '').toLowerCase();
@@ -171,19 +211,19 @@ export function generateInscriptionPDF(data) {
         }
         doc.fillColor(DARK_GRAY).font('Helvetica').fontSize(9).text(opt.label, opt.x + 20, y + 2);
       });
-      y += 24;
-
-      doc.fillColor('#374151').font('Helvetica-Bold').fontSize(8).text('Empresa / actividad profesional (opcional)', 40, y);
-      doc.rect(40, y + 10, 515, 22).strokeColor(BORDER_COLOR).stroke();
-      doc.fillColor(DARK_GRAY).font('Helvetica').fontSize(9).text(data.company_activity || '', 45, y + 16);
-      y += 45;
-
-      // Section 4: OBSERVACIONES
-      doc.fillColor(DARK_GRAY).font('Helvetica-Bold').fontSize(10).text('4. OBSERVACIONES', 40, y);
-      doc.moveTo(40, y + 14).lineTo(555, y + 14).strokeColor(RED).lineWidth(1).stroke();
       y += 22;
 
-      doc.rect(40, y, 515, 60).strokeColor(BORDER_COLOR).stroke();
+      doc.fillColor('#374151').font('Helvetica-Bold').fontSize(8).text('Empresa / actividad profesional (opcional)', 40, y);
+      doc.rect(40, y + 10, 515, 20).strokeColor(BORDER_COLOR).stroke();
+      doc.fillColor(DARK_GRAY).font('Helvetica').fontSize(8.5).text(data.company_activity || 'No indicada', 45, y + 15);
+      y += 38;
+
+      // Section 5: OBSERVACIONES
+      doc.fillColor(DARK_GRAY).font('Helvetica-Bold').fontSize(10).text('5. OBSERVACIONES', 40, y);
+      doc.moveTo(40, y + 14).lineTo(555, y + 14).strokeColor(RED).lineWidth(1).stroke();
+      y += 20;
+
+      doc.rect(40, y, 515, 45).strokeColor(BORDER_COLOR).stroke();
       doc.fillColor(DARK_GRAY).font('Helvetica').fontSize(8.5).text(data.observations || 'Sin observaciones.', 48, y + 8, { width: 500 });
 
       // Page 1 Footer

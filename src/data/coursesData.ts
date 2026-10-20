@@ -8,9 +8,9 @@ export const CENTER_INFO: CenterInfo = {
   postalCode: "04005",
   city: "ALMERÍA",
   province: "ALMERÍA, Andalucía",
-  phone: "+34 950 25 25 25",
-  phoneAlt: "+34 950 04 04 04",
-  email: "info@academiaspendulo.com",
+  phone: "620 351 622",
+  phoneAlt: "+34 620 35 16 22",
+  email: "info.academiaspendulo@gmail.com",
   hours: "Lunes a Viernes: 08:30 - 20:30 h (Ininterrumpido)",
   googleMapsUrl: "https://www.juntadeandalucia.es/empleoformacionytrabajoautonomo/formacion/web/buscador-de-centros-y-entidades/0400030892"
 };

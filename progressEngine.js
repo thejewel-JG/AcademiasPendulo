@@ -586,7 +586,7 @@ export async function getTeacherGroupAnalytics(profesorId) {
   try {
     // 1. Get groups assigned to this teacher
     const [assignedGroups] = await connection.query(
-      `SELECT g.id as grupo_id, g.codigo as grupo_codigo, esp.nombre as especialidad_nombre
+      `SELECT g.id as grupo_id, g.nombre as grupo_codigo, esp.nombre as especialidad_nombre
        FROM grupos g
        JOIN especialidades esp ON g.especialidad_id = esp.id
        WHERE g.profesor_principal_id = ?`,
@@ -637,7 +637,7 @@ export async function getAdminGlobalAnalytics({ especialidadId, grupoId, alumnoI
 
   try {
     let sql = `
-      SELECT ama.alumno_id, ama.matricula_id, mat.grupo_id, g.codigo as grupo_codigo,
+      SELECT ama.alumno_id, ama.matricula_id, mat.grupo_id, g.nombre as grupo_codigo,
              g.especialidad_id, esp.nombre as especialidad_nombre,
              u.nombre, u.apellidos, u.email
       FROM alumno_matricula_activa ama

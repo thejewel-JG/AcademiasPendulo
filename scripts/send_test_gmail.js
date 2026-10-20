@@ -3,9 +3,9 @@ import dotenv from 'dotenv';
 dotenv.config();
 
 async function sendGmailTest() {
-  const user = 'guillerminajoya@gmail.com';
-  const pass = 'rrinuaklqitwalso';
-  const targetEmail = 'guillerminajoya@gmail.com';
+  const user = 'info.academiaspendulo@gmail.com';
+  const pass = process.env.GMAIL_APP_PASS || 'Wattpad_3317';
+  const targetEmail = 'info.academiaspendulo@gmail.com';
 
   console.log(`\n--- PROBANDO ENVÍO SMTP DE GMAIL ---`);
   console.log(`Usuario: ${user}`);
@@ -41,7 +41,7 @@ async function sendGmailTest() {
           </div>
           <hr style="border: none; border-top: 1px solid #f3f4f6; margin: 20px 0;" />
           <h2 style="color: #1f2937;">¡Conexión de correo activada con éxito!</h2>
-          <p>Hola <strong>Guillermina</strong>,</p>
+          <p>Hola <strong>Administración</strong>,</p>
           <p>Este es un correo automático de prueba confirmado desde el servidor de <strong>Academias Péndulo</strong>.</p>
           <p>A partir de ahora, todas las alertas automáticas del sistema, notificaciones de alumnos, restablecimientos de contraseña y mensajes del campus llegarán a tu bandeja de entrada personal.</p>
           <div style="background-color: #f0fdf4; border-left: 4px solid #22c55e; padding: 12px 16px; margin: 20px 0; border-radius: 4px;">

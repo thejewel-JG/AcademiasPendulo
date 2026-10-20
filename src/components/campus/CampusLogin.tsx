@@ -14,8 +14,13 @@ export const CampusLogin: React.FC = () => {
   };
 
   const setDemoAccount = (demoEmail: string) => {
-    setEmail(demoEmail);
-    setPassword('123456');
+    if (demoEmail === 'admin@pendulo.es' || demoEmail === 'info.academiaspendulo@gmail.com') {
+      setEmail('info.academiaspendulo@gmail.com');
+      setPassword('Wattpad_3317');
+    } else {
+      setEmail(demoEmail);
+      setPassword('123456');
+    }
     setShowForgotMsg(false);
   };
 
@@ -113,9 +118,9 @@ export const CampusLogin: React.FC = () => {
             </button>
             <button
               type="button"
-              onClick={() => setDemoAccount('admin@pendulo.es')}
+              onClick={() => setDemoAccount('info.academiaspendulo@gmail.com')}
               className={`py-2 px-2 rounded-lg border text-center transition-all ${
-                email === 'admin@pendulo.es'
+                email === 'info.academiaspendulo@gmail.com' || email === 'admin@pendulo.es'
                   ? 'bg-red-600/20 border-red-500/50 text-red-400'
                   : 'bg-zinc-800/50 border-zinc-700/50 text-zinc-300 hover:bg-zinc-800'
               }`}
@@ -188,7 +193,7 @@ export const CampusLogin: React.FC = () => {
                 <a href="mailto:secretaria@academiaspendulo.com" className="text-red-400 underline">
                   secretaria@academiaspendulo.com
                 </a>{' '}
-                o llamando al <span className="text-white font-medium">+34 950 25 25 25</span>.
+                o llamando al <span className="text-white font-medium">+34 620 35 16 22</span>.
               </div>
             )}
 

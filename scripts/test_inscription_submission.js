@@ -8,13 +8,13 @@ async function testSubmit() {
     course_code: 'TMVG0209',
     center: 'Academias Péndulo - Almería',
     edition: 'Convocatoria 2026',
-    first_name: 'Guillermina',
-    last_name_1: 'Joya',
-    last_name_2: 'Martínez',
+    first_name: 'Administración',
+    last_name_1: 'Péndulo',
+    last_name_2: 'Centro',
     dni_nie: '12345678Z',
     birth_date: '1995-05-15',
-    phone: '654321987',
-    email: 'guillerminajoya@gmail.com',
+    phone: '620351622',
+    email: 'info.academiaspendulo@gmail.com',
     address: 'Carrera Doctoral 26',
     postal_code: '04005',
     city: 'Almería',
@@ -27,7 +27,7 @@ async function testSubmit() {
     contact_authorization: true,
     privacy_acceptance: true,
     marketing_consent: true,
-    signature_name: 'Guillermina Joya Martínez',
+    signature_name: 'Administración Academias Péndulo',
     signature_date: '2026-09-29'
   };
 

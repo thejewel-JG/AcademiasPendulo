@@ -3,7 +3,7 @@ import dotenv from 'dotenv';
 dotenv.config();
 
 async function sendTestEmail() {
-  const targetEmail = 'guillerminajoya@gmail.com';
+  const targetEmail = 'info.academiaspendulo@gmail.com';
   console.log(`\n--- ENVIANDO CORREO DE PRUEBA A: ${targetEmail} ---\n`);
 
   // Try Hostinger SMTP first if available, or configurable transport
@@ -33,8 +33,8 @@ async function sendTestEmail() {
       html: `
         <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e0e0e0; border-radius: 8px;">
           <h2 style="color: #4f46e5;">Prueba de Mensajes Automáticos - Academias Péndulo</h2>
-          <p>Hola <strong>Guillermina</strong>,</p>
-          <p>Este es un correo de prueba enviado desde el sistema de <strong>Academias Péndulo</strong> para verificar la entrega automática a tu dirección personal (<code>${targetEmail}</code>).</p>
+          <p>Hola <strong>Administración</strong>,</p>
+          <p>Este es un correo de prueba enviado desde el sistema de <strong>Academias Péndulo</strong> para verificar la entrega automática a tu dirección (<code>${targetEmail}</code>).</p>
           <hr style="border: none; border-top: 1px solid #eee; margin: 20px 0;" />
           <p style="font-size: 12px; color: #666;">Fecha de envío: ${new Date().toLocaleString('es-ES')}</p>
         </div>

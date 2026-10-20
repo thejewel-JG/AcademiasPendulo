@@ -4,7 +4,24 @@ export interface Module {
   hours: number;
 }
 
-export interface Course {
+export interface CourseCommercialConfig {
+  precio_base?: number | null;
+  moneda?: string;
+  tipo_iva?: 'EXENTO' | 'GENERAL_21' | 'REDUCIDO_10' | 'SUPERREDUCIDO_4' | string;
+  porcentaje_iva?: number | string;
+  importe_iva?: number | null;
+  precio_final?: number | null;
+  estado_precio?: 'SIN_CONFIGURAR' | 'CONFIGURADO';
+  tipo_inscripcion?: 'COMPRA_DIRECTA' | 'SOLICITUD_APROBACION';
+  plazas_maximas?: number | null;
+  plazas_disponibles?: number | null;
+  estado_disponibilidad?: 'ABIERTA' | 'CERRADA' | 'SUSPENDIDA_TEMPORALMENTE' | 'COMPLETA';
+  fecha_apertura_inscripcion?: string | null;
+  fecha_cierre_inscripcion?: string | null;
+  estado_publicacion?: 'BORRADOR' | 'PUBLICADO' | 'NO_DISPONIBLE' | 'ARCHIVADO';
+}
+
+export interface Course extends CourseCommercialConfig {
   id: string;
   code: string; // e.g. TMVG0209
   title: string;
@@ -17,7 +34,7 @@ export interface Course {
   schedule: string;
   nextCall: string;
   placesLeft: number;
-  isSubsidized: boolean;
+  isSubsidized?: boolean;
   shortDescription: string;
   fullDescription: string;
   requirements: string[];

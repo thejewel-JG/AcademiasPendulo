@@ -70,7 +70,7 @@ export const CertificatesGuide: React.FC<{ onOpenConsultation: () => void }> = (
             }`}
           >
             <Coins className="w-4 h-4" />
-            <span>Gratuidad y Financiación</span>
+            <span>Precios, Financiación y Bonificaciones</span>
           </button>
 
           <button
@@ -188,10 +188,10 @@ export const CertificatesGuide: React.FC<{ onOpenConsultation: () => void }> = (
                 </div>
                 <div>
                   <h3 className="font-display text-xl sm:text-2xl font-bold text-gray-900">
-                    Formación 100% Subvencionada: ¿Por qué es Gratuita?
+                    Modelo de Formación Privada Especializada y Financiación
                   </h3>
                   <p className="text-sm text-gray-600 mt-2 leading-relaxed">
-                    Nuestros cursos no tienen ningún coste de matrícula ni mensualidades para el alumno porque están <strong>financiados íntegramente por los fondos públicos de Formación Profesional para el Empleo</strong> (SEPE, Ministerio de Trabajo y Junta de Andalucía).
+                    Nuestros programas ofrecen precios competitivos en euros con opciones de <strong>pago aplazado, bonificación para empresas (FUNDAE) y programas de becas</strong> para facilitar el acceso a la cualificación profesional técnica de máximo nivel.
                   </p>
                 </div>
               </div>
@@ -199,19 +199,19 @@ export const CertificatesGuide: React.FC<{ onOpenConsultation: () => void }> = (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="bg-white p-5 rounded-2xl border border-gray-200 card-hover">
                   <h4 className="font-bold text-gray-900 text-sm flex items-center gap-1.5 mb-2">
-                    <Sparkles className="w-4 h-4 text-red-500" /> Para Personas Desempleadas
+                    <Sparkles className="w-4 h-4 text-red-500" /> Formación Privada con Flexibilidad
                   </h4>
                   <p className="text-xs text-gray-600 leading-relaxed">
-                    Estar dado de alta como demandante de empleo en el SAE (DARDE al día). Incluye material didáctico, EPIS de taller, acceso a maquinaria y seguro de accidentes y responsabilidad civil durante las prácticas.
+                    Precios transparentes fijados por curso con tratamiento fiscal aplicado. Incluye material didáctico, EPIS de taller, acceso a maquinaria y seguro de accidentes y responsabilidad civil durante las prácticas en taller.
                   </p>
                 </div>
 
                 <div className="bg-white p-5 rounded-2xl border border-gray-200 card-hover">
                   <h4 className="font-bold text-gray-900 text-sm flex items-center gap-1.5 mb-2">
-                    <Coins className="w-4 h-4 text-red-500" /> Para Trabajadores y Empresas (FUNDAE)
+                    <Coins className="w-4 h-4 text-red-500" /> Bonificación para Empresas (FUNDAE)
                   </h4>
                   <p className="text-xs text-gray-600 leading-relaxed">
-                    Las empresas disponen de un crédito anual bonificable en los seguros sociales para formar a sus empleados en nuestro centro homologado, sin coste neto para la plantilla.
+                    Las empresas pueden bonificar los costes de formación mediante sus créditos anuales en las cotizaciones a la Seguridad Social, optimizando la inversión formativa de su plantilla.
                   </p>
                 </div>
               </div>

@@ -7,7 +7,7 @@ async function testContactApi() {
   const testPayload = {
     first_name: 'María',
     last_name: 'Pruebas',
-    email: 'guillerminajoya@gmail.com', // Usamos tu correo para recibir ambos emails de prueba
+    email: 'info.academiaspendulo@gmail.com', // Usamos el correo del centro para recibir ambos emails de prueba
     phone: '612345678',
     course_id: 'TMVG0004',
     course_code: 'TMVG0004',

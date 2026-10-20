@@ -35,6 +35,7 @@ import { CampusProfile } from './components/campus/CampusProfile';
 import { CampusTeacherDashboard } from './components/campus/CampusTeacherDashboard';
 import { CampusAdminPanel } from './components/campus/CampusAdminPanel';
 import { CampusAdminRequests } from './components/campus/CampusAdminRequests';
+import { CampusCommercialCatalog } from './components/campus/CampusCommercialCatalog';
 import { CampusUserManagement } from './components/campus/CampusUserManagement';
 import { CampusAdminInbox } from './components/campus/CampusAdminInbox';
 import { CampusForcedPasswordChangeModal } from './components/campus/CampusForcedPasswordChangeModal';
@@ -146,6 +147,11 @@ function MainAppContent() {
           {currentView === 'profesor-asistencia' && <CampusProfesorAsistencia />}
           {currentView === 'profesor-alumnos' && <CampusProfesorAlumnos />}
           {currentView === 'admin-panel' && <CampusAdminPanel />}
+          {currentView === 'admin-catalogo' && (
+            <div className="p-4 sm:p-8 max-w-7xl mx-auto">
+              <CampusCommercialCatalog />
+            </div>
+          )}
           {currentView === 'admin-solicitudes' && <CampusAdminRequests />}
           {currentView === 'admin-usuarios' && <CampusUserManagement />}
           {currentView === 'admin-correo' && <CampusAdminInbox />}

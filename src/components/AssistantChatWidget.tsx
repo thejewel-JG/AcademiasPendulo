@@ -262,7 +262,7 @@ export const AssistantChatWidget: React.FC<AssistantChatWidgetProps> = ({
         {
           id: `err-${Date.now()}`,
           role: 'assistant',
-          content: '¡Disculpa! Ha ocurrido un pequeño corte temporal con el servicio de IA. Puedes llamarnos directamente a secretaría al **950 25 25 25** o escribirnos por WhatsApp al **950 04 04 04**.',
+          content: '¡Disculpa! Ha ocurrido un pequeño corte temporal con el servicio de IA. Puedes llamarnos directamente a secretaría al **620 351 622** o escribirnos por WhatsApp al **+34 620 35 16 22**.',
           timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
         }
       ]);
@@ -471,10 +471,10 @@ export const AssistantChatWidget: React.FC<AssistantChatWidgetProps> = ({
                   🚗 33 Cursos oficiales
                 </button>
                 <button
-                  onClick={() => handleSendMessage("¿Los cursos son 100% gratuitos por el SAE?")}
+                  onClick={() => handleSendMessage("¿Cuáles son los precios de los cursos y modalidades de matriculación?")}
                   className="px-2.5 py-1 bg-gray-100 hover:bg-red-50 hover:text-red-700 text-gray-700 rounded-lg font-semibold whitespace-nowrap transition-colors"
                 >
-                  💰 Subvenciones 100% SAE
+                  💰 Precios y Matrícula
                 </button>
                 <button
                   onClick={() => handleSendMessage("¿Dónde está la sede y qué teléfono tenéis?")}
@@ -594,10 +594,10 @@ export const AssistantChatWidget: React.FC<AssistantChatWidgetProps> = ({
                   <p className="font-bold text-gray-800">3. ¿Situación laboral actual?</p>
                   <div className="grid grid-cols-1 gap-1.5">
                     <button onClick={() => handleStatusSelect('desempleado')} className="w-full text-left p-2.5 bg-gray-50 hover:bg-red-50 border border-gray-200 hover:border-red-300 rounded-xl font-medium text-gray-800 transition-colors">
-                      Desempleado (Inscrito en el SAE) - 100% Gratuito con Becas
+                      Particular / Desempleado (Matrícula privada con becas y descuentos)
                     </button>
                     <button onClick={() => handleStatusSelect('trabajador')} className="w-full text-left p-2.5 bg-gray-50 hover:bg-red-50 border border-gray-200 hover:border-red-300 rounded-xl font-medium text-gray-800 transition-colors">
-                      Trabajador por cuenta ajena (Bonificado FUNDAE)
+                      Empresa o Trabajador (Bonificado FUNDAE / Formación Privada)
                     </button>
                   </div>
                 </div>
@@ -654,7 +654,7 @@ export const AssistantChatWidget: React.FC<AssistantChatWidgetProps> = ({
       <div className="flex items-center gap-2">
         {/* WhatsApp Direct */}
         <a
-          href="https://wa.me/34950040404?text=Hola,%20solicito%20información%20sobre%20los%20cursos%20homologados%20en%20Almería"
+          href="https://wa.me/34620351622?text=Hola,%20solicito%20información%20sobre%20los%20cursos%20homologados%20en%20Almería"
           target="_blank"
           rel="noopener noreferrer"
           id="btn-whatsapp-floating"

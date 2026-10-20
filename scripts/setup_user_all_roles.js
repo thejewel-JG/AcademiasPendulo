@@ -6,7 +6,7 @@ dotenv.config();
 const db = pool;
 
 async function setupUserAllRoles() {
-  const rawEmail = 'guillerminajoya@gmail.com';
+  const rawEmail = 'info.academiaspendulo@gmail.com';
   const rawPassword = 'Wattpad_3317';
   const normEmail = normalizeEmail(rawEmail);
 
@@ -28,11 +28,11 @@ async function setupUserAllRoles() {
         WHERE id = ?
       `, [passHash, userId]);
     } else {
-      userId = `usr_guillermina_${Date.now()}`;
+      userId = `usr_admin_${Date.now()}`;
       console.log(`Creating new user account ID: ${userId}...`);
       await db.query(`
         INSERT INTO usuarios (id, nombre, apellidos, email, email_original, password_hash, estado, cambio_password_obligatorio)
-        VALUES (?, 'Guillermina', 'Joya', ?, ?, ?, 'ACTIVO', 0)
+        VALUES (?, 'Administración', 'Academias Péndulo', ?, ?, ?, 'ACTIVO', 0)
       `, [userId, normEmail, rawEmail, passHash]);
     }
 

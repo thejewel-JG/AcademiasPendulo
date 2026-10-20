@@ -20,6 +20,7 @@ import {
   Moon,
   ChevronDown,
   ClipboardList,
+  DollarSign,
 } from 'lucide-react';
 
 import { CampusView, UserRole } from '../../types/campus';
@@ -72,10 +73,10 @@ export const CampusSidebarNav: React.FC = () => {
   // Admin Nav Items
   const adminNavItems = [
     { view: 'admin-panel' as CampusView, label: 'Panel Global Admin', icon: Shield },
+    { view: 'admin-catalogo' as CampusView, label: 'Gestión Cursos y Precios', icon: DollarSign, badge: '33 Cursos', highlight: true },
     { view: 'admin-solicitudes' as CampusView, label: 'Solicitudes y Leads', icon: FileText },
     { view: 'admin-usuarios' as CampusView, label: 'Usuarios e Invitaciones', icon: Users },
     { view: 'admin-correo' as CampusView, label: 'Bandeja de Correo', icon: Mail },
-    { view: 'cursos' as CampusView, label: 'Gestión Cursos', icon: BookOpen },
     { view: 'dudas' as CampusView, label: 'Supervisión Dudas', icon: HelpCircle },
     { view: 'secretaria' as CampusView, label: 'Gestión Secretaría', icon: FileText },
     { view: 'avisos' as CampusView, label: 'Gestión Avisos', icon: Bell },
@@ -212,21 +213,32 @@ export const CampusSidebarNav: React.FC = () => {
 
         {/* Main Navigation Links */}
         <nav className="flex-1 px-3 space-y-1 overflow-y-auto py-2">
-          {navItems.map((item) => {
+          {navItems.map((item: any) => {
             const IconComponent = item.icon;
             const isActive = currentView === item.view;
             return (
               <button
                 key={item.view}
                 onClick={() => handleItemClick(item.view)}
-                className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-semibold transition-all ${
+                className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-semibold transition-all ${
                   isActive
                     ? 'bg-red-600 text-white shadow-lg shadow-red-950/40 border border-red-500/30'
+                    : item.highlight
+                    ? 'text-emerald-400 hover:text-white bg-emerald-950/30 hover:bg-emerald-900/40 border border-emerald-800/50'
                     : 'text-zinc-400 hover:text-white hover:bg-zinc-900 border border-transparent'
                 }`}
               >
-                <IconComponent className={`w-4 h-4 ${isActive ? 'text-white' : 'text-zinc-400'}`} />
-                <span>{item.label}</span>
+                <div className="flex items-center gap-3">
+                  <IconComponent className={`w-4 h-4 ${isActive ? 'text-white' : item.highlight ? 'text-emerald-400' : 'text-zinc-400'}`} />
+                  <span>{item.label}</span>
+                </div>
+                {item.badge && (
+                  <span className={`text-[9px] font-extrabold px-2 py-0.5 rounded-full ${
+                    isActive ? 'bg-white text-red-600' : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                  }`}>
+                    {item.badge}
+                  </span>
+                )}
               </button>
             );
           })}
@@ -338,21 +350,30 @@ export const CampusSidebarNav: React.FC = () => {
             </div>
 
             <nav className="flex-1 space-y-1">
-              {navItems.map((item) => {
+              {navItems.map((item: any) => {
                 const IconComponent = item.icon;
                 const isActive = currentView === item.view;
                 return (
                   <button
                     key={item.view}
                     onClick={() => handleItemClick(item.view)}
-                    className={`w-full flex items-center gap-3 px-3.5 py-3 rounded-xl text-xs font-semibold transition-all ${
+                    className={`w-full flex items-center justify-between px-3.5 py-3 rounded-xl text-xs font-semibold transition-all ${
                       isActive
                         ? 'bg-red-600 text-white font-bold'
+                        : item.highlight
+                        ? 'text-emerald-400 bg-emerald-950/40 border border-emerald-800/50'
                         : 'text-zinc-300 hover:bg-zinc-900'
                     }`}
                   >
-                    <IconComponent className="w-4 h-4" />
-                    <span>{item.label}</span>
+                    <div className="flex items-center gap-3">
+                      <IconComponent className="w-4 h-4" />
+                      <span>{item.label}</span>
+                    </div>
+                    {item.badge && (
+                      <span className="text-[9px] font-extrabold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
+                        {item.badge}
+                      </span>
+                    )}
                   </button>
                 );
               })}

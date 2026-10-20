@@ -7,7 +7,7 @@ async function testEmploymentPool() {
   const testCandidate = {
     nombre: 'Carlos Electromecánico',
     telefono: '699112233',
-    email: 'guillerminajoya@gmail.com', // Usamos tu correo para recibir la notificación de prueba
+    email: 'info.academiaspendulo@gmail.com', // Correo del centro para recibir la notificación de prueba
     ciudad: 'Almería',
     especialidad: 'Electromecánica y Diagnóstico Avanzado ADAS',
     titulacion: 'Certificado de Profesionalidad Oficial (Nivel 3)',

@@ -44,7 +44,7 @@ export const MOCK_USERS: UserProfile[] = [
     nombre: 'Elena',
     apellidos: 'Sánchez Ruiz',
     email: 'admin@pendulo.es',
-    telefono: '950 25 25 25',
+    telefono: '620 351 622',
     role: 'ADMINISTRACION',
     activo: true,
     fechaAlta: '2025-01-01',
@@ -308,7 +308,7 @@ export const MOCK_ANNOUNCEMENTS: Announcement[] = [
     id: 'ann-3',
     titulo: 'Horario de Atención de Secretaría Online y Telefónica',
     contenido:
-      'Secretaría presta atención ininterrumpida de Lunes a Viernes de 08:30 a 20:30 h en Carrera Doctoral 26, Almería. Teléfono: +34 950 25 25 25 | WhatsApp: +34 950 04 04 04.',
+      'Secretaría presta atención ininterrumpida de Lunes a Viernes de 08:30 a 20:30 h en Carrera Doctoral 26, Almería. Teléfono: +34 620 35 16 22 | WhatsApp: +34 620 35 16 22.',
     autorNombre: 'Secretaría Académica Péndulo',
     autorId: 'usr-admin-1',
     destinatarios: 'TODOS',

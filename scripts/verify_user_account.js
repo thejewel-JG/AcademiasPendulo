@@ -6,7 +6,7 @@ dotenv.config();
 const db = pool;
 
 async function verifyAccount() {
-  const email = 'guillerminajoya@gmail.com';
+  const email = 'info.academiaspendulo@gmail.com';
   const pass = 'Wattpad_3317';
 
   console.log(`\n--- VERIFYING USER ACCOUNT ACCESS FOR ${email} ---\n`);
@@ -41,7 +41,7 @@ async function verifyAccount() {
     const hasAlumno = roleCodes.includes('ALUMNO');
 
     if (isPassValid && hasAdmin && hasProf && hasAlumno && u.estado === 'ACTIVO') {
-      console.log('\n🎉 SUCCESS: Full multi-role access configured and verified for guillerminajoya@gmail.com!\n');
+      console.log(`\n🎉 SUCCESS: Full multi-role access configured and verified for ${email}!\n`);
     } else {
       console.error('\n❌ FAIL: Account configuration incomplete');
     }

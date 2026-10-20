@@ -21,7 +21,7 @@ async function test() {
   try {
     const info = await transporter.sendMail({
       from: `"Academias Péndulo" <${process.env.SMTP_USER}>`,
-      to: 'guillerminajoya@gmail.com',
+      to: 'info.academiaspendulo@gmail.com',
       subject: 'Prueba de envío Trabaja con Nosotros',
       text: 'Este es un correo de prueba con archivo adjunto.',
       attachments: [

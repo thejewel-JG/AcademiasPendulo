@@ -10,11 +10,11 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 async function runMigrations() {
-  const host = process.env.DB_HOST || 'srv1787.hstgr.io';
+  const host = process.env.DB_HOST || 'srv1017.hstgr.io';
   const port = parseInt(process.env.DB_PORT || '3306');
-  const user = process.env.DB_USER || 'u141101294_guillermina';
+  const user = process.env.DB_USER || 'u869063079_guillermina';
   const password = process.env.DB_PASS || 'Wattpad_3317';
-  const database = process.env.DB_NAME || 'u141101294_Academias';
+  const database = process.env.DB_NAME || 'u869063079_academias';
 
   console.log(`\n🚀 INICIANDO MIGRACIONES EN HOSTINGER MYSQL...`);
   console.log(`   Host: ${host}:${port}`);

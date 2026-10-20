@@ -6,11 +6,11 @@ dotenv.config();
 
 // Create connection pool to Hostinger MySQL
 const pool = mysql.createPool({
-  host: process.env.DB_HOST || 'srv1787.hstgr.io',
+  host: process.env.DB_HOST || 'srv1017.hstgr.io',
   port: Number(process.env.DB_PORT) || 3306,
-  user: process.env.DB_USER || 'u141101294_guillermina',
+  user: process.env.DB_USER || 'u869063079_guillermina',
   password: process.env.DB_PASS || 'Wattpad_3317',
-  database: process.env.DB_NAME || 'u141101294_Academias',
+  database: process.env.DB_NAME || 'u869063079_academias',
   waitForConnections: true,
   connectionLimit: 10,
   queueLimit: 0,

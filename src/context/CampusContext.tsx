@@ -313,6 +313,7 @@ export const CampusProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     else if (view === 'perfil') path = '/campus/perfil';
     else if (view === 'profesor-dashboard') path = '/profesor';
     else if (view === 'admin-panel') path = '/admin';
+    else if (view === 'admin-catalogo') path = '/admin/cursos';
     else if (view === 'admin-usuarios') path = '/admin/usuarios';
     else if (view === 'admin-correo') path = '/admin/correo';
     else if (view === 'admin-solicitudes') path = '/admin/solicitudes';

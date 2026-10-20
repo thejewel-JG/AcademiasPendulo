@@ -18,10 +18,12 @@ import {
   BarChart3,
   Filter,
   Search,
+  DollarSign,
 } from 'lucide-react';
 import { UserRole } from '../../types/campus';
 import { CampusAdminRequests } from './CampusAdminRequests';
 import { PdfFileUploader } from './PdfFileUploader';
+import { CampusCommercialCatalog } from './CampusCommercialCatalog';
 
 interface AdminGlobalProgress {
   alumno_id: string;
@@ -50,7 +52,7 @@ export const CampusAdminPanel: React.FC = () => {
     publishCourseResource,
   } = useCampus();
 
-  const [activeTab, setActiveTab] = useState<'solicitudes' | 'usuarios' | 'matriculas' | 'secretaria' | 'seguimiento'>('solicitudes');
+  const [activeTab, setActiveTab] = useState<'solicitudes' | 'usuarios' | 'matriculas' | 'secretaria' | 'seguimiento' | 'catalogo'>('solicitudes');
 
   // Global Progress Analytics State
   const [globalProgress, setGlobalProgress] = useState<AdminGlobalProgress[]>([]);
@@ -213,9 +215,18 @@ export const CampusAdminPanel: React.FC = () => {
           <div className="text-2xl font-extrabold text-white mt-1">{teachers.length}</div>
         </div>
 
-        <div className="bg-zinc-900 border border-zinc-800 p-4 rounded-2xl">
-          <div className="text-xs text-zinc-400 font-semibold">Cursos Activos</div>
-          <div className="text-2xl font-extrabold text-white mt-1">{courses.length}</div>
+        <div
+          onClick={() => setActiveTab('catalogo')}
+          className="bg-zinc-900 border border-zinc-800 hover:border-emerald-500/60 p-4 rounded-2xl cursor-pointer transition-all group hover:bg-zinc-850/80 shadow-md"
+          title="Clic para gestionar precios y matrículas"
+        >
+          <div className="flex items-center justify-between">
+            <div className="text-xs text-zinc-400 font-semibold group-hover:text-emerald-400 transition-colors">Cursos Activos</div>
+            <span className="text-[10px] font-extrabold text-emerald-400 bg-emerald-950/70 border border-emerald-800/60 px-2 py-0.5 rounded-full">
+              Precios y Plazas →
+            </span>
+          </div>
+          <div className="text-2xl font-extrabold text-white mt-1 group-hover:text-emerald-300 transition-colors">{courses.length}</div>
         </div>
 
         <div className="bg-zinc-900 border border-zinc-800 p-4 rounded-2xl">
@@ -225,7 +236,22 @@ export const CampusAdminPanel: React.FC = () => {
       </div>
 
       {/* Tabs */}
-      <div className="flex border-b border-zinc-800 gap-4 text-xs font-bold overflow-x-auto">
+      <div className="flex border-b border-zinc-800 gap-3 text-xs font-bold overflow-x-auto pb-0.5">
+        <button
+          onClick={() => setActiveTab('catalogo')}
+          className={`pb-3 px-3 transition-all shrink-0 flex items-center gap-2 rounded-t-xl ${
+            activeTab === 'catalogo'
+              ? 'text-emerald-300 border-b-2 border-emerald-500 font-heading bg-emerald-950/40 shadow-sm'
+              : 'text-emerald-400 hover:text-white bg-emerald-950/20 border border-emerald-900/40 hover:bg-emerald-900/30'
+          }`}
+        >
+          <DollarSign className="w-4 h-4 text-emerald-400" />
+          <span>Gestión Cursos y Precios (33)</span>
+          <span className="text-[9px] px-1.5 py-0.5 rounded bg-emerald-500 text-black font-black uppercase">
+            Comercial
+          </span>
+        </button>
+
         <button
           onClick={() => setActiveTab('solicitudes')}
           className={`pb-3 transition-colors shrink-0 ${
@@ -545,6 +571,9 @@ export const CampusAdminPanel: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* TAB 5: COMMERCIAL CATALOG & PRICING CONFIGURATION */}
+      {activeTab === 'catalogo' && <CampusCommercialCatalog />}
 
       {/* Admin Publish Material Modal */}
       {showPublishPdfModal && (

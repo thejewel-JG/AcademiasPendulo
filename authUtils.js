@@ -118,3 +118,31 @@ export function decryptPayload(encryptedObj) {
     throw new Error('Failed to decrypt outbox payload: invalid key or tampered data');
   }
 }
+
+/**
+ * Validates Spanish DNI or NIE using official checksum algorithm (TRWAGMYFPDXBNJZSQVHLCKE)
+ */
+export function isValidDniNie(documentNumber) {
+  if (!documentNumber || typeof documentNumber !== 'string') return false;
+  const clean = documentNumber.trim().toUpperCase();
+  const dniNieRegex = /^[0-9XYZ][0-9]{7}[TRWAGMYFPDXBNJZSQVHLCKE]$/;
+  if (!dniNieRegex.test(clean)) return false;
+
+  const validLetters = 'TRWAGMYFPDXBNJZSQVHLCKE';
+  let numberPart = clean.slice(0, 8);
+  const letter = clean.charAt(8);
+
+  // NIE: X -> 0, Y -> 1, Z -> 2
+  if (numberPart.startsWith('X')) {
+    numberPart = '0' + numberPart.slice(1);
+  } else if (numberPart.startsWith('Y')) {
+    numberPart = '1' + numberPart.slice(1);
+  } else if (numberPart.startsWith('Z')) {
+    numberPart = '2' + numberPart.slice(1);
+  }
+
+  const num = parseInt(numberPart, 10);
+  if (isNaN(num)) return false;
+
+  return letter === validLetters[num % 23];
+}

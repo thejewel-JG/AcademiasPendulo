@@ -100,7 +100,7 @@ export const CourseBottomSheetSelector: React.FC<CourseBottomSheetSelectorProps>
                         {course.code}
                       </span>
                       <span className="text-[11px] font-bold text-red-600 uppercase tracking-wider">
-                        {course.totalHours}h · {course.isSubsidized ? 'Subvencionado' : 'Oficial'}
+                        {course.totalHours}h · Formación Especializada
                       </span>
                     </div>
                     <p className="text-sm font-bold text-gray-900 leading-snug break-words">

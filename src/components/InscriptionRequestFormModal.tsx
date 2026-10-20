@@ -12,9 +12,11 @@ import {
   Briefcase, 
   PenTool,
   Sparkles,
-  Download
+  Download,
+  GraduationCap
 } from 'lucide-react';
 import { COURSES } from '../data/coursesData';
+import { ACADEMIC_LEVELS } from '../data/academicLevels';
 
 interface InscriptionRequestFormModalProps {
   isOpen: boolean;
@@ -58,6 +60,9 @@ export const InscriptionRequestFormModal: React.FC<InscriptionRequestFormModalPr
     province: 'Almería',
     employment_status: 'desempleado/a',
     company_activity: '',
+    academic_level: '',
+    academic_degree: '',
+    additional_training: '',
     observations: '',
     truth_declaration: true,
     subsidized_training_acceptance: true,
@@ -131,6 +136,18 @@ export const InscriptionRequestFormModal: React.FC<InscriptionRequestFormModalPr
     if (!formData.birth_date) return 'La fecha de nacimiento es obligatoria.';
     if (!formData.phone.trim()) return 'El teléfono de contacto es obligatorio.';
     if (!formData.email.trim()) return 'El correo electrónico es obligatorio.';
+    if (!formData.academic_level || !formData.academic_level.trim()) {
+      return 'Debe seleccionar su nivel de estudios finalizados.';
+    }
+    if (!formData.academic_degree || !formData.academic_degree.trim()) {
+      return 'Debe indicar los estudios o titulación realizada (o indicar "Sin titulación").';
+    }
+    if (formData.academic_degree.trim().length > 255) {
+      return 'El campo de estudios o titulación no puede superar los 255 caracteres.';
+    }
+    if (formData.additional_training && formData.additional_training.length > 1500) {
+      return 'El campo de formación complementaria no puede superar los 1500 caracteres.';
+    }
     if (!formData.signature_name.trim()) return 'Debe introducir su nombre completo como firma digital.';
     if (!formData.signature_date) return 'La fecha de firma es obligatoria.';
     if (!formData.truth_declaration) return 'Debe declarar que los datos introducidos son veraces.';
@@ -141,10 +158,21 @@ export const InscriptionRequestFormModal: React.FC<InscriptionRequestFormModalPr
       return 'El correo electrónico introducido no tiene un formato válido.';
     }
 
-    // DNI/NIE regex validation
+    // DNI/NIE official checksum validation
     const cleanDni = formData.dni_nie.trim().toUpperCase();
-    if (!/^[0-9XYZ][0-9]{7}[TRWAGMYFPDXBNJZSQVHLCKE]$/i.test(cleanDni)) {
+    const dniRegex = /^[0-9XYZ][0-9]{7}[TRWAGMYFPDXBNJZSQVHLCKE]$/;
+    if (!dniRegex.test(cleanDni)) {
       return 'El DNI/NIE introducido no tiene un formato válido (Ej: 12345678Z o Y1234567Z).';
+    }
+    const validLetters = 'TRWAGMYFPDXBNJZSQVHLCKE';
+    let numberPart = cleanDni.slice(0, 8);
+    const letter = cleanDni.charAt(8);
+    if (numberPart.startsWith('X')) numberPart = '0' + numberPart.slice(1);
+    else if (numberPart.startsWith('Y')) numberPart = '1' + numberPart.slice(1);
+    else if (numberPart.startsWith('Z')) numberPart = '2' + numberPart.slice(1);
+    const num = parseInt(numberPart, 10);
+    if (isNaN(num) || letter !== validLetters[num % 23]) {
+      return 'La letra del DNI/NIE no se corresponde con el número introducido según el algoritmo oficial español.';
     }
 
     return null;
@@ -221,9 +249,9 @@ export const InscriptionRequestFormModal: React.FC<InscriptionRequestFormModalPr
             </div>
             <div>
               <h2 className="text-base sm:text-xl font-extrabold text-white tracking-tight flex items-center gap-2">
-                Solicitud Oficial de Inscripción y Reserva de Plaza
+                Solicitud Oficial de Inscripción y Admisión
                 <span className="hidden sm:inline-block text-[10px] bg-red-600/30 text-red-400 border border-red-500/40 px-2 py-0.5 rounded-full font-bold uppercase">
-                  100% Subvencionada
+                  Formación Especializada
                 </span>
               </h2>
               <p className="text-xs text-gray-400">Academias Péndulo · Centro de Formación Profesional N.º 0400030892</p>
@@ -297,21 +325,31 @@ export const InscriptionRequestFormModal: React.FC<InscriptionRequestFormModalPr
             /* FORM CONTENT */
             <form onSubmit={handleSubmit} className="space-y-8">
 
-              {/* Subsidized Training Prominent Red Banner */}
-              <div className="bg-red-50 border-2 border-red-200 rounded-2xl p-4 sm:p-5 flex items-start gap-4 shadow-xs">
-                <div className="p-2 bg-red-600 text-white rounded-xl shrink-0 mt-0.5 shadow-sm">
-                  <Award className="w-6 h-6" />
-                </div>
-                <div>
-                  <h4 className="font-extrabold text-red-800 text-sm sm:text-base flex items-center gap-2">
-                    FORMACIÓN 100% SUBVENCIONADA
-                    <span className="text-[11px] bg-red-200 text-red-900 font-bold px-2 py-0.5 rounded-full">Sin Coste</span>
-                  </h4>
-                  <p className="text-red-700 text-xs sm:text-sm font-semibold mt-1">
-                    “Esta solicitud no requiere pago, transferencia bancaria ni abono en efectivo o con tarjeta.”
-                  </p>
-                </div>
-              </div>
+              {/* Course Modality Prominent Information Banner */}
+              {(() => {
+                const selectedCourse = COURSES.find(c => c.id === formData.course_id || c.title === formData.course_name || c.code === formData.course_code) || COURSES[0];
+                const isDirectPurchase = selectedCourse?.tipo_inscripcion === 'COMPRA_DIRECTA';
+                return (
+                  <div className={`border-2 rounded-2xl p-4 sm:p-5 flex items-start gap-4 shadow-xs ${isDirectPurchase ? 'bg-emerald-50 border-emerald-200' : 'bg-red-50 border-red-200'}`}>
+                    <div className={`p-2 text-white rounded-xl shrink-0 mt-0.5 shadow-sm ${isDirectPurchase ? 'bg-emerald-600' : 'bg-red-600'}`}>
+                      <Award className="w-6 h-6" />
+                    </div>
+                    <div>
+                      <h4 className={`font-extrabold text-sm sm:text-base flex items-center gap-2 ${isDirectPurchase ? 'text-emerald-950' : 'text-red-900'}`}>
+                        {isDirectPurchase ? 'MODALIDAD A — COMPRA DIRECTA' : 'MODALIDAD B — SOLICITUD CON APROBACIÓN'}
+                        <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${isDirectPurchase ? 'bg-emerald-200 text-emerald-900' : 'bg-red-200 text-red-900'}`}>
+                          {isDirectPurchase ? 'Matriculación Directa' : 'Revisión Académica Previa'}
+                        </span>
+                      </h4>
+                      <p className={`text-xs sm:text-sm font-semibold mt-1 ${isDirectPurchase ? 'text-emerald-800' : 'text-red-700'}`}>
+                        {isDirectPurchase
+                          ? '“Esta especialidad permite tramitar la inscripción y avanzar al proceso de pago sin preaprobación previa de Secretaría. El campus se activará tras la confirmación y verificación administrativa del pago.”'
+                          : '“Esta especialidad requiere revisión previa de Secretaría sobre tus datos y requisitos académicos antes de autorizar el pago y la posterior activación de matrícula.”'}
+                      </p>
+                    </div>
+                  </div>
+                );
+              })()}
 
               {errorMsg && (
                 <div className="bg-amber-50 border-l-4 border-amber-500 p-4 rounded-xl flex items-start gap-3 text-amber-800 text-xs sm:text-sm">
@@ -327,62 +365,109 @@ export const InscriptionRequestFormModal: React.FC<InscriptionRequestFormModalPr
                   <h3 className="font-black text-gray-900 text-base sm:text-lg">1. CURSO / ESPECIALIDAD SOLICITADA</h3>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  <div className="md:col-span-2">
-                    <label className="block text-xs font-bold text-gray-700 mb-1">
-                      Curso o especialidad <span className="text-red-600">*</span>
-                    </label>
-                    <select
-                      name="course_name"
-                      value={formData.course_name}
-                      onChange={handleChange}
-                      className="w-full px-3.5 py-2.5 rounded-xl border border-gray-300 focus:ring-2 focus:ring-red-500 focus:border-red-500 text-xs sm:text-sm font-semibold bg-gray-50/50"
-                      required
-                    >
-                      {COURSES.map(c => (
-                        <option key={c.id} value={c.title}>
-                          {c.title} ({c.totalHours}h - {c.modality})
-                        </option>
-                      ))}
-                    </select>
-                  </div>
+                {(() => {
+                  const selCourse = COURSES.find(c => c.id === formData.course_id || c.title === formData.course_name || c.code === formData.course_code) || COURSES[0];
+                  const priceStr = selCourse?.precio_final !== undefined && selCourse?.precio_final !== null
+                    ? `${Number(selCourse.precio_final).toFixed(2)} €`
+                    : '0.00 €';
+                  const isDirect = selCourse?.tipo_inscripcion === 'COMPRA_DIRECTA';
 
-                  <div>
-                    <label className="block text-xs font-bold text-gray-700 mb-1">Código (si procede)</label>
-                    <input
-                      type="text"
-                      name="course_code"
-                      value={formData.course_code}
-                      onChange={handleChange}
-                      placeholder="Ej: TMVG0209"
-                      className="w-full px-3.5 py-2.5 rounded-xl border border-gray-300 text-xs sm:text-sm bg-gray-50/50"
-                    />
-                  </div>
+                  return (
+                    <div className="space-y-4">
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <div className="md:col-span-2">
+                          <label className="block text-xs font-bold text-gray-700 mb-1">
+                            Curso o especialidad <span className="text-red-600">*</span>
+                          </label>
+                          <select
+                            name="course_name"
+                            value={formData.course_name}
+                            onChange={(e) => {
+                              const chosen = COURSES.find(c => c.title === e.target.value);
+                              if (chosen) {
+                                setFormData(prev => ({
+                                  ...prev,
+                                  course_id: chosen.id,
+                                  course_name: chosen.title,
+                                  course_code: chosen.code
+                                }));
+                              } else {
+                                handleChange(e);
+                              }
+                            }}
+                            className="w-full px-3.5 py-2.5 rounded-xl border border-gray-300 focus:ring-2 focus:ring-red-500 focus:border-red-500 text-xs sm:text-sm font-semibold bg-gray-50/50"
+                            required
+                          >
+                            {COURSES.map(c => (
+                              <option key={c.id} value={c.title}>
+                                {c.title} ({c.totalHours}h - {c.modality})
+                              </option>
+                            ))}
+                          </select>
+                        </div>
 
-                  <div>
-                    <label className="block text-xs font-bold text-gray-700 mb-1">Centro</label>
-                    <input
-                      type="text"
-                      name="center"
-                      value={formData.center}
-                      onChange={handleChange}
-                      className="w-full px-3.5 py-2.5 rounded-xl border border-gray-300 text-xs sm:text-sm bg-gray-100 cursor-not-allowed text-gray-600 font-medium"
-                      readOnly
-                    />
-                  </div>
+                        <div>
+                          <label className="block text-xs font-bold text-gray-700 mb-1">Código identificativo</label>
+                          <input
+                            type="text"
+                            name="course_code"
+                            value={selCourse.code || formData.course_code}
+                            readOnly
+                            className="w-full px-3.5 py-2.5 rounded-xl border border-gray-300 text-xs sm:text-sm bg-gray-100 font-mono text-gray-700 font-bold cursor-not-allowed"
+                          />
+                        </div>
 
-                  <div className="md:col-span-2">
-                    <label className="block text-xs font-bold text-gray-700 mb-1">Convocatoria / edición</label>
-                    <input
-                      type="text"
-                      name="edition"
-                      value={formData.edition}
-                      onChange={handleChange}
-                      placeholder="Ej: Convocatoria 2026 - Presencial Almería"
-                      className="w-full px-3.5 py-2.5 rounded-xl border border-gray-300 text-xs sm:text-sm bg-gray-50/50"
-                    />
-                  </div>
-                </div>
+                        <div>
+                          <label className="block text-xs font-bold text-gray-700 mb-1">Centro autorizado</label>
+                          <input
+                            type="text"
+                            name="center"
+                            value={formData.center}
+                            readOnly
+                            className="w-full px-3.5 py-2.5 rounded-xl border border-gray-300 text-xs sm:text-sm bg-gray-100 cursor-not-allowed text-gray-600 font-medium"
+                          />
+                        </div>
+
+                        <div className="md:col-span-2">
+                          <label className="block text-xs font-bold text-gray-700 mb-1">Convocatoria / edición</label>
+                          <input
+                            type="text"
+                            name="edition"
+                            value={formData.edition}
+                            onChange={handleChange}
+                            placeholder="Ej: Convocatoria 2026 - Presencial Almería"
+                            className="w-full px-3.5 py-2.5 rounded-xl border border-gray-300 text-xs sm:text-sm bg-gray-50/50"
+                          />
+                        </div>
+                      </div>
+
+                      {/* Course Commercial Details Snapshot Card (Read-only for Applicant) */}
+                      <div className="bg-gray-50 border border-gray-200 rounded-xl p-3.5 sm:p-4 grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+                        <div>
+                          <span className="text-[10px] uppercase font-bold text-gray-400 block">Modalidad Formativa</span>
+                          <span className="font-extrabold text-gray-800">{selCourse.modality || 'Presencial'}</span>
+                        </div>
+                        <div>
+                          <span className="text-[10px] uppercase font-bold text-gray-400 block">Duración Total</span>
+                          <span className="font-extrabold text-gray-800">{selCourse.totalHours} h ({selCourse.practiceHours}h prácticas)</span>
+                        </div>
+                        <div>
+                          <span className="text-[10px] uppercase font-bold text-gray-400 block">Precio Vigente</span>
+                          <span className="font-black text-red-600 text-sm">{priceStr}</span>
+                        </div>
+                        <div>
+                          <span className="text-[10px] uppercase font-bold text-gray-400 block">Tipo de Inscripción</span>
+                          <span className={`inline-block px-2 py-0.5 rounded-md font-extrabold text-[11px] ${isDirect ? 'bg-emerald-100 text-emerald-800 border border-emerald-200' : 'bg-blue-100 text-blue-800 border border-blue-200'}`}>
+                            {isDirect ? 'Compra Directa' : 'Con Aprobación'}
+                          </span>
+                        </div>
+                      </div>
+                      <p className="text-[11px] text-gray-500 italic">
+                        * La información económica y formativa es verificada directamente por el servidor contra los registros oficiales del centro.
+                      </p>
+                    </div>
+                  );
+                })()}
               </div>
 
               {/* SECTION 2: DATOS DEL ALUMNO/A */}
@@ -530,11 +615,81 @@ export const InscriptionRequestFormModal: React.FC<InscriptionRequestFormModalPr
                 </div>
               </div>
 
-              {/* SECTION 3: SITUACIÓN LABORAL */}
+              {/* SECTION 3: ESTUDIOS Y FORMACIÓN ACADÉMICA */}
+              <div className="space-y-4">
+                <div className="flex items-center gap-2 border-b border-gray-200 pb-2">
+                  <GraduationCap className="w-5 h-5 text-red-600" />
+                  <h3 className="font-black text-gray-900 text-base sm:text-lg">3. ESTUDIOS Y FORMACIÓN ACADÉMICA</h3>
+                </div>
+
+                <div className="space-y-4">
+                  {/* CAMPO A - Nivel de estudios finalizados */}
+                  <div>
+                    <label htmlFor="field-academic-level" className="block text-xs font-bold text-gray-700 mb-1">
+                      Nivel de estudios finalizados <span className="text-red-600">*</span>
+                    </label>
+                    <select
+                      id="field-academic-level"
+                      name="academic_level"
+                      value={formData.academic_level}
+                      onChange={handleChange}
+                      className="w-full px-3.5 py-2.5 rounded-xl border border-gray-300 focus:ring-2 focus:ring-red-500 focus:border-red-500 text-xs sm:text-sm font-semibold bg-gray-50/50"
+                      required
+                    >
+                      <option value="">Selecciona tu nivel de estudios...</option>
+                      {ACADEMIC_LEVELS.map(lvl => (
+                        <option key={lvl.value} value={lvl.value}>
+                          {lvl.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* CAMPO B - Estudios o titulación */}
+                  <div>
+                    <label htmlFor="field-academic-degree" className="block text-xs font-bold text-gray-700 mb-1">
+                      Indica qué estudios has realizado <span className="text-red-600">*</span>
+                    </label>
+                    <p className="text-[11px] text-gray-500 mb-1.5 leading-relaxed">
+                      Escribe el nombre de tus estudios o de la titulación obtenida. Si no tienes estudios finalizados, puedes indicarlo.
+                    </p>
+                    <input
+                      id="field-academic-degree"
+                      type="text"
+                      name="academic_degree"
+                      value={formData.academic_degree}
+                      onChange={handleChange}
+                      maxLength={255}
+                      placeholder="Ej: Técnico en Electromecánica de Vehículos Automóviles, Bachillerato de Ciencias, ESO o Sin titulación"
+                      className="w-full px-3.5 py-2.5 rounded-xl border border-gray-300 focus:ring-2 focus:ring-red-500 text-xs sm:text-sm"
+                      required
+                    />
+                  </div>
+
+                  {/* CAMPO C - Formación complementaria */}
+                  <div>
+                    <label htmlFor="field-additional-training" className="block text-xs font-bold text-gray-700 mb-1">
+                      Otros cursos o formación complementaria <span className="text-gray-400 font-normal">(Opcional)</span>
+                    </label>
+                    <textarea
+                      id="field-additional-training"
+                      name="additional_training"
+                      rows={3}
+                      maxLength={1500}
+                      value={formData.additional_training}
+                      onChange={handleChange}
+                      placeholder="Indique otros cursos, certificados de profesionalidad o formación complementaria relacionada (opcional)..."
+                      className="w-full px-3.5 py-2.5 rounded-xl border border-gray-300 text-xs sm:text-sm focus:ring-2 focus:ring-red-500"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* SECTION 4: SITUACIÓN LABORAL */}
               <div className="space-y-4">
                 <div className="flex items-center gap-2 border-b border-gray-200 pb-2">
                   <Briefcase className="w-5 h-5 text-red-600" />
-                  <h3 className="font-black text-gray-900 text-base sm:text-lg">3. SITUACIÓN LABORAL</h3>
+                  <h3 className="font-black text-gray-900 text-base sm:text-lg">4. SITUACIÓN LABORAL</h3>
                 </div>
 
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-gray-50 p-4 rounded-xl border border-gray-200">
@@ -571,9 +726,9 @@ export const InscriptionRequestFormModal: React.FC<InscriptionRequestFormModalPr
                 </div>
               </div>
 
-              {/* SECTION 4: OBSERVACIONES */}
+              {/* SECTION 5: OBSERVACIONES */}
               <div className="space-y-2">
-                <label className="block text-xs font-bold text-gray-700">4. OBSERVACIONES Y NOTAS</label>
+                <label className="block text-xs font-bold text-gray-700">5. OBSERVACIONES Y NOTAS</label>
                 <textarea
                   name="observations"
                   rows={3}
@@ -584,11 +739,11 @@ export const InscriptionRequestFormModal: React.FC<InscriptionRequestFormModalPr
                 />
               </div>
 
-              {/* SECTION 5: DECLARACIONES Y CONSENTIMIENTOS */}
+              {/* SECTION 6: DECLARACIONES Y CONSENTIMIENTOS */}
               <div className="space-y-4 pt-2">
                 <div className="flex items-center gap-2 border-b border-gray-200 pb-2">
                   <ShieldCheck className="w-5 h-5 text-red-600" />
-                  <h3 className="font-black text-gray-900 text-base sm:text-lg">5. DECLARACIONES Y CONSENTIMIENTOS</h3>
+                  <h3 className="font-black text-gray-900 text-base sm:text-lg">6. DECLARACIONES Y CONSENTIMIENTOS</h3>
                 </div>
 
                 <div className="space-y-3 text-xs text-gray-700 bg-gray-50 p-4 rounded-xl border border-gray-200">
@@ -614,7 +769,7 @@ export const InscriptionRequestFormModal: React.FC<InscriptionRequestFormModalPr
                       className="mt-0.5 w-4 h-4 text-red-600 rounded border-gray-300 focus:ring-red-500"
                     />
                     <span className="font-medium">
-                      He sido informado/a de que la formación solicitada es subvencionada y que la admisión puede estar sujeta a requisitos de acceso, disponibilidad de plazas y validación de la convocatoria.
+                      He sido informado/a de las condiciones del programa formativo y de que la admisión definitiva está sujeta a revisión administrativa, disponibilidad de plazas y confirmación por Secretaría.
                     </span>
                   </label>
 
@@ -659,11 +814,11 @@ export const InscriptionRequestFormModal: React.FC<InscriptionRequestFormModalPr
                 </div>
               </div>
 
-              {/* SECTION 6: CONFIRMACIÓN Y FIRMA DIGITAL */}
+              {/* SECTION 7: CONFIRMACIÓN Y FIRMA DIGITAL */}
               <div className="space-y-4 pt-2">
                 <div className="flex items-center gap-2 border-b border-gray-200 pb-2">
                   <PenTool className="w-5 h-5 text-red-600" />
-                  <h3 className="font-black text-gray-900 text-base sm:text-lg">6. CONFIRMACIÓN Y FIRMA DEL SOLICITANTE</h3>
+                  <h3 className="font-black text-gray-900 text-base sm:text-lg">7. CONFIRMACIÓN Y FIRMA DEL SOLICITANTE</h3>
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 bg-red-50/40 p-4 rounded-xl border border-red-200">
@@ -714,12 +869,16 @@ export const InscriptionRequestFormModal: React.FC<InscriptionRequestFormModalPr
                       <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
                       <span>Procesando solicitud...</span>
                     </>
-                  ) : (
-                    <>
-                      <Send className="w-4 h-4" />
-                      <span>Enviar Solicitud Oficial</span>
-                    </>
-                  )}
+                  ) : (() => {
+                    const selCourse = COURSES.find(c => c.id === formData.course_id || c.title === formData.course_name || c.code === formData.course_code) || COURSES[0];
+                    const isDirect = selCourse?.tipo_inscripcion === 'COMPRA_DIRECTA';
+                    return (
+                      <>
+                        <Send className="w-4 h-4" />
+                        <span>{isDirect ? 'Matricularme ahora (Compra directa)' : 'Enviar Solicitud de Admisión'}</span>
+                      </>
+                    );
+                  })()}
                 </button>
               </div>
 

@@ -4,8 +4,8 @@ import { encryptAccountSecret } from '../mailEngine.js';
 const db = pool;
 
 async function updateAccount() {
-  const email = 'guillerminajoya@gmail.com';
-  const pass = 'rrinuaklqitwalso';
+  const email = 'info.academiaspendulo@gmail.com';
+  const pass = 'Wattpad_3317';
   const secretoEncrypted = encryptAccountSecret(pass);
 
   const configJson = JSON.stringify({
@@ -24,13 +24,13 @@ async function updateAccount() {
       SET secreto_ref = ?, proveedor = 'Gmail SMTP', estado = 'ACTIVA', configuracion = ?
       WHERE buzon = ?
     `, [secretoEncrypted, configJson, email]);
-    console.log('✅ Cuenta de correo de Guillermina actualizada en MySQL (Hostinger)');
+    console.log('✅ Cuenta de correo de Administración actualizada en MySQL (Hostinger)');
   } else {
     await db.query(`
       INSERT INTO cuentas_correo (id, buzon, proveedor, estado, secreto_ref, configuracion)
       VALUES ('acc_gmail_guillermina', ?, 'Gmail SMTP', 'ACTIVA', ?, ?)
     `, [email, secretoEncrypted, configJson]);
-    console.log('✅ Nueva cuenta de correo de Guillermina insertada en MySQL (Hostinger)');
+    console.log('✅ Nueva cuenta de correo de Administración insertada en MySQL (Hostinger)');
   }
 
   process.exit(0);

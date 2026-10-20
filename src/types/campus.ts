@@ -17,6 +17,7 @@ export type CampusView =
   | 'profesor-asistencia'
   | 'profesor-examenes'
   | 'admin-panel'
+  | 'admin-catalogo'
   | 'admin-solicitudes'
   | 'admin-usuarios'
   | 'admin-correo'
