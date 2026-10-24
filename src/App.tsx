@@ -43,6 +43,8 @@ import { CampusAccountActivation } from './components/campus/CampusAccountActiva
 import { CampusMisExamenes } from './components/campus/CampusMisExamenes';
 import { CampusProfesorAsistencia } from './components/campus/CampusProfesorAsistencia';
 import { CampusProfesorAlumnos } from './components/campus/CampusProfesorAlumnos';
+import { CampusMisMatriculas } from './components/campus/CampusMisMatriculas';
+import { CampusMisPagos } from './components/campus/CampusMisPagos';
 
 function MainAppContent() {
   const [selectedCourse, setSelectedCourse] = useState<Course | null>(null);
@@ -138,10 +140,13 @@ function MainAppContent() {
           {currentView === 'dashboard' && <CampusStudentDashboard />}
           {currentView === 'cursos' && <CampusMyCourses />}
           {currentView === 'curso-detalle' && <CampusCourseDetail />}
+          {currentView === 'mis-matriculas' && <CampusMisMatriculas />}
+          {currentView === 'mis-pagos' && <CampusMisPagos />}
           {currentView === 'dudas' && <CampusDoubts />}
           {currentView === 'secretaria' && <CampusSecretary />}
           {currentView === 'avisos' && <CampusAnnouncements />}
-          {currentView === 'perfil' && <CampusProfile />}
+          {currentView === 'perfil' && <CampusProfile initialTab="datos" />}
+          {currentView === 'seguridad' && <CampusProfile initialTab="seguridad" />}
           {currentView === 'mis-examenes' && <CampusMisExamenes />}
           {currentView === 'profesor-dashboard' && <CampusTeacherDashboard />}
           {currentView === 'profesor-asistencia' && <CampusProfesorAsistencia />}

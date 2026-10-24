@@ -170,28 +170,43 @@ export const CampusProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   const fetchBackendData = async (user: UserProfile) => {
     try {
-      // 1. Fetch active enrollment if student
+      // 1. Fetch active enrollments if student (supports multiple authorized courses)
       if (user.role === 'ALUMNO') {
-        const enrRes = await fetch('/api/academic/my-enrollment');
-        if (enrRes.ok) {
-          const enrData = await enrRes.json();
-          if (enrData.activeEnrollment) {
-            setActiveEnrollmentData(enrData.activeEnrollment);
-            // Sync local enrollments representation
-            setEnrollments([
-              {
-                id: enrData.activeEnrollment.matricula_id,
+        try {
+          const enrRes = await fetch('/api/student/my-courses');
+          if (enrRes.ok) {
+            const enrData = await enrRes.json();
+            const studentCourses = enrData.courses || [];
+            setEnrollments(
+              studentCourses.map((c: any) => ({
+                id: c.matricula_id,
                 estudianteId: user.id,
-                cursoId: 'TMVG0004',
-                fechaMatricula: enrData.activeEnrollment.fecha_inicio,
-                estado: 'active',
-                progresoCalculado: 0,
-              }
-            ]);
-          } else {
-            setActiveEnrollmentData(null);
-            setEnrollments([]);
+                cursoId: c.id,
+                fechaMatricula: c.fecha_inicio,
+                estado: c.estado_academico === 'ACTIVA' && (c.estado_acceso === 'HABILITADO' || !c.estado_acceso) ? 'active' : 'suspended',
+                progresoCalculado: c.progreso || 0,
+              }))
+            );
+            if (studentCourses.length > 0) {
+              const first = studentCourses[0];
+              setActiveEnrollmentData({
+                matricula_id: first.matricula_id,
+                estado: first.estado_academico,
+                fecha_inicio: first.fecha_inicio,
+                grupo_id: '',
+                grupo_nombre: '',
+                especialidad_id: first.id,
+                especialidad_codigo: first.codigo,
+                especialidad_nombre: first.nombre,
+                profesor_id: '',
+                profesor_nombre: first.profesor,
+              });
+            } else {
+              setActiveEnrollmentData(null);
+            }
           }
+        } catch (e) {
+          console.warn('Fetch student courses context error:', e);
         }
       }
 
@@ -408,11 +423,11 @@ export const CampusProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   };
 
   const userHasActiveEnrollment = (userId: string, courseId: string) => {
-    if (userId === currentUser?.id && activeEnrollmentData) {
-      return activeEnrollmentData.estado === 'ACTIVA';
-    }
     return enrollments.some(
-      (e) => e.estudianteId === userId && e.estado === 'active'
+      (e) =>
+        e.estudianteId === userId &&
+        (e.cursoId === courseId || courseId.includes(e.cursoId) || e.cursoId.includes(courseId)) &&
+        e.estado === 'active'
     );
   };
 

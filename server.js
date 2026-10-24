@@ -443,6 +443,137 @@ app.post('/api/auth/logout', requireAuth, async (req, res) => {
   }
 });
 
+// Forgot password: send password recovery link
+app.post('/api/auth/forgot-password', async (req, res) => {
+  try {
+    const { email } = req.body;
+    if (!email || typeof email !== 'string') {
+      return res.status(400).json({ error: 'Debe proporcionar una dirección de correo electrónico válida.' });
+    }
+
+    const cleanEmail = normalizeEmail(email);
+    const users = await query(`SELECT id, nombre, apellidos, email, estado FROM usuarios WHERE email = ? LIMIT 1`, [cleanEmail]);
+
+    if (users && users.length > 0 && users[0].estado === 'ACTIVO') {
+      const studentUser = users[0];
+      const rawToken = generateToken(32);
+      const tokenH = hashToken(rawToken);
+      const tokenId = `tok-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 6)}`;
+
+      await query(`
+        INSERT INTO tokens_acceso (id, usuario_id, proposito, token_hash, expiracion, creado_en)
+        VALUES (?, ?, 'RECUPERAR_PASSWORD', ?, DATE_ADD(NOW(), INTERVAL 2 HOUR), NOW())
+      `, [tokenId, studentUser.id, tokenH]);
+
+      const campusBase = process.env.CAMPUS_URL || 'http://localhost:3000';
+      const resetLink = `${campusBase}/#reset-password?token=${rawToken}`;
+
+      try {
+        await sendSystemEmail({
+          to: studentUser.email,
+          subject: 'Recuperación de contraseña — ACADEMIAS PÉNDULO',
+          html: `
+            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 25px; border: 1px solid #e5e7eb; border-radius: 12px; background: #ffffff;">
+              <h2 style="color: #dc2626; margin: 0 0 10px 0;">ACADEMIAS PÉNDULO</h2>
+              <p style="font-size: 14px; color: #4b5563; margin-top: 0;">Campus Virtual · Recuperación segura de contraseña</p>
+              <hr style="border: none; border-top: 1px solid #f3f4f6; margin: 20px 0;" />
+              <p style="font-size: 15px; color: #1f2937;">Hola, <strong>${studentUser.nombre}</strong>:</p>
+              <p style="font-size: 14px; color: #374151; line-height: 1.5;">
+                Hemos recibido una solicitud para restablecer la contraseña de acceso a tu cuenta en el campus virtual.
+              </p>
+              <p style="font-size: 14px; color: #374151; line-height: 1.5;">
+                Haz clic en el siguiente enlace para establecer una nueva contraseña personal:
+              </p>
+              <div style="text-align: center; margin: 30px 0;">
+                <a href="${resetLink}" style="background-color: #dc2626; color: #ffffff; padding: 12px 24px; border-radius: 8px; text-decoration: none; font-weight: bold; font-size: 14px; display: inline-block;">
+                  Restablecer mi contraseña
+                </a>
+              </div>
+              <p style="font-size: 12px; color: #6b7280; line-height: 1.5;">
+                Si el enlace no se abre al hacer clic, copia y pega esta dirección en tu navegador:<br />
+                <a href="${resetLink}" style="color: #dc2626; word-break: break-all;">${resetLink}</a>
+              </p>
+              <div style="background-color: #fffbeb; border-left: 4px solid #f59e0b; padding: 12px; border-radius: 6px; margin: 20px 0; font-size: 12px; color: #92400e;">
+                Este enlace de seguridad caducará en <strong>2 horas</strong>. Si no solicitaste este cambio, puedes ignorar este mensaje de forma segura.
+              </div>
+              <p style="font-size: 13px; color: #4b5563; margin-top: 25px;">
+                Un saludo,<br /><strong>Equipo de Administración</strong><br />ACADEMIAS PÉNDULO
+              </p>
+            </div>
+          `
+        });
+      } catch (mailErr) {
+        console.error('Failed to send reset email:', mailErr.message);
+      }
+    }
+
+    res.json({
+      success: true,
+      message: 'Si el correo electrónico está registrado, recibirás un enlace seguro para restablecer tu contraseña.'
+    });
+  } catch (error) {
+    console.error('Forgot password error:', error);
+    res.status(500).json({ error: 'Error al procesar la solicitud de recuperación.' });
+  }
+});
+
+// Reset password: consume token and update password
+app.post('/api/auth/reset-password', async (req, res) => {
+  try {
+    const { token, newPassword } = req.body;
+    if (!token || typeof token !== 'string') {
+      return res.status(400).json({ error: 'Token de recuperación no facilitado o inválido.' });
+    }
+    if (!newPassword || newPassword.length < 8) {
+      return res.status(400).json({ error: 'La nueva contraseña debe tener al menos 8 caracteres.' });
+    }
+
+    const tokenH = hashToken(token);
+    const tokenRows = await query(`
+      SELECT t.*, u.id as user_id, u.email as user_email
+      FROM tokens_acceso t
+      JOIN usuarios u ON t.usuario_id = u.id
+      WHERE t.token_hash = ? AND t.proposito = 'RECUPERAR_PASSWORD'
+        AND t.expiracion > NOW() AND t.consumido_en IS NULL
+      LIMIT 1
+    `, [tokenH]);
+
+    if (!tokenRows || tokenRows.length === 0) {
+      return res.status(400).json({ error: 'El enlace de recuperación es inválido o ha caducado.' });
+    }
+
+    const tokenRecord = tokenRows[0];
+    const newHash = await hashPassword(newPassword);
+
+    await query(`
+      UPDATE usuarios
+      SET password_hash = ?, cambio_password_obligatorio = 0, caducidad_password_temporal = NULL, actualizado_en = NOW()
+      WHERE id = ?
+    `, [newHash, tokenRecord.user_id]);
+
+    await query(`
+      UPDATE tokens_acceso
+      SET consumido_en = NOW()
+      WHERE id = ?
+    `, [tokenRecord.id]);
+
+    // Revoke all existing sessions for this user
+    await query(`
+      UPDATE sesiones
+      SET revocado_en = CURRENT_TIMESTAMP
+      WHERE usuario_id = ? AND revocado_en IS NULL
+    `, [tokenRecord.user_id]);
+
+    res.json({
+      success: true,
+      message: 'Tu contraseña ha sido restablecida correctamente. Ya puedes acceder con tus nuevas credenciales.'
+    });
+  } catch (error) {
+    console.error('Reset password error:', error);
+    res.status(500).json({ error: 'Error al restablecer la contraseña.' });
+  }
+});
+
 // ==========================================
 // 2. ADMIN USER & ROLE MANAGEMENT API
 // ==========================================
@@ -774,6 +905,993 @@ app.post('/api/admin/enrollments/finalize', requireAuth, requireNoTempPassword, 
 });
 
 // ==========================================
+// 2.5 STUDENT CAMPUS PANEL API (MODIFICACIÓN 06)
+// ==========================================
+
+// Helper: map request / enrollment database record to official human-readable state string
+function getHumanReadableEnrollmentStatus(record, hasActiveMatricula) {
+  if (hasActiveMatricula || record.estado_matricula === 'ACTIVA') {
+    return 'Matrícula aprobada';
+  }
+  if (record.estado_solicitud === 'CANCELADA' || record.estado_solicitud === 'RECHAZADA' || record.estado_matricula === 'CANCELADA' || record.estado_matricula === 'SUSPENDIDA') {
+    return 'Matrícula cancelada o rechazada';
+  }
+  if (record.estado_pago === 'TRANSFERENCIA_VERIFICADA') {
+    return 'Matrícula pendiente de aprobación';
+  }
+  if (record.estado_pago === 'TRANSFERENCIA_COMUNICADA') {
+    return 'Pago pendiente de comprobación';
+  }
+  if (record.estado_pago === 'PENDIENTE_TRANSFERENCIA') {
+    return 'Pendiente de transferencia';
+  }
+  if (record.estado_solicitud === 'PREAPROBADA') {
+    return 'Preaprobada';
+  }
+  if (record.estado_solicitud === 'DOCUMENTACION_SOLICITADA') {
+    return 'Pendiente de documentación';
+  }
+  if (record.estado_solicitud === 'EN_REVISION') {
+    return 'En revisión';
+  }
+  return 'Solicitud recibida';
+}
+
+// 1. INICIO DEL CAMPUS: Dashboard del alumno (Section 3.A)
+app.get('/api/student/dashboard', requireAuth, requireNoTempPassword, async (req, res) => {
+  try {
+    const studentId = req.user.id;
+
+    // A. Query active authorized courses
+    const activeCourses = await query(`
+      SELECT m.id as matricula_id, m.estado, m.estado_acceso, m.fecha_inicio, m.fecha_aprobacion, m.progreso,
+             COALESCE(m.curso_id, g.especialidad_id) as course_id,
+             g.id as grupo_id, g.nombre as grupo_nombre,
+             e.id as especialidad_id, e.codigo as especialidad_codigo, e.nombre as especialidad_nombre,
+             e.descripcion as especialidad_descripcion, e.horas_totales as duracion_horas, e.modalidad,
+             u.id as profesor_id, CONCAT(u.nombre, ' ', u.apellidos) as profesor_nombre, u.email as profesor_email
+      FROM matriculas m
+      LEFT JOIN grupos g ON m.grupo_id = g.id
+      LEFT JOIN especialidades e ON (m.curso_id = e.id OR m.curso_id = e.codigo OR g.especialidad_id = e.id)
+      LEFT JOIN usuarios u ON g.profesor_principal_id = u.id
+      WHERE m.alumno_id = ? AND m.estado = 'ACTIVA' AND (m.estado_acceso = 'HABILITADO' OR m.estado_acceso IS NULL)
+      ORDER BY m.fecha_inicio DESC
+    `, [studentId]);
+
+    const hasActiveCourses = activeCourses.length > 0;
+
+    // B. Calculate real overall academic progress (Section 3.A: No mostrar datos ficticios)
+    let overallProgress = { total_publicados: 0, completados: 0, porcentaje_global: 0 };
+    if (hasActiveCourses) {
+      try {
+        overallProgress = await calculateStudentOverallProgress(studentId);
+      } catch (pErr) {
+        console.warn('Student progress calculation fallback:', pErr.message);
+      }
+    }
+
+    // C. Latest materials available for the student's active courses
+    let latestMaterials = [];
+    if (hasActiveCourses) {
+      latestMaterials = await query(`
+        SELECT m.id, m.titulo, m.descripcion, m.tipo, m.archivo_id, m.creado_en,
+               e.nombre as curso_nombre
+        FROM materiales m
+        LEFT JOIN especialidades e ON m.especialidad_id = e.id
+        WHERE m.estado = 'PUBLICADO' AND (
+          m.grupo_id IN (
+            SELECT grupo_id FROM matriculas WHERE alumno_id = ? AND estado = 'ACTIVA' AND (estado_acceso = 'HABILITADO' OR estado_acceso IS NULL)
+          )
+          OR (m.grupo_id IS NULL AND m.especialidad_id IN (
+            SELECT COALESCE(mat.curso_id, grp.especialidad_id)
+            FROM matriculas mat
+            LEFT JOIN grupos grp ON mat.grupo_id = grp.id
+            WHERE mat.alumno_id = ? AND mat.estado = 'ACTIVA' AND (mat.estado_acceso = 'HABILITADO' OR mat.estado_acceso IS NULL)
+          ))
+        )
+        ORDER BY m.creado_en DESC
+        LIMIT 5
+      `, [studentId, studentId]);
+    }
+
+    // D. Recent communications / doubts
+    const recentCommunications = await query(`
+      SELECT c.id, c.asunto, c.estado, c.creado_en, c.actualizado_en,
+             (SELECT COUNT(*) FROM mensajes WHERE conversacion_id = c.id) as total_mensajes
+      FROM conversaciones c
+      WHERE c.creador_id = ? OR c.responsable_id = ?
+      ORDER BY c.actualizado_en DESC
+      LIMIT 5
+    `, [studentId, studentId]);
+
+    // E. Pending notifications / announcements
+    const pendingNotifications = await query(`
+      SELECT n.id, n.titulo, n.mensaje as contenido, n.tipo, n.creado_en
+      FROM notificaciones n
+      WHERE n.destinatario_id = ?
+      ORDER BY n.creado_en DESC
+      LIMIT 5
+    `, [studentId]);
+
+    res.json({
+      student: {
+        id: req.user.id,
+        nombre: req.user.nombre,
+        apellidos: req.user.apellidos,
+        email: req.user.email
+      },
+      hasActiveCourses,
+      emptyMessage: hasActiveCourses ? null : 'Todavía no tienes cursos activos. Puedes consultar tus solicitudes en el apartado Mis matrículas.',
+      activeCourses: activeCourses.map(c => ({
+        matricula_id: c.matricula_id,
+        course_id: c.course_id || c.especialidad_id,
+        codigo: c.especialidad_codigo,
+        nombre: c.especialidad_nombre || 'Curso de Automoción',
+        descripcion: c.especialidad_descripcion,
+        duracion_horas: c.duracion_horas,
+        modalidad: c.modalidad || 'Presencial / Semipresencial',
+        profesor_nombre: c.profesor_nombre || 'Profesor Asignado',
+        profesor_email: c.profesor_email,
+        estado_academico: c.estado,
+        estado_acceso: c.estado_acceso || 'HABILITADO',
+        fecha_inicio: c.fecha_inicio,
+        fecha_aprobacion: c.fecha_aprobacion,
+        progreso: overallProgress.porcentaje_global || c.progreso || 0
+      })),
+      overallProgress,
+      latestMaterials,
+      recentCommunications,
+      pendingNotifications
+    });
+  } catch (error) {
+    console.error('Student dashboard error:', error);
+    res.status(500).json({ error: 'Error al cargar el panel del alumno: ' + error.message });
+  }
+});
+
+// 2. MIS CURSOS: Listado de cursos con matrícula activa y autorizada (Section 3.B)
+app.get('/api/student/my-courses', requireAuth, requireNoTempPassword, async (req, res) => {
+  try {
+    const studentId = req.user.id;
+
+    // Strict server authorization: only active, authorized courses
+    const courses = await query(`
+      SELECT m.id as matricula_id, m.estado as matricula_estado, m.estado_acceso, m.fecha_inicio, m.fecha_aprobacion, m.progreso,
+             COALESCE(m.curso_id, g.especialidad_id) as course_id,
+             g.id as grupo_id, g.nombre as grupo_nombre,
+             e.id as especialidad_id, e.codigo as especialidad_codigo, e.nombre as especialidad_nombre,
+             e.descripcion as especialidad_descripcion, e.horas_totales as duracion_horas, e.modalidad,
+             u.id as profesor_id, CONCAT(u.nombre, ' ', u.apellidos) as profesor_nombre, u.email as profesor_email
+      FROM matriculas m
+      LEFT JOIN grupos g ON m.grupo_id = g.id
+      LEFT JOIN especialidades e ON (m.curso_id = e.id OR m.curso_id = e.codigo OR g.especialidad_id = e.id)
+      LEFT JOIN usuarios u ON g.profesor_principal_id = u.id
+      WHERE m.alumno_id = ? AND m.estado = 'ACTIVA' AND (m.estado_acceso = 'HABILITADO' OR m.estado_acceso IS NULL)
+      ORDER BY m.fecha_inicio DESC
+    `, [studentId]);
+
+    let overallProgress = 0;
+    try {
+      const prog = await calculateStudentOverallProgress(studentId);
+      overallProgress = prog.porcentaje_global || 0;
+    } catch (e) {}
+
+    const courseCards = courses.map(c => ({
+      id: c.course_id || c.especialidad_id,
+      matricula_id: c.matricula_id,
+      codigo: c.especialidad_codigo,
+      nombre: c.especialidad_nombre || 'Curso de Automoción',
+      descripcion: c.especialidad_descripcion,
+      categoria: 'Automoción y Transporte',
+      duracion: c.duracion_horas ? `${c.duracion_horas} horas` : 'Duración estándar',
+      modalidad: c.modalidad || 'Semipresencial',
+      profesor: c.profesor_nombre || 'Profesor por asignar',
+      profesor_email: c.profesor_email,
+      estado_academico: c.matricula_estado,
+      estado_acceso: c.estado_acceso || 'HABILITADO',
+      progreso: overallProgress || c.progreso || 0,
+      fecha_inicio: c.fecha_inicio,
+      fecha_aprobacion: c.fecha_aprobacion,
+      imagen: '/hero.png'
+    }));
+
+    res.json({
+      courses: courseCards,
+      total: courseCards.length
+    });
+  } catch (error) {
+    console.error('Fetch student courses error:', error);
+    res.status(500).json({ error: 'Error al consultar los cursos del alumno.' });
+  }
+});
+
+// 3. PÁGINA INTERIOR DE CADA CURSO CON CONTROL ESTRICTO DE ACCESO (Section 4 & 5)
+app.get('/api/student/courses/:courseId', requireAuth, requireNoTempPassword, async (req, res) => {
+  try {
+    const { courseId } = req.params;
+    const isStudent = req.user.roles.includes('ALUMNO');
+    const isTeacher = req.user.roles.includes('PROFESOR');
+    const isAdminOrSec = req.user.roles.includes('ADMINISTRADOR') || req.user.roles.includes('SECRETARIA');
+
+    // Server-side strict authorization check (Section 5)
+    let activeEnrollment = null;
+    if (isStudent && !isAdminOrSec) {
+      const enrCheck = await query(`
+        SELECT m.id as matricula_id, m.estado, m.estado_acceso, m.progreso, m.fecha_inicio,
+               COALESCE(m.curso_id, g.especialidad_id) as effective_course_id
+        FROM matriculas m
+        LEFT JOIN grupos g ON m.grupo_id = g.id
+        LEFT JOIN especialidades e ON (m.curso_id = e.id OR m.curso_id = e.codigo OR g.especialidad_id = e.id)
+        WHERE m.alumno_id = ?
+          AND (m.curso_id = ? OR e.codigo = ? OR e.id = ? OR g.especialidad_id = ? OR g.id = ?)
+          AND m.estado = 'ACTIVA'
+          AND (m.estado_acceso = 'HABILITADO' OR m.estado_acceso IS NULL)
+        LIMIT 1
+      `, [req.user.id, courseId, courseId, courseId, courseId, courseId]);
+
+      if (!enrCheck || enrCheck.length === 0) {
+        return res.status(403).json({
+          error: 'Acceso no autorizado: No tienes una matrícula activa ni aprobada para acceder a los contenidos de este curso.'
+        });
+      }
+      activeEnrollment = enrCheck[0];
+    } else if (isTeacher && !isAdminOrSec) {
+      const grpCheck = await query(`
+        SELECT g.id FROM grupos g
+        WHERE (g.especialidad_id = ? OR g.id = ?) AND g.profesor_principal_id = ?
+        LIMIT 1
+      `, [courseId, courseId, req.user.id]);
+
+      if (!grpCheck || grpCheck.length === 0) {
+        return res.status(403).json({
+          error: 'Acceso no autorizado: No eres el profesor asignado a este curso.'
+        });
+      }
+    }
+
+    // Fetch course information
+    const courseRows = await query(`
+      SELECT e.*, 
+             u.id as profesor_id, CONCAT(u.nombre, ' ', u.apellidos) as profesor_nombre, u.email as profesor_email
+      FROM especialidades e
+      LEFT JOIN grupos g ON g.especialidad_id = e.id
+      LEFT JOIN usuarios u ON g.profesor_principal_id = u.id
+      WHERE e.id = ? OR e.codigo = ?
+      LIMIT 1
+    `, [courseId, courseId]);
+
+    if (!courseRows || courseRows.length === 0) {
+      return res.status(404).json({ error: 'Curso no encontrado en el campus virtual.' });
+    }
+
+    const courseData = courseRows[0];
+
+    // Fetch course materials
+    const materials = await query(`
+      SELECT m.id, m.especialidad_id, m.grupo_id, m.titulo, m.descripcion, m.tipo,
+             m.archivo_id, m.referencia_video, m.proveedor, m.orden, m.creado_en
+      FROM materiales m
+      WHERE (m.especialidad_id = ? OR m.especialidad_id = ?) AND m.estado = 'PUBLICADO'
+      ORDER BY m.orden ASC, m.creado_en ASC
+    `, [courseData.id, courseData.codigo]);
+
+    res.json({
+      course: {
+        id: courseData.id,
+        codigo: courseData.codigo,
+        nombre: courseData.nombre,
+        descripcion: courseData.descripcion,
+        duracion_horas: courseData.horas_totales || courseData.duracion_horas,
+        modalidad: courseData.modalidad,
+        profesor_nombre: courseData.profesor_nombre || 'Profesor Asignado',
+        profesor_email: courseData.profesor_email,
+        estado_academico: activeEnrollment ? activeEnrollment.estado : 'ACTIVA',
+        progreso: activeEnrollment ? activeEnrollment.progreso : 0
+      },
+      materials
+    });
+  } catch (error) {
+    console.error('Fetch single course detail error:', error);
+    res.status(500).json({ error: 'Error al obtener la información del curso.' });
+  }
+});
+
+// 4. MIS MATRÍCULAS: Solicitudes y matrículas del alumno con estados oficiales (Section 3.C)
+app.get('/api/student/my-enrollments', requireAuth, requireNoTempPassword, async (req, res) => {
+  try {
+    const studentId = req.user.id;
+    const cleanEmail = normalizeEmail(req.user.email);
+
+    // Fetch all requests matching student user ID or email
+    const requests = await query(`
+      SELECT ir.*,
+             m.id as active_matricula_id, m.estado as active_matricula_estado,
+             m.estado_acceso, m.fecha_inicio as matricula_fecha_inicio,
+             m.fecha_aprobacion as matricula_fecha_aprobacion,
+             m.operador_aprobacion, m.progreso
+      FROM inscription_requests ir
+      LEFT JOIN matriculas m ON (m.solicitud_id = ir.id OR (m.alumno_id = ir.student_user_id AND m.curso_id = ir.course_id))
+      WHERE ir.student_user_id = ? OR LOWER(TRIM(ir.email)) = ?
+      ORDER BY ir.created_at DESC
+    `, [studentId, cleanEmail]);
+
+    // Also fetch any standalone matriculas for this student that might not have an inscription_requests entry
+    const standaloneMatriculas = await query(`
+      SELECT m.*, e.nombre as curso_nombre, e.codigo as curso_codigo
+      FROM matriculas m
+      LEFT JOIN especialidades e ON (m.curso_id = e.id)
+      WHERE m.alumno_id = ? AND m.solicitud_id IS NULL
+      ORDER BY m.fecha_inicio DESC
+    `, [studentId]);
+
+    const formattedRequests = requests.map(r => {
+      const isApprovedActive = (r.active_matricula_id && r.active_matricula_estado === 'ACTIVA' && r.estado_acceso === 'HABILITADO') || r.estado_matricula === 'ACTIVA';
+      const humanStatus = getHumanReadableEnrollmentStatus(r, isApprovedActive);
+
+      return {
+        id: r.id,
+        request_number: r.request_number,
+        course_id: r.course_id,
+        course_name: r.course_name,
+        created_at: r.created_at,
+        modalidad_inscripcion: r.modalidad_inscripcion,
+        estado_admision: r.estado_solicitud,
+        estado_transferencia: r.estado_pago,
+        estado_matricula: isApprovedActive ? 'ACTIVA' : (r.active_matricula_estado || r.estado_matricula || 'PENDIENTE'),
+        estado_acceso: r.estado_acceso || (isApprovedActive ? 'HABILITADO' : 'PENDIENTE'),
+        estado_legible: humanStatus,
+        fecha_aprobacion: r.matricula_fecha_aprobacion || r.aprobado_final_en || r.converted_at,
+        precio_final: r.precio_final_snapshot,
+        referencia_transferencia: r.referencia_transferencia || r.request_number,
+        pdf_path: r.pdf_path ? `/api/inscriptions/requests/${r.request_number}/pdf` : null,
+        has_receipt: !!r.justificante_ruta,
+        justificante_nombre: r.justificante_nombre,
+        justificante_subido_en: r.justificante_subido_en,
+        canConsultRequest: true,
+        canConsultBankInfo: r.estado_pago === 'PENDIENTE_TRANSFERENCIA' || r.estado_solicitud === 'PREAPROBADA' || r.modalidad_inscripcion === 'COMPRA_DIRECTA',
+        canUploadReceipt: r.estado_pago === 'PENDIENTE_TRANSFERENCIA' || r.estado_pago === 'TRANSFERENCIA_COMUNICADA',
+        canAccessCourse: isApprovedActive
+      };
+    });
+
+    // Append standalone matriculas
+    standaloneMatriculas.forEach(sm => {
+      formattedRequests.push({
+        id: sm.id,
+        request_number: `MAT-${sm.id.substring(0, 8)}`,
+        course_id: sm.curso_id,
+        course_name: sm.curso_nombre || 'Especialidad Oficial',
+        created_at: sm.fecha_inicio,
+        modalidad_inscripcion: 'OFICIAL_DIRECTA',
+        estado_admision: 'APROBADA',
+        estado_transferencia: 'TRANSFERENCIA_VERIFICADA',
+        estado_matricula: sm.estado,
+        estado_acceso: sm.estado_acceso || 'HABILITADO',
+        estado_legible: sm.estado === 'ACTIVA' && sm.estado_acceso === 'HABILITADO' ? 'Matrícula aprobada' : 'Matrícula suspendida o inactiva',
+        fecha_aprobacion: sm.fecha_aprobacion || sm.fecha_inicio,
+        precio_final: null,
+        referencia_transferencia: null,
+        pdf_path: null,
+        has_receipt: false,
+        justificante_nombre: null,
+        justificante_subido_en: null,
+        canConsultRequest: false,
+        canConsultBankInfo: false,
+        canUploadReceipt: false,
+        canAccessCourse: sm.estado === 'ACTIVA' && sm.estado_acceso === 'HABILITADO'
+      });
+    });
+
+    res.json({ enrollments: formattedRequests });
+  } catch (error) {
+    console.error('Fetch student enrollments error:', error);
+    res.status(500).json({ error: 'Error al consultar las matrículas del alumno.' });
+  }
+});
+
+// 5. MIS PAGOS: Gestión exclusiva de transferencias bancarias (Section 3.D)
+app.get('/api/student/my-payments', requireAuth, requireNoTempPassword, async (req, res) => {
+  try {
+    const studentId = req.user.id;
+    const cleanEmail = normalizeEmail(req.user.email);
+
+    // Official Bank Configuration (no card/paypal/stripe)
+    const bankConfig = {
+      bank_holder: process.env.BANK_HOLDER || 'ACADEMIAS PÉNDULO S.L.',
+      bank_iban: process.env.BANK_IBAN || 'ES91 2100 0418 4502 0005 1332',
+      bank_bic: process.env.BANK_BIC || 'CAIXESBBXXX',
+      bank_name: process.env.BANK_NAME || 'CaixaBank'
+    };
+
+    const requests = await query(`
+      SELECT ir.id, ir.request_number, ir.course_id, ir.course_name, ir.created_at,
+             ir.modalidad_inscripcion, ir.precio_base_snapshot, ir.precio_final_snapshot,
+             ir.moneda_snapshot, ir.estado_solicitud, ir.estado_pago, ir.estado_matricula,
+             ir.referencia_transferencia, ir.justificante_ruta, ir.justificante_nombre,
+             ir.justificante_subido_en, ir.fecha_comunicacion_pago, ir.fecha_verificacion_bancaria
+      FROM inscription_requests ir
+      WHERE ir.student_user_id = ? OR LOWER(TRIM(ir.email)) = ?
+      ORDER BY ir.created_at DESC
+    `, [studentId, cleanEmail]);
+
+    const payments = requests.map(r => {
+      let descriptiveMessage = '';
+      if (r.estado_matricula === 'ACTIVA') {
+        descriptiveMessage = 'Tu matrícula está aprobada y tienes disponible el acceso al curso.';
+      } else if (r.estado_pago === 'TRANSFERENCIA_VERIFICADA') {
+        descriptiveMessage = 'Administración ha confirmado la recepción de tu transferencia. Tu matrícula continuará con el proceso de aprobación.';
+      } else if (r.estado_pago === 'TRANSFERENCIA_COMUNICADA') {
+        descriptiveMessage = 'Hemos recibido tu justificante. Administración deberá comprobar el ingreso en nuestra cuenta bancaria.';
+      } else {
+        descriptiveMessage = 'Pendiente de realizar la transferencia bancaria con el importe exacto y concepto único asignado.';
+      }
+
+      return {
+        id: r.id,
+        request_number: r.request_number,
+        course_name: r.course_name,
+        amount: r.precio_final_snapshot || r.precio_base_snapshot || '0.00',
+        currency: r.moneda_snapshot || 'EUR',
+        referencia_transferencia: r.referencia_transferencia || r.request_number,
+        estado_pago: r.estado_pago || 'PENDIENTE_TRANSFERENCIA',
+        mensaje_descriptivo: descriptiveMessage,
+        fecha_solicitud: r.created_at,
+        fecha_verificacion: r.fecha_verificacion_bancaria,
+        has_receipt: !!r.justificante_ruta,
+        justificante_nombre: r.justificante_nombre,
+        justificante_subido_en: r.justificante_subido_en,
+        can_upload_receipt: r.estado_pago === 'PENDIENTE_TRANSFERENCIA' || r.estado_pago === 'TRANSFERENCIA_COMUNICADA'
+      };
+    });
+
+    res.json({
+      bankConfig,
+      payments
+    });
+  } catch (error) {
+    console.error('Fetch student payments error:', error);
+    res.status(500).json({ error: 'Error al consultar los pagos del alumno.' });
+  }
+});
+
+// 6. SUBIDA SEGURA DE JUSTIFICANTE BANCARIO POR EL ALUMNO (Section 3.D)
+app.post('/api/student/my-payments/:requestId/receipt', requireAuth, requireNoTempPassword, async (req, res) => {
+  try {
+    const studentId = req.user.id;
+    const cleanEmail = normalizeEmail(req.user.email);
+    const { requestId } = req.params;
+    const { filename, base64Data } = req.body;
+
+    if (!filename || !base64Data) {
+      return res.status(400).json({ error: 'Debe adjuntar un archivo y su nombre.' });
+    }
+
+    // Ownership check: must belong to the logged-in student
+    const rows = await query(`
+      SELECT * FROM inscription_requests
+      WHERE id = ? AND (student_user_id = ? OR LOWER(TRIM(email)) = ?)
+      LIMIT 1
+    `, [requestId, studentId, cleanEmail]);
+
+    if (!rows || rows.length === 0) {
+      return res.status(403).json({ error: 'Acceso denegado: La solicitud no te pertenece.' });
+    }
+
+    const reqData = rows[0];
+
+    // Decode and validate file
+    const matches = base64Data.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
+    let buffer;
+    let mimeType = 'application/pdf';
+
+    if (matches && matches.length === 3) {
+      mimeType = matches[1];
+      buffer = Buffer.from(matches[2], 'base64');
+    } else {
+      buffer = Buffer.from(base64Data, 'base64');
+    }
+
+    // Check size limit: 10MB
+    if (buffer.length > 10 * 1024 * 1024) {
+      return res.status(400).json({ error: 'El archivo supera el tamaño máximo permitido de 10 MB.' });
+    }
+
+    // Allowed mime types
+    const allowedMimes = ['application/pdf', 'image/jpeg', 'image/png', 'image/webp'];
+    if (!allowedMimes.includes(mimeType.toLowerCase())) {
+      return res.status(400).json({ error: 'Formato no permitido. Solo se admiten archivos PDF, JPG o PNG.' });
+    }
+
+    const ext = mimeType === 'application/pdf' ? '.pdf' : mimeType === 'image/jpeg' ? '.jpg' : '.png';
+    const safeFilename = `justificante_${reqData.request_number}_${Date.now()}${ext}`;
+    const storagePath = path.join(RECEIPTS_UPLOAD_DIR, safeFilename);
+
+    fs.writeFileSync(storagePath, buffer);
+
+    // Update MySQL record
+    await query(`
+      UPDATE inscription_requests
+      SET justificante_ruta = ?,
+          justificante_nombre = ?,
+          justificante_subido_en = NOW(),
+          estado_pago = 'TRANSFERENCIA_COMUNICADA',
+          fecha_comunicacion_pago = NOW(),
+          updated_at = NOW()
+      WHERE id = ?
+    `, [safeFilename, filename, reqData.id]);
+
+    // History log
+    await query(`
+      INSERT INTO inscription_request_history (request_id, user_id, event_type, description, created_at)
+      VALUES (?, ?, 'RECEIPT_UPLOADED', ?, NOW())
+    `, [reqData.id, req.user.id, `Justificante bancario adjuntado por el alumno (${filename}). Estado de pago actualizado a TRANSFERENCIA_COMUNICADA.`]);
+
+    res.json({
+      success: true,
+      message: 'Justificante subido correctamente. Administración revisará el ingreso en la cuenta bancaria.',
+      estado_pago: 'TRANSFERENCIA_COMUNICADA'
+    });
+  } catch (error) {
+    console.error('Upload student receipt error:', error);
+    res.status(500).json({ error: 'Error al procesar el justificante bancario.' });
+  }
+});
+
+// 7. DESCARGA / CONSULTA SEGURA DE JUSTIFICANTE BANCARIO (Section 3.D)
+app.get('/api/student/my-payments/:requestId/receipt', requireAuth, requireNoTempPassword, async (req, res) => {
+  try {
+    const studentId = req.user.id;
+    const cleanEmail = normalizeEmail(req.user.email);
+    const { requestId } = req.params;
+    const isAdmin = req.user.roles.includes('ADMINISTRADOR') || req.user.roles.includes('SECRETARIA');
+
+    let rows;
+    if (isAdmin) {
+      rows = await query(`SELECT * FROM inscription_requests WHERE id = ? LIMIT 1`, [requestId]);
+    } else {
+      rows = await query(`
+        SELECT * FROM inscription_requests
+        WHERE id = ? AND (student_user_id = ? OR LOWER(TRIM(email)) = ?)
+        LIMIT 1
+      `, [requestId, studentId, cleanEmail]);
+    }
+
+    if (!rows || rows.length === 0) {
+      return res.status(403).json({ error: 'Acceso no autorizado a este justificante.' });
+    }
+
+    const reqData = rows[0];
+    if (!reqData.justificante_ruta) {
+      return res.status(404).json({ error: 'No existe ningún justificante bancario subido para esta solicitud.' });
+    }
+
+    const filePath = path.join(RECEIPTS_UPLOAD_DIR, reqData.justificante_ruta);
+    if (!fs.existsSync(filePath)) {
+      return res.status(404).json({ error: 'El archivo físico del justificante no se encuentra en el servidor.' });
+    }
+
+    const ext = path.extname(filePath).toLowerCase();
+    const contentType = ext === '.pdf' ? 'application/pdf' : ext === '.png' ? 'image/png' : 'image/jpeg';
+
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(reqData.justificante_nombre || 'justificante' + ext)}"`);
+    fs.createReadStream(filePath).pipe(res);
+  } catch (error) {
+    console.error('Download receipt error:', error);
+    res.status(500).json({ error: 'Error al servir el justificante.' });
+  }
+});
+
+// ==========================================
+// 7. ADMIN: FICHA COMPLETA CENTRALIZADA DEL ALUMNO (Section 7)
+// ==========================================
+
+// GET /api/admin/students/:id/full-file
+app.get('/api/admin/students/:id/full-file', requireAuth, requireNoTempPassword, async (req, res) => {
+  try {
+    const userRoles = req.user.roles || [];
+    if (!userRoles.includes('ADMINISTRADOR') && !userRoles.includes('SECRETARIA')) {
+      return res.status(403).json({ error: 'Acceso restringido a personal de administración y secretaría.' });
+    }
+
+    const studentId = req.params.id;
+
+    // 1. Fetch user account
+    const userRows = await query(`
+      SELECT u.id, u.nombre, u.apellidos, u.email, u.email_original, u.telefono,
+             u.estado, u.cambio_password_obligatorio, u.ultimo_acceso, u.creado_en, u.actualizado_en
+      FROM usuarios u
+      WHERE u.id = ? OR u.email = ?
+      LIMIT 1
+    `, [studentId, studentId]);
+
+    if (!userRows || userRows.length === 0) {
+      return res.status(404).json({ error: 'Alumno no encontrado en el sistema.' });
+    }
+
+    const user = userRows[0];
+    const cleanEmail = normalizeEmail(user.email);
+
+    // 2. Fetch all linked inscription requests
+    const requestRows = await query(`
+      SELECT * FROM inscription_requests
+      WHERE student_user_id = ? OR LOWER(TRIM(email)) = ?
+      ORDER BY created_at DESC
+    `, [user.id, cleanEmail]);
+
+    const latestReq = requestRows[0] || {};
+
+    // Tab 1: Datos Personales
+    const tab1Personal = {
+      id: user.id,
+      nombre: user.nombre,
+      apellidos: user.apellidos,
+      dni_nie: latestReq.dni_nie || 'No registrado',
+      email: user.email,
+      telefono: user.telefono || latestReq.phone || 'No registrado',
+      direccion: latestReq.address || 'No registrada',
+      codigo_postal: latestReq.postal_code || '',
+      ciudad: latestReq.city || '',
+      provincia: latestReq.province || '',
+      fecha_creacion: user.creado_en,
+      estado_cuenta: user.estado,
+      cambio_password_obligatorio: !!user.cambio_password_obligatorio,
+      ultimo_acceso: user.ultimo_acceso
+    };
+
+    // Tab 2: Formación Académica
+    const tab2Academica = {
+      nivel_estudios: latestReq.academic_level || 'No especificado',
+      titulacion: latestReq.academic_degree || 'No especificada',
+      formacion_complementaria: latestReq.additional_training || 'Ninguna',
+      situacion_laboral: latestReq.employment_status || 'No especificada',
+      solicitudes_academicas: requestRows.map(r => ({
+        request_number: r.request_number,
+        course_name: r.course_name,
+        academic_level: r.academic_level,
+        academic_degree: r.academic_degree,
+        additional_training: r.additional_training,
+        created_at: r.created_at
+      }))
+    };
+
+    // Tab 3: Matrículas
+    const matriculasRows = await query(`
+      SELECT m.*, 
+             COALESCE(m.curso_id, g.especialidad_id) as effective_course_id,
+             e.nombre as curso_nombre, e.codigo as curso_codigo,
+             g.nombre as grupo_nombre
+      FROM matriculas m
+      LEFT JOIN grupos g ON m.grupo_id = g.id
+      LEFT JOIN especialidades e ON (m.curso_id = e.id OR g.especialidad_id = e.id)
+      WHERE m.alumno_id = ?
+      ORDER BY m.fecha_inicio DESC
+    `, [user.id]);
+
+    const tab3Matriculas = matriculasRows.map(m => {
+      const matchingReq = requestRows.find(r => r.id === m.solicitud_id || r.course_id === m.curso_id) || {};
+      return {
+        matricula_id: m.id,
+        solicitud_id: m.solicitud_id || matchingReq.id || null,
+        request_number: matchingReq.request_number || 'Histórica',
+        curso_id: m.effective_course_id,
+        curso_nombre: m.curso_nombre || matchingReq.course_name || 'Curso Oficial',
+        curso_codigo: m.curso_codigo,
+        grupo_nombre: m.grupo_nombre || 'Sin grupo específico',
+        fecha_matricula: m.fecha_inicio,
+        modalidad_inscripcion: matchingReq.modalidad_inscripcion || 'DIRECTA',
+        estado_admision: matchingReq.estado_solicitud || 'APROBADA',
+        estado_matricula: m.estado,
+        estado_acceso: m.estado_acceso || 'HABILITADO',
+        fecha_aprobacion: m.fecha_aprobacion || matchingReq.aprobado_final_en || m.fecha_inicio,
+        operador_aprobacion: m.operador_aprobacion || matchingReq.aprobado_final_por || 'Administración',
+        motivo_suspension: m.motivo_suspension,
+        suspendido_por: m.suspendido_por,
+        suspendido_en: m.suspendido_en,
+        progreso: m.progreso
+      };
+    });
+
+    // Tab 4: Pagos y Transferencias
+    const tab4Pagos = requestRows.map(r => ({
+      solicitud_id: r.id,
+      request_number: r.request_number,
+      curso_nombre: r.course_name,
+      importe: r.precio_final_snapshot || r.precio_base_snapshot || '0.00',
+      moneda: r.moneda_snapshot || 'EUR',
+      referencia_bancaria: r.referencia_transferencia || r.request_number,
+      referencia_externa: r.referencia_bancaria_externa,
+      estado_pago: r.estado_pago || 'PENDIENTE_TRANSFERENCIA',
+      fecha_comunicacion: r.fecha_comunicacion_pago,
+      fecha_comprobacion: r.fecha_verificacion_bancaria,
+      verificado_por: r.verificado_pago_por || (r.verificado_por_usuario_id ? 'Administración' : null),
+      has_receipt: !!r.justificante_ruta,
+      justificante_nombre: r.justificante_nombre,
+      justificante_url: r.justificante_ruta ? `/api/student/my-payments/${r.id}/receipt` : null,
+      observaciones: r.observaciones_administrativas,
+      incidencias: r.motivo_incidencia
+    }));
+
+    // Tab 5: Acceso al Campus
+    const tab5Acceso = {
+      usuario: user.email, // Username is strictly email, NEVER DNI
+      email: user.email,
+      estado_cuenta: user.estado,
+      cursos_autorizados: matriculasRows
+        .filter(m => m.estado === 'ACTIVA' && (m.estado_acceso === 'HABILITADO' || m.estado_acceso === null))
+        .map(m => m.curso_nombre || m.curso_id),
+      fecha_creacion: user.creado_en,
+      fecha_activacion: matriculasRows[0]?.fecha_activacion || user.creado_en,
+      ultimo_acceso: user.ultimo_acceso,
+      bienvenida_email_enviado: requestRows.some(r => r.bienvenida_email_enviado === 1),
+      cambio_password_obligatorio: !!user.cambio_password_obligatorio,
+      tiene_password_activo: !user.cambio_password_obligatorio
+    };
+
+    // Tab 6: Historial Administrativo
+    const historyRows = await query(`
+      SELECT h.*, u.nombre as operator_nombre, u.apellidos as operator_apellidos
+      FROM inscription_request_history h
+      LEFT JOIN usuarios u ON h.user_id = u.id
+      WHERE h.request_id IN (SELECT id FROM inscription_requests WHERE student_user_id = ? OR LOWER(TRIM(email)) = ?)
+      ORDER BY h.created_at DESC
+    `, [user.id, cleanEmail]);
+
+    const tab6Historial = historyRows.map(h => ({
+      id: h.id,
+      request_id: h.request_id,
+      fecha_hora: h.created_at,
+      operador: h.operator_nombre ? `${h.operator_nombre} ${h.operator_apellidos || ''}`.trim() : 'Sistema / Administración',
+      tipo_evento: h.event_type,
+      descripcion: h.description
+    }));
+
+    res.json({
+      success: true,
+      studentFile: {
+        personal: tab1Personal,
+        academica: tab2Academica,
+        matriculas: tab3Matriculas,
+        pagos: tab4Pagos,
+        acceso: tab5Acceso,
+        historial: tab6Historial
+      }
+    });
+
+  } catch (error) {
+    console.error('Fetch student full file error:', error);
+    res.status(500).json({ error: 'Error al consultar la ficha completa del alumno.' });
+  }
+});
+
+// Resend access instructions without changing password if already configured (Section 7.Acceso al Campus)
+app.post('/api/admin/students/:id/resend-access', requireAuth, requireNoTempPassword, async (req, res) => {
+  try {
+    const userRoles = req.user.roles || [];
+    if (!userRoles.includes('ADMINISTRADOR') && !userRoles.includes('SECRETARIA')) {
+      return res.status(403).json({ error: 'Acceso restringido.' });
+    }
+
+    const studentId = req.params.id;
+    const userRows = await query(`SELECT * FROM usuarios WHERE id = ? LIMIT 1`, [studentId]);
+    if (!userRows || userRows.length === 0) {
+      return res.status(404).json({ error: 'Alumno no encontrado.' });
+    }
+
+    const studentUser = userRows[0];
+    const cleanEmail = normalizeEmail(studentUser.email);
+    const campusUrl = process.env.CAMPUS_URL || 'http://localhost:3000/#campus';
+
+    // If user has NOT yet changed password (still temporary), generate fresh temp password.
+    // Otherwise keep existing active password untouched.
+    let rawTempPassword = null;
+    if (studentUser.cambio_password_obligatorio) {
+      rawTempPassword = generateTempPassword(14);
+      const newHash = await hashPassword(rawTempPassword);
+      await query(`
+        UPDATE usuarios
+        SET password_hash = ?, caducidad_password_temporal = DATE_ADD(NOW(), INTERVAL 7 DAY), actualizado_en = NOW()
+        WHERE id = ?
+      `, [newHash, studentUser.id]);
+    }
+
+    const emailSubject = 'Instrucciones de acceso al campus virtual — ACADEMIAS PÉNDULO';
+    let emailHtml = '';
+
+    if (rawTempPassword) {
+      emailHtml = `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 25px; border: 1px solid #e5e7eb; border-radius: 12px; background: #ffffff;">
+          <h1 style="color: #dc2626; margin: 0; text-align: center;">Academias Péndulo</h1>
+          <p style="color: #4b5563; font-size: 14px; text-align: center;">Campus Virtual · Formación Profesional</p>
+          <hr style="border: none; border-top: 1px solid #f3f4f6; margin: 20px 0;" />
+          <p>Hola, <strong>${studentUser.nombre}</strong>:</p>
+          <p>Te recordamos tus credenciales de acceso al campus virtual de ACADEMIAS PÉNDULO:</p>
+          <div style="background-color: #f9fafb; padding: 18px; border-radius: 10px; margin: 25px 0; border: 1px solid #e5e7eb;">
+            <p><strong>Usuario:</strong> ${cleanEmail}</p>
+            <p><strong>Contraseña temporal:</strong> <span style="font-family: monospace; background: #fee2e2; color: #991b1b; padding: 3px 8px; border-radius: 4px; font-weight: bold;">${rawTempPassword}</span></p>
+            <p><strong>Acceso:</strong> <a href="${campusUrl}">${campusUrl}</a></p>
+          </div>
+          <p style="font-size: 13px; color: #92400e;">Por seguridad, sustituye tu contraseña temporal al acceder por primera vez.</p>
+          <p>Un saludo,<br />Administración<br />ACADEMIAS PÉNDULO</p>
+        </div>
+      `;
+    } else {
+      emailHtml = `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 25px; border: 1px solid #e5e7eb; border-radius: 12px; background: #ffffff;">
+          <h1 style="color: #dc2626; margin: 0; text-align: center;">Academias Péndulo</h1>
+          <hr style="border: none; border-top: 1px solid #f3f4f6; margin: 20px 0;" />
+          <p>Hola, <strong>${studentUser.nombre}</strong>:</p>
+          <p>Te enviamos un recordatorio de tus instrucciones de acceso al campus virtual de ACADEMIAS PÉNDULO:</p>
+          <div style="background-color: #f9fafb; padding: 18px; border-radius: 10px; margin: 25px 0; border: 1px solid #e5e7eb;">
+            <p><strong>Usuario:</strong> ${cleanEmail}</p>
+            <p><strong>Contraseña:</strong> Tu contraseña habitual (ya configurada por ti).</p>
+            <p><strong>Acceso:</strong> <a href="${campusUrl}">${campusUrl}</a></p>
+          </div>
+          <p>Si no recuerdas tu contraseña, puedes recuperarla en cualquier momento desde la pantalla de inicio de sesión.</p>
+          <p>Un saludo,<br />Administración<br />ACADEMIAS PÉNDULO</p>
+        </div>
+      `;
+    }
+
+    await sendSystemEmail({
+      to: cleanEmail,
+      subject: emailSubject,
+      html: emailHtml
+    });
+
+    res.json({ success: true, message: `Instrucciones de acceso enviadas correctamente a ${cleanEmail}.` });
+  } catch (error) {
+    console.error('Admin resend access error:', error);
+    res.status(500).json({ error: 'Error al reenviar instrucciones de acceso.' });
+  }
+});
+
+// Admin sends secure password recovery link to student (Section 7.Acceso al Campus)
+app.post('/api/admin/students/:id/send-password-reset', requireAuth, requireNoTempPassword, async (req, res) => {
+  try {
+    const userRoles = req.user.roles || [];
+    if (!userRoles.includes('ADMINISTRADOR') && !userRoles.includes('SECRETARIA')) {
+      return res.status(403).json({ error: 'Acceso restringido.' });
+    }
+
+    const studentId = req.params.id;
+    const userRows = await query(`SELECT * FROM usuarios WHERE id = ? LIMIT 1`, [studentId]);
+    if (!userRows || userRows.length === 0) {
+      return res.status(404).json({ error: 'Alumno no encontrado.' });
+    }
+
+    const studentUser = userRows[0];
+    const rawToken = generateToken(32);
+    const tokenH = hashToken(rawToken);
+    const tokenId = `tok-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 6)}`;
+
+    await query(`
+      INSERT INTO tokens_acceso (id, usuario_id, proposito, token_hash, expiracion, creado_en)
+      VALUES (?, ?, 'RECUPERAR_PASSWORD', ?, DATE_ADD(NOW(), INTERVAL 24 HOUR), NOW())
+    `, [tokenId, studentUser.id, tokenH]);
+
+    const campusBase = process.env.CAMPUS_URL || 'http://localhost:3000';
+    const resetLink = `${campusBase}/#reset-password?token=${rawToken}`;
+
+    await sendSystemEmail({
+      to: studentUser.email,
+      subject: 'Restablecimiento de contraseña — ACADEMIAS PÉNDULO',
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 25px; border: 1px solid #e5e7eb; border-radius: 12px; background: #ffffff;">
+          <h2 style="color: #dc2626; margin: 0 0 10px 0;">ACADEMIAS PÉNDULO</h2>
+          <hr style="border: none; border-top: 1px solid #f3f4f6; margin: 20px 0;" />
+          <p>Hola, <strong>${studentUser.nombre}</strong>:</p>
+          <p>Administración ha iniciado un proceso seguro para que puedas establecer una nueva contraseña de acceso:</p>
+          <div style="text-align: center; margin: 30px 0;">
+            <a href="${resetLink}" style="background-color: #dc2626; color: #ffffff; padding: 12px 24px; border-radius: 8px; text-decoration: none; font-weight: bold; font-size: 14px; display: inline-block;">
+              Establecer mi contraseña
+            </a>
+          </div>
+          <p style="font-size: 12px; color: #6b7280;">Enlace directo: <a href="${resetLink}">${resetLink}</a></p>
+          <p>Un saludo,<br />Administración<br />ACADEMIAS PÉNDULO</p>
+        </div>
+      `
+    });
+
+    res.json({ success: true, message: `Enlace seguro de restablecimiento de contraseña enviado a ${studentUser.email}.` });
+  } catch (error) {
+    console.error('Send password reset error:', error);
+    res.status(500).json({ error: 'Error al enviar enlace de restablecimiento de contraseña.' });
+  }
+});
+
+// Admin toggle student access (suspend / restore) (Section 7.Acceso al Campus & Section 12)
+app.put('/api/admin/students/:id/toggle-access', requireAuth, requireNoTempPassword, async (req, res) => {
+  try {
+    const userRoles = req.user.roles || [];
+    if (!userRoles.includes('ADMINISTRADOR') && !userRoles.includes('SECRETARIA')) {
+      return res.status(403).json({ error: 'Acceso restringido.' });
+    }
+
+    const studentId = req.params.id;
+    const { suspend, motivo } = req.body;
+    const operator = req.user.email || req.user.nombre || 'Administración';
+
+    const newAccessState = suspend ? 'SUSPENDIDO' : 'HABILITADO';
+    const newUserState = suspend ? 'SUSPENDIDO' : 'ACTIVO';
+    const reasonText = motivo ? String(motivo).trim() : (suspend ? 'Suspensión administrativa preventiva' : 'Restauración autorizada de acceso');
+
+    // Update matriculas
+    await query(`
+      UPDATE matriculas
+      SET estado_acceso = ?,
+          motivo_suspension = ?,
+          suspendido_por = ?,
+          suspendido_en = ?
+      WHERE alumno_id = ?
+    `, [newAccessState, suspend ? reasonText : null, suspend ? operator : null, suspend ? new Date() : null, studentId]);
+
+    // Update usuario
+    await query(`
+      UPDATE usuarios
+      SET estado = ?, actualizado_en = NOW()
+      WHERE id = ?
+    `, [newUserState, studentId]);
+
+    // If suspended, revoke active sessions
+    if (suspend) {
+      await query(`
+        UPDATE sesiones
+        SET revocado_en = CURRENT_TIMESTAMP
+        WHERE usuario_id = ? AND revocado_en IS NULL
+      `, [studentId]);
+    }
+
+    // History audit log
+    const reqs = await query(`SELECT id FROM inscription_requests WHERE student_user_id = ? LIMIT 1`, [studentId]);
+    if (reqs.length > 0) {
+      await query(`
+        INSERT INTO inscription_request_history (request_id, user_id, event_type, description, created_at)
+        VALUES (?, ?, ?, ?, NOW())
+      `, [reqs[0].id, req.user.id, suspend ? 'ACCESS_SUSPENDED' : 'ACCESS_RESTORED', `${suspend ? 'Acceso al campus suspendido' : 'Acceso al campus restaurado'} por ${operator}. Motivo: ${reasonText}`]);
+    }
+
+    res.json({
+      success: true,
+      message: suspend ? 'Acceso al campus suspendido correctamente.' : 'Acceso al campus restaurado correctamente.',
+      estado_acceso: newAccessState,
+      estado_usuario: newUserState
+    });
+  } catch (error) {
+    console.error('Toggle student access error:', error);
+    res.status(500).json({ error: 'Error al modificar el estado de acceso del alumno.' });
+  }
+});
+
+// Admin update student personal data with audit log (Section 7.Datos Personales)
+app.put('/api/admin/students/:id/personal-data', requireAuth, requireNoTempPassword, async (req, res) => {
+  try {
+    const userRoles = req.user.roles || [];
+    if (!userRoles.includes('ADMINISTRADOR') && !userRoles.includes('SECRETARIA')) {
+      return res.status(403).json({ error: 'Acceso restringido.' });
+    }
+
+    const studentId = req.params.id;
+    const { nombre, apellidos, telefono } = req.body;
+
+    if (!nombre || !apellidos) {
+      return res.status(400).json({ error: 'El nombre y los apellidos son obligatorios.' });
+    }
+
+    await query(`
+      UPDATE usuarios
+      SET nombre = ?, apellidos = ?, telefono = ?, actualizado_en = NOW()
+      WHERE id = ?
+    `, [nombre.trim(), apellidos.trim(), telefono ? telefono.trim() : null, studentId]);
+
+    res.json({ success: true, message: 'Datos personales actualizados correctamente.' });
+  } catch (error) {
+    console.error('Update student personal data error:', error);
+    res.status(500).json({ error: 'Error al actualizar los datos personales.' });
+  }
+});
+
+// ==========================================
 // 3. MATERIALS, FILES (PDF) & VIDEOS API
 // ==========================================
 
@@ -870,18 +1988,22 @@ app.get('/api/files/:id/download', requireAuth, requireNoTempPassword, async (re
           return res.status(403).json({ error: 'Acceso denegado a este archivo.' });
         }
       } else if (req.user.roles.includes('ALUMNO')) {
-        // Student must be actively enrolled in the group/specialty of the published material
+        // Student must have active authorized enrollment (HABILITADO) for the group or specialty of the published material
         const matCheck = await query(`
           SELECT m.id FROM materiales m
-          JOIN alumno_matricula_activa ama ON ama.alumno_id = ?
-          JOIN matriculas mat ON ama.matricula_id = mat.id
-          JOIN grupos g ON mat.grupo_id = g.id
+          JOIN matriculas mat ON mat.alumno_id = ?
+          LEFT JOIN grupos g ON mat.grupo_id = g.id
           WHERE m.archivo_id = ? AND m.estado = 'PUBLICADO'
-            AND (m.grupo_id = g.id OR (m.grupo_id IS NULL AND m.especialidad_id = g.especialidad_id))
+            AND mat.estado = 'ACTIVA'
+            AND (mat.estado_acceso = 'HABILITADO' OR mat.estado_acceso IS NULL)
+            AND (
+              m.grupo_id = mat.grupo_id
+              OR (m.grupo_id IS NULL AND (m.especialidad_id = mat.curso_id OR m.especialidad_id = g.especialidad_id))
+            )
         `, [req.user.id, id]);
 
         if (matCheck.length === 0) {
-          return res.status(403).json({ error: 'Acceso denegado: Archivo no disponible para tu matrícula activa.' });
+          return res.status(403).json({ error: 'Acceso denegado: Archivo no disponible para tu matrícula activa y autorizada.' });
         }
       }
     }
@@ -923,16 +2045,16 @@ app.get('/api/materials', requireAuth, requireNoTempPassword, async (req, res) =
       ) ORDER BY orden ASC, creado_en DESC`;
       params.push(req.user.id);
     } else {
-      // Student sees ONLY published materials for their active enrollment group or common specialty
+      // Student sees ONLY published materials for their active, authorized enrollment groups or common specialty
       sql += ` WHERE estado = 'PUBLICADO' AND (
         grupo_id IN (
-          SELECT mat.grupo_id FROM alumno_matricula_activa ama
-          JOIN matriculas mat ON ama.matricula_id = mat.id WHERE ama.alumno_id = ?
+          SELECT mat.grupo_id FROM matriculas mat
+          WHERE mat.alumno_id = ? AND mat.estado = 'ACTIVA' AND (mat.estado_acceso = 'HABILITADO' OR mat.estado_acceso IS NULL)
         )
         OR (grupo_id IS NULL AND especialidad_id IN (
-          SELECT g.especialidad_id FROM alumno_matricula_activa ama
-          JOIN matriculas mat ON ama.matricula_id = mat.id
-          JOIN grupos g ON mat.grupo_id = g.id WHERE ama.alumno_id = ?
+          SELECT COALESCE(mat.curso_id, g.especialidad_id) FROM matriculas mat
+          LEFT JOIN grupos g ON mat.grupo_id = g.id
+          WHERE mat.alumno_id = ? AND mat.estado = 'ACTIVA' AND (mat.estado_acceso = 'HABILITADO' OR mat.estado_acceso IS NULL)
         ))
       ) ORDER BY orden ASC, creado_en DESC`;
       params.push(req.user.id, req.user.id);
@@ -4248,19 +5370,33 @@ app.get('/api/academic/groups', requireAuth, requireNoTempPassword, async (req, 
   }
 });
 
-// GET alumnos de un grupo específico
+// GET alumnos de un grupo específico (Section 6: Teacher panel isolation)
 app.get('/api/academic/groups/:groupId/students', requireAuth, requireNoTempPassword, async (req, res) => {
   const { groupId } = req.params;
   try {
+    const isTeacher = req.user.roles.includes('PROFESOR');
+    const isAdminOrSec = req.user.roles.includes('ADMINISTRADOR') || req.user.roles.includes('SECRETARIA');
+
+    if (isTeacher && !isAdminOrSec) {
+      const grp = await query(`SELECT profesor_principal_id FROM grupos WHERE id = ? LIMIT 1`, [groupId]);
+      if (!grp || grp.length === 0 || grp[0].profesor_principal_id !== req.user.id) {
+        return res.status(403).json({ error: 'Acceso denegado: Solo puedes consultar los alumnos de tus grupos asignados.' });
+      }
+    } else if (!isTeacher && !isAdminOrSec) {
+      return res.status(403).json({ error: 'Acceso no autorizado.' });
+    }
+
+    // Return strictly active and authorized students. No banking, payment, or financial data returned.
     const students = await query(`
       SELECT
-        m.id as matricula_id, m.estado as matricula_estado, m.fecha_inicio,
+        m.id as matricula_id, m.estado as matricula_estado, m.fecha_inicio, m.progreso,
         u.id as alumno_id, u.nombre, u.apellidos, u.email, u.telefono
       FROM matriculas m
       JOIN usuarios u ON m.alumno_id = u.id
-      WHERE m.grupo_id = ? AND m.estado = 'ACTIVA'
+      WHERE m.grupo_id = ? AND m.estado = 'ACTIVA' AND (m.estado_acceso = 'HABILITADO' OR m.estado_acceso IS NULL)
       ORDER BY u.apellidos ASC, u.nombre ASC
     `, [groupId]);
+
     res.json({ students });
   } catch (err) {
     console.error('Error fetching group students:', err);
@@ -4524,11 +5660,15 @@ async function handleApproveEnrollmentAndActivate(req, res) {
     }
 
     // Create Enrollment in `matriculas` (Requirement 7 & 12: Activar únicamente la matrícula del curso aprobado)
+    const adminApprover = req.user.email || req.user.nombre || 'Administración';
     const matId = `mat-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 6)}`;
+    const effectiveCourseId = reqData.course_id || (targetGroup ? targetGroup.especialidad_id : null);
     await conn.execute(`
-      INSERT INTO matriculas (id, alumno_id, grupo_id, estado, autor_id, fecha_inicio)
-      VALUES (?, ?, ?, 'ACTIVA', ?, NOW())
-    `, [matId, userId, targetGroupId, req.user.id]);
+      INSERT INTO matriculas (
+        id, solicitud_id, alumno_id, grupo_id, curso_id, estado, estado_acceso,
+        autor_id, operador_aprobacion, fecha_inicio, fecha_aprobacion, fecha_activacion
+      ) VALUES (?, ?, ?, ?, ?, 'ACTIVA', 'HABILITADO', ?, ?, NOW(), NOW(), NOW())
+    `, [matId, reqData.id, userId, targetGroupId, effectiveCourseId, req.user.id, adminApprover]);
 
     // Update atomic active enrollment `alumno_matricula_activa`
     await conn.execute(`
@@ -4538,7 +5678,6 @@ async function handleApproveEnrollmentAndActivate(req, res) {
     `, [userId, matId]);
 
     // Update `inscription_requests` record with final enrollment approval
-    const adminApprover = req.user.email || req.user.nombre || 'Administración';
     await conn.execute(`
       UPDATE inscription_requests
       SET converted_to_student = 1,
