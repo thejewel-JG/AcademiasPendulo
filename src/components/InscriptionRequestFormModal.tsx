@@ -73,9 +73,33 @@ export const InscriptionRequestFormModal: React.FC<InscriptionRequestFormModalPr
     signature_date: new Date().toISOString().split('T')[0]
   });
 
+  // Bank transfer & submission state
+  const [submissionResult, setSubmissionResult] = useState<{
+    request_number: string;
+    modalidad_inscripcion?: string;
+    referencia_transferencia?: string;
+    importe_total?: number;
+    bank_details?: {
+      titular_cuenta?: string;
+      iban?: string;
+      nombre_entidad?: string;
+      bic_swift?: string;
+      instrucciones_adicionales?: string;
+    };
+  } | null>(null);
+  const [selectedReceiptFile, setSelectedReceiptFile] = useState<File | null>(null);
+  const [uploadingReceipt, setUploadingReceipt] = useState(false);
+  const [receiptUploadSuccess, setReceiptUploadSuccess] = useState<string | null>(null);
+  const [receiptUploadError, setReceiptUploadError] = useState<string | null>(null);
+  const [copiedRef, setCopiedRef] = useState(false);
+
   React.useEffect(() => {
     if (isOpen) {
       setSubmittedRequestNumber(null);
+      setSubmissionResult(null);
+      setSelectedReceiptFile(null);
+      setReceiptUploadSuccess(null);
+      setReceiptUploadError(null);
       setErrorMsg(null);
       if (preselectedCourseName) {
         const found = COURSES.find(c => c.id === preselectedCourseId || c.title === preselectedCourseName);
@@ -126,6 +150,44 @@ export const InscriptionRequestFormModal: React.FC<InscriptionRequestFormModalPr
     } finally {
       setDownloadingSubmittedPdf(false);
     }
+  };
+
+  const handleUploadReceipt = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedReceiptFile || !submittedRequestNumber) return;
+
+    setUploadingReceipt(true);
+    setReceiptUploadSuccess(null);
+    setReceiptUploadError(null);
+
+    try {
+      const form = new FormData();
+      form.append('justificante', selectedReceiptFile);
+
+      const res = await fetch(`/api/public/inscriptions/${submittedRequestNumber}/upload-receipt`, {
+        method: 'POST',
+        body: form
+      });
+
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setReceiptUploadSuccess('Justificante de transferencia adjuntado correctamente. El equipo de Administración procederá a verificar el ingreso.');
+        setSelectedReceiptFile(null);
+      } else {
+        setReceiptUploadError(data.error || 'No se pudo subir el archivo justificante.');
+      }
+    } catch (err) {
+      console.error('Error uploading receipt:', err);
+      setReceiptUploadError('Error de conexión al subir el justificante.');
+    } finally {
+      setUploadingReceipt(false);
+    }
+  };
+
+  const handleCopyReference = (ref: string) => {
+    navigator.clipboard.writeText(ref);
+    setCopiedRef(true);
+    setTimeout(() => setCopiedRef(false), 2500);
   };
 
   const validateForm = () => {
@@ -204,6 +266,7 @@ export const InscriptionRequestFormModal: React.FC<InscriptionRequestFormModalPr
       }
 
       setSubmittedRequestNumber(resData.request_number);
+      setSubmissionResult(resData);
 
       // Trigger automatic PDF download in the background
       try {
@@ -222,19 +285,18 @@ export const InscriptionRequestFormModal: React.FC<InscriptionRequestFormModalPr
       } catch (dlErr) {
         console.warn('Auto PDF download trigger error:', dlErr);
       }
-
-      // If parent has onSuccess handler, notify and close modal to return cleanly to the web
-      if (onSuccess) {
-        setTimeout(() => {
-          onSuccess(resData.request_number, formData.course_name);
-          onClose();
-        }, 1000);
-      }
     } catch (err: any) {
       setErrorMsg(err.message || 'Error de conexión con el servidor.');
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleFinishAndClose = () => {
+    if (onSuccess && submittedRequestNumber) {
+      onSuccess(submittedRequestNumber, formData.course_name);
+    }
+    onClose();
   };
 
   return (
@@ -271,53 +333,176 @@ export const InscriptionRequestFormModal: React.FC<InscriptionRequestFormModalPr
 
           {/* CONFIRMATION SCREEN AFTER SUBMISSION */}
           {submittedRequestNumber ? (
-            <div className="py-10 text-center space-y-6 animate-fadeIn">
-              <div className="w-20 h-20 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto shadow-inner border-2 border-emerald-300">
-                <CheckCircle2 className="w-12 h-12" />
+            <div className="py-6 space-y-6 animate-fadeIn">
+              <div className="w-16 h-16 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto shadow-inner border-2 border-emerald-300">
+                <CheckCircle2 className="w-10 h-10" />
               </div>
 
-              <div className="space-y-2">
-                <h3 className="text-2xl sm:text-3xl font-black text-gray-900">
-                  ✅ Solicitud Registrada y Enviada
+              <div className="text-center space-y-1">
+                <h3 className="text-2xl font-black text-gray-900">
+                  ✅ Solicitud Registrada con Éxito
                 </h3>
-                <p className="text-gray-600 text-sm max-w-lg mx-auto">
-                  Hemos registrado correctamente tu solicitud de inscripción y enviado una copia oficial con el PDF adjunto a tu correo electrónico y a Secretaría.
+                <p className="text-gray-600 text-xs sm:text-sm max-w-lg mx-auto">
+                  Hemos generado tu expediente oficial. Se ha enviado un correo con copia del PDF a <strong>{formData.email}</strong>.
                 </p>
               </div>
 
-              <div className="bg-red-50 border-2 border-red-200 rounded-2xl p-6 max-w-md mx-auto shadow-sm">
-                <p className="text-xs text-red-700 font-bold uppercase tracking-wider">Número Oficial de Solicitud</p>
-                <p className="text-3xl sm:text-4xl font-black text-red-600 tracking-wider mt-1">{submittedRequestNumber}</p>
-                <p className="text-xs text-gray-500 mt-2">Documento oficial PDF firmado y archivado en Secretaría.</p>
+              {/* Unique Reference & Course Box */}
+              <div className="bg-red-50 border-2 border-red-200 rounded-2xl p-4 text-center max-w-md mx-auto">
+                <p className="text-[11px] text-red-700 font-bold uppercase tracking-wider">Referencia Única de Solicitud</p>
+                <div className="flex items-center justify-center gap-2 mt-1">
+                  <span className="text-2xl sm:text-3xl font-black text-red-600 font-mono tracking-wider">
+                    {submissionResult?.referencia_transferencia || submittedRequestNumber}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => handleCopyReference(submissionResult?.referencia_transferencia || submittedRequestNumber)}
+                    className="px-2.5 py-1 bg-red-600 text-white rounded-lg text-xs font-bold hover:bg-red-700 transition-all shadow-xs"
+                    title="Copiar referencia"
+                  >
+                    {copiedRef ? '✓ Copiado' : 'Copiar'}
+                  </button>
+                </div>
+                <p className="text-xs text-gray-700 mt-2 font-medium">Curso: <strong>{formData.course_name}</strong></p>
               </div>
 
-              <div className="flex flex-col sm:flex-row items-center justify-center gap-3 max-w-md mx-auto">
+              {/* MODALIDAD A: COMPRA DIRECTA -> INSTRUCCIONES DE TRANSFERENCIA */}
+              {submissionResult?.modalidad_inscripcion === 'COMPRA_DIRECTA' ? (
+                <div className="bg-indigo-50/70 border-2 border-indigo-200 rounded-2xl p-5 max-w-xl mx-auto space-y-4 text-left">
+                  <div className="flex items-center justify-between border-b border-indigo-200 pb-2">
+                    <div className="flex items-center gap-2 text-indigo-950 font-black text-sm">
+                      <BookOpen className="w-4 h-4 text-indigo-600" />
+                      <span>Instrucciones para Transferencia Bancaria</span>
+                    </div>
+                    <span className="bg-indigo-600 text-white text-[10px] font-black uppercase px-2.5 py-0.5 rounded-full">
+                      Compra Directa
+                    </span>
+                  </div>
+
+                  <p className="text-xs text-indigo-900 leading-relaxed">
+                    Para formalizar tu matrícula, realiza una transferencia bancaria utilizando exactamente los siguientes datos:
+                  </p>
+
+                  <div className="bg-white p-4 rounded-xl border border-indigo-200 space-y-2.5 text-xs text-gray-800 font-medium">
+                    <div className="flex justify-between items-center border-b border-gray-100 pb-1.5">
+                      <span className="text-gray-500 font-bold">Titular de la cuenta:</span>
+                      <span className="font-bold text-gray-900">{submissionResult.bank_details?.titular_cuenta || 'Academias Péndulo S.L.'}</span>
+                    </div>
+                    <div className="flex justify-between items-center border-b border-gray-100 pb-1.5">
+                      <span className="text-gray-500 font-bold">Entidad bancaria:</span>
+                      <span className="font-bold text-gray-900">{submissionResult.bank_details?.nombre_entidad || 'Banco Santander'}</span>
+                    </div>
+                    <div className="flex justify-between items-center border-b border-gray-100 pb-1.5">
+                      <span className="text-gray-500 font-bold">IBAN de la academia:</span>
+                      <span className="font-mono font-black text-indigo-900 text-sm tracking-wide bg-indigo-50 px-2 py-0.5 rounded border border-indigo-200">
+                        {submissionResult.bank_details?.iban || 'ES00 0000 0000 0000 0000 0000'}
+                      </span>
+                    </div>
+                    {submissionResult.bank_details?.bic_swift && (
+                      <div className="flex justify-between items-center border-b border-gray-100 pb-1.5">
+                        <span className="text-gray-500 font-bold">BIC / SWIFT:</span>
+                        <span className="font-mono text-gray-800">{submissionResult.bank_details.bic_swift}</span>
+                      </div>
+                    )}
+                    <div className="flex justify-between items-center border-b border-gray-100 pb-1.5">
+                      <span className="text-gray-500 font-bold">Importe exacto:</span>
+                      <span className="font-mono font-black text-red-600 text-base">
+                        {submissionResult.importe_total != null ? `${Number(submissionResult.importe_total).toFixed(2)} €` : 'A consultar'}
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center pt-0.5">
+                      <span className="text-gray-500 font-bold">Concepto / Referencia:</span>
+                      <span className="font-mono font-black text-red-700 bg-red-50 px-2 py-0.5 rounded border border-red-200">
+                        {submissionResult.referencia_transferencia || submittedRequestNumber}
+                      </span>
+                    </div>
+                  </div>
+
+                  {submissionResult.bank_details?.instrucciones_adicionales && (
+                    <p className="text-[11px] text-indigo-800 italic bg-indigo-100/60 p-2.5 rounded-lg border border-indigo-200">
+                      ℹ️ {submissionResult.bank_details.instrucciones_adicionales}
+                    </p>
+                  )}
+
+                  {/* Private Receipt Upload Interface */}
+                  <div className="bg-white p-4 rounded-xl border border-indigo-200 space-y-3">
+                    <h5 className="font-extrabold text-xs text-gray-900 flex items-center gap-1.5">
+                      <ShieldCheck className="w-4 h-4 text-indigo-600" />
+                      Adjuntar Justificante de Transferencia (Opcional)
+                    </h5>
+                    <p className="text-[11px] text-gray-600">
+                      Puedes adjuntar aquí tu comprobante bancario en formato PDF, PNG o JPG para agilizar la comprobación por Administración.
+                    </p>
+
+                    {receiptUploadSuccess ? (
+                      <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 p-3 rounded-xl text-xs font-bold flex items-center gap-2">
+                        <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                        <span>{receiptUploadSuccess}</span>
+                      </div>
+                    ) : (
+                      <form onSubmit={handleUploadReceipt} className="space-y-2">
+                        <input
+                          type="file"
+                          accept=".pdf,.png,.jpg,.jpeg"
+                          onChange={e => setSelectedReceiptFile(e.target.files ? e.target.files[0] : null)}
+                          className="block w-full text-xs text-gray-500 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-bold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 cursor-pointer"
+                        />
+                        {receiptUploadError && (
+                          <p className="text-xs text-red-600 font-bold">⚠️ {receiptUploadError}</p>
+                        )}
+                        <button
+                          type="submit"
+                          disabled={!selectedReceiptFile || uploadingReceipt}
+                          className="w-full py-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 text-white font-bold text-xs rounded-lg transition-all flex items-center justify-center gap-2"
+                        >
+                          {uploadingReceipt ? 'Subiendo justificante...' : 'Enviar Justificante a Administración'}
+                        </button>
+                      </form>
+                    )}
+
+                    <div className="bg-amber-50 border border-amber-200 rounded-lg p-2.5 text-[11px] text-amber-900">
+                      ⚠️ <strong>Información importante:</strong> La aportación del justificante no concede acceso automático al campus. La activación y el envío de credenciales se realizarán una vez que Administración verifique la recepción de los fondos.
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                /* MODALIDAD B: SOLICITUD CON APROBACIÓN */
+                <div className="bg-amber-50 border border-amber-200 rounded-2xl p-5 max-w-xl mx-auto space-y-3 text-left">
+                  <div className="flex items-center gap-2 text-amber-950 font-black text-sm border-b border-amber-200 pb-2">
+                    <ShieldCheck className="w-4 h-4 text-amber-600" />
+                    <span>Modalidad con Aprobación Académica</span>
+                  </div>
+                  <p className="text-xs text-amber-900 leading-relaxed">
+                    Esta especialidad formativa requiere la revisión previa de tu expediente académico y titulación por parte de la Secretaría de la academia.
+                  </p>
+                  <div className="bg-white p-3.5 rounded-xl border border-amber-200 space-y-1.5 text-xs text-gray-700">
+                    <p className="font-bold text-gray-900">Siguientes pasos:</p>
+                    <p>1. Secretaría revisará tus datos académicos y titulaciones declaradas.</p>
+                    <p>2. En cuanto la solicitud sea preaprobada, recibirás por correo electrónico las instrucciones con el IBAN y referencia para realizar la transferencia.</p>
+                    <p>3. El acceso al campus virtual se activará tras la comprobación bancaria del ingreso.</p>
+                  </div>
+                </div>
+              )}
+
+              {/* Action Buttons */}
+              <div className="flex flex-col sm:flex-row items-center justify-center gap-3 max-w-md mx-auto pt-2">
                 <button
                   type="button"
                   onClick={handleDownloadSubmittedPdf}
                   disabled={downloadingSubmittedPdf}
-                  className="w-full sm:flex-1 py-3.5 px-4 bg-red-600 hover:bg-red-700 text-white font-extrabold text-xs sm:text-sm rounded-xl shadow-lg flex items-center justify-center gap-2 transition-all cursor-pointer hover:scale-102"
+                  className="w-full sm:flex-1 py-3 px-4 bg-red-600 hover:bg-red-700 text-white font-extrabold text-xs sm:text-sm rounded-xl shadow-md flex items-center justify-center gap-2 transition-all cursor-pointer"
                 >
                   <Download className="w-4 h-4" />
-                  <span>{downloadingSubmittedPdf ? 'Descargando...' : 'Descargar mi Solicitud en PDF'}</span>
+                  <span>{downloadingSubmittedPdf ? 'Descargando...' : 'Descargar Solicitud (PDF)'}</span>
                 </button>
 
                 <button
                   type="button"
-                  onClick={onClose}
-                  className="w-full sm:w-auto px-6 py-3.5 bg-gray-900 hover:bg-black text-white font-extrabold text-xs sm:text-sm rounded-xl shadow-md transition-all cursor-pointer"
+                  onClick={handleFinishAndClose}
+                  className="w-full sm:w-auto px-6 py-3 bg-gray-900 hover:bg-black text-white font-extrabold text-xs sm:text-sm rounded-xl shadow-md transition-all cursor-pointer"
                 >
-                  Cerrar
+                  Entendido y Volver
                 </button>
-              </div>
-
-              <div className="bg-gray-50 p-4 rounded-xl text-left text-xs text-gray-600 max-w-lg mx-auto space-y-2 border border-gray-200">
-                <p className="font-bold text-gray-900 flex items-center gap-1.5">
-                  <ShieldCheck className="w-4 h-4 text-emerald-600" />
-                  Siguientes pasos:
-                </p>
-                <p>1. El equipo de Secretaría revisará los datos introducidos en tu expediente.</p>
-                <p>2. Te contactaremos a través del teléfono o email facilitado para confirmar tu grupo o plaza.</p>
               </div>
             </div>
           ) : (

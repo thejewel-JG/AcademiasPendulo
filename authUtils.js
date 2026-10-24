@@ -58,16 +58,36 @@ export async function verifyPassword(password, storedHash) {
 
 /**
  * Generate a cryptographically strong random temporary password
- * Length: 12 chars (uppercase, lowercase, numbers, special symbol)
+ * Requirement 9: High entropy, guaranteed upper, lower, digits, symbols.
+ * No predefined passwords, no personal data, no predictable sequences.
  */
-export function generateTempPassword() {
-  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789!@#$%&*';
-  const bytes = crypto.randomBytes(12);
-  let result = '';
-  for (let i = 0; i < 12; i++) {
-    result += chars[bytes[i] % chars.length];
+export function generateTempPassword(length = 14) {
+  const upper = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
+  const lower = 'abcdefghijkmnpqrstuvwxyz';
+  const digits = '23456789';
+  const symbols = '!@#$%&*';
+  const allChars = upper + lower + digits + symbols;
+
+  // Guarantee at least one character from each set
+  const chars = [
+    upper[crypto.randomInt(0, upper.length)],
+    lower[crypto.randomInt(0, lower.length)],
+    digits[crypto.randomInt(0, digits.length)],
+    symbols[crypto.randomInt(0, symbols.length)]
+  ];
+
+  // Fill remaining characters
+  for (let i = chars.length; i < length; i++) {
+    chars.push(allChars[crypto.randomInt(0, allChars.length)]);
   }
-  return result;
+
+  // Shuffle using Fisher-Yates with crypto.randomInt
+  for (let i = chars.length - 1; i > 0; i--) {
+    const j = crypto.randomInt(0, i + 1);
+    [chars[i], chars[j]] = [chars[j], chars[i]];
+  }
+
+  return chars.join('');
 }
 
 /**

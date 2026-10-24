@@ -30,7 +30,12 @@ import {
   Calendar,
   FileCheck,
   Zap,
-  Info
+  Info,
+  Landmark,
+  Copy,
+  Paperclip,
+  CheckSquare,
+  AlertOctagon
 } from 'lucide-react';
 import { getAcademicLevelLabel } from '../../data/academicLevels';
 
@@ -68,7 +73,7 @@ interface InscriptionRequest {
   signature_date: string;
   pdf_path: string | null;
   status: string;
-  // Mod 03 Snapshot & Separated Statuses
+  // Mod 03 & 04 Snapshot, Transfer & Separated Statuses
   modalidad_inscripcion?: 'COMPRA_DIRECTA' | 'SOLICITUD_APROBACION' | string;
   precio_base_snapshot?: number | string | null;
   moneda_snapshot?: string | null;
@@ -79,6 +84,20 @@ interface InscriptionRequest {
   estado_solicitud?: string;
   estado_pago?: string;
   estado_matricula?: string;
+  referencia_transferencia?: string | null;
+  justificante_ruta?: string | null;
+  justificante_nombre?: string | null;
+  justificante_subido_en?: string | null;
+  fecha_comunicacion_pago?: string | null;
+  fecha_verificacion_bancaria?: string | null;
+  verificado_por_usuario_id?: number | null;
+  referencia_bancaria_externa?: string | null;
+  observaciones_administrativas?: string | null;
+  motivo_incidencia?: string | null;
+  aprobado_alta_por?: number | null;
+  aprobado_alta_en?: string | null;
+  bienvenida_email_enviado?: number | boolean;
+  bienvenida_email_error?: string | null;
   documentos_requeridos?: string | null;
   documentos_aportados?: string | null;
   motivo_rechazo?: string | null;
@@ -145,13 +164,53 @@ export const CampusSecretaryInscriptions: React.FC = () => {
     preapproved_count: 0,
     rejected_count: 0,
     direct_purchase_count: 0,
-    approval_mode_count: 0
+    approval_mode_count: 0,
+    transfers_pending_count: 0,
+    receipts_uploaded_count: 0,
+    transfers_verified_count: 0,
+    payment_incidents_count: 0,
+    enrollments_active_count: 0
   });
 
   // Action status / notes
   const [notes, setNotes] = useState('');
   const [savingNotes, setSavingNotes] = useState(false);
   const [actionInProgress, setActionInProgress] = useState(false);
+
+  // Bank Configuration Modal state
+  const [isBankModalOpen, setIsBankModalOpen] = useState(false);
+  const [bankConfig, setBankConfig] = useState<{
+    titular_cuenta: string;
+    iban: string;
+    nombre_entidad: string;
+    bic_swift: string;
+    instrucciones_adicionales: string;
+    activo: boolean | number;
+  }>({
+    titular_cuenta: '',
+    iban: '',
+    nombre_entidad: '',
+    bic_swift: '',
+    instrucciones_adicionales: '',
+    activo: 1
+  });
+  const [loadingBankConfig, setLoadingBankConfig] = useState(false);
+  const [savingBankConfig, setSavingBankConfig] = useState(false);
+  const [bankConfigMsg, setBankConfigMsg] = useState<string | null>(null);
+
+  // Transfer Verification Modal state
+  const [isVerifyTransferModalOpen, setIsVerifyTransferModalOpen] = useState(false);
+  const [verifyExtRef, setVerifyExtRef] = useState('');
+  const [verifyNotes, setVerifyNotes] = useState('');
+  const [verifyingTransfer, setVerifyingTransfer] = useState(false);
+
+  // Transfer Incident Modal state
+  const [isIncidentModalOpen, setIsIncidentModalOpen] = useState(false);
+  const [incidentReason, setIncidentReason] = useState('');
+  const [reportingIncident, setReportingIncident] = useState(false);
+
+  // Receipt Download loading state
+  const [downloadingReceiptId, setDownloadingReceiptId] = useState<number | string | null>(null);
 
   // Modals for Actions
   const [isDocModalOpen, setIsDocModalOpen] = useState(false);
@@ -199,6 +258,136 @@ export const CampusSecretaryInscriptions: React.FC = () => {
   // PDF download loading state
   const [downloadingId, setDownloadingId] = useState<number | string | null>(null);
 
+  // Fetch bank details for configuration
+  const fetchBankConfig = async () => {
+    setLoadingBankConfig(true);
+    setBankConfigMsg(null);
+    try {
+      const res = await fetch('/api/admin/bank-details');
+      if (res.ok) {
+        const data = await res.json();
+        setBankConfig(data);
+      }
+    } catch (e) {
+      console.error('Error fetching bank details:', e);
+    } finally {
+      setLoadingBankConfig(false);
+    }
+  };
+
+  const handleSaveBankConfig = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSavingBankConfig(true);
+    setBankConfigMsg(null);
+    try {
+      const res = await fetch('/api/admin/bank-details', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(bankConfig)
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setBankConfigMsg('✅ Datos bancarios oficiales actualizados y guardados correctamente.');
+        setTimeout(() => setIsBankModalOpen(false), 1500);
+      } else {
+        setBankConfigMsg(`⚠️ ${data.error || 'No se pudieron guardar los datos bancarios.'}`);
+      }
+    } catch (e) {
+      console.error('Error saving bank config:', e);
+      setBankConfigMsg('⚠️ Error de conexión al guardar los datos bancarios.');
+    } finally {
+      setSavingBankConfig(false);
+    }
+  };
+
+  // Download Receipt
+  const handleDownloadReceipt = async (reqId: number, filename?: string) => {
+    setDownloadingReceiptId(reqId);
+    try {
+      const res = await fetch(`/api/admin/inscriptions/${reqId}/receipt`);
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        alert(err.error || 'No se pudo descargar el justificante.');
+        return;
+      }
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename || `justificante_${reqId}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+    } catch (e) {
+      console.error('Error downloading receipt:', e);
+      alert('Error de conexión al descargar el justificante.');
+    } finally {
+      setDownloadingReceiptId(null);
+    }
+  };
+
+  // Confirm Transfer Received (Section 6)
+  const handleConfirmVerifyTransfer = async () => {
+    if (!selectedRequest) return;
+    setVerifyingTransfer(true);
+    try {
+      const res = await fetch(`/api/admin/inscriptions/${selectedRequest.id}/verify-transfer`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          referencia_bancaria_externa: verifyExtRef,
+          observaciones_administrativas: verifyNotes
+        })
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setIsVerifyTransferModalOpen(false);
+        setVerifyExtRef('');
+        setVerifyNotes('');
+        await openDetail(selectedRequest);
+        fetchRequests();
+      } else {
+        alert(data.error || 'No se pudo verificar la transferencia bancaria.');
+      }
+    } catch (err) {
+      console.error('Error verifying transfer:', err);
+      alert('Error de conexión al verificar la transferencia.');
+    } finally {
+      setVerifyingTransfer(false);
+    }
+  };
+
+  // Report Incident (Section 3 & 5)
+  const handleConfirmReportIncident = async () => {
+    if (!selectedRequest || !incidentReason.trim()) {
+      alert('Por favor especifique el motivo de la incidencia.');
+      return;
+    }
+    setReportingIncident(true);
+    try {
+      const res = await fetch(`/api/admin/inscriptions/${selectedRequest.id}/report-incident`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ motivo: incidentReason.trim() })
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setIsIncidentModalOpen(false);
+        setIncidentReason('');
+        await openDetail(selectedRequest);
+        fetchRequests();
+      } else {
+        alert(data.error || 'No se pudo registrar la incidencia.');
+      }
+    } catch (err) {
+      console.error('Error reporting incident:', err);
+      alert('Error de conexión al registrar la incidencia.');
+    } finally {
+      setReportingIncident(false);
+    }
+  };
+
   // Fetch unique courses for filter
   const fetchCourses = async () => {
     try {
@@ -236,7 +425,12 @@ export const CampusSecretaryInscriptions: React.FC = () => {
           preapproved_count: data.preapproved_count || 0,
           rejected_count: data.rejected_count || 0,
           direct_purchase_count: data.direct_purchase_count || 0,
-          approval_mode_count: data.approval_mode_count || 0
+          approval_mode_count: data.approval_mode_count || 0,
+          transfers_pending_count: data.transfers_pending_count || 0,
+          receipts_uploaded_count: data.receipts_uploaded_count || 0,
+          transfers_verified_count: data.transfers_verified_count || 0,
+          payment_incidents_count: data.payment_incidents_count || 0,
+          enrollments_active_count: data.enrollments_active_count || 0
         });
       }
     } catch (err) {
@@ -794,22 +988,44 @@ export const CampusSecretaryInscriptions: React.FC = () => {
   };
 
   const getEstadoPagoBadge = (st?: string) => {
-    const val = st || 'NO_INICIADO';
+    const val = st || 'PENDIENTE_TRANSFERENCIA';
     switch (val) {
-      case 'NO_INICIADO':
-        return <span className="bg-gray-100 text-gray-600 border border-gray-200 px-2 py-0.5 rounded text-[11px] font-semibold">No Iniciado</span>;
+      case 'PENDIENTE_TRANSFERENCIA':
       case 'PENDIENTE':
-        return <span className="bg-amber-100 text-amber-800 border border-amber-200 px-2 py-0.5 rounded text-[11px] font-bold">Pendiente</span>;
-      case 'EN_PROCESO':
-        return <span className="bg-blue-100 text-blue-800 border border-blue-200 px-2 py-0.5 rounded text-[11px] font-bold">En Proceso</span>;
-      case 'CONFIRMADO_PROVEEDOR':
-        return <span className="bg-indigo-100 text-indigo-800 border border-indigo-200 px-2 py-0.5 rounded text-[11px] font-black">Confirmado Proveedor</span>;
+      case 'NO_INICIADO':
+        return (
+          <span className="bg-amber-100 text-amber-900 border border-amber-300 px-2 py-0.5 rounded text-[11px] font-bold inline-flex items-center gap-1">
+            <Clock className="w-3 h-3 text-amber-700" /> Pend. Transferencia
+          </span>
+        );
+      case 'JUSTIFICANTE_APORTADO':
+        return (
+          <span className="bg-cyan-100 text-cyan-900 border border-cyan-300 px-2 py-0.5 rounded text-[11px] font-black inline-flex items-center gap-1 animate-pulse">
+            <Paperclip className="w-3 h-3 text-cyan-700" /> Justificante Aportado
+          </span>
+        );
+      case 'PENDIENTE_VERIFICACION':
       case 'PENDIENTE_VERIFICACION_ADMINISTRATIVA':
-        return <span className="bg-purple-100 text-purple-800 border border-purple-200 px-2 py-0.5 rounded text-[11px] font-black">Pend. Verif. Admin</span>;
+        return (
+          <span className="bg-purple-100 text-purple-900 border border-purple-300 px-2 py-0.5 rounded text-[11px] font-black inline-flex items-center gap-1">
+            <Eye className="w-3 h-3 text-purple-700" /> Pend. Verificación
+          </span>
+        );
+      case 'TRANSFERENCIA_VERIFICADA':
       case 'VERIFICADO_ADMINISTRACION':
-        return <span className="bg-emerald-100 text-emerald-800 border border-emerald-200 px-2 py-0.5 rounded text-[11px] font-black">Verificado Admin</span>;
+      case 'CONFIRMADO_PROVEEDOR':
+        return (
+          <span className="bg-emerald-100 text-emerald-900 border border-emerald-300 px-2 py-0.5 rounded text-[11px] font-black inline-flex items-center gap-1">
+            <CheckCircle2 className="w-3 h-3 text-emerald-700" /> Transferencia Verificada
+          </span>
+        );
+      case 'INCIDENCIA':
       case 'FALLIDO':
-        return <span className="bg-rose-100 text-rose-800 border border-rose-200 px-2 py-0.5 rounded text-[11px] font-bold">Fallido</span>;
+        return (
+          <span className="bg-rose-100 text-rose-900 border border-rose-300 px-2 py-0.5 rounded text-[11px] font-black inline-flex items-center gap-1">
+            <AlertTriangle className="w-3 h-3 text-rose-700" /> Incidencia Pago
+          </span>
+        );
       case 'CANCELADO':
         return <span className="bg-gray-100 text-gray-700 border border-gray-200 px-2 py-0.5 rounded text-[11px]">Cancelado</span>;
       case 'REEMBOLSADO':
@@ -847,53 +1063,67 @@ export const CampusSecretaryInscriptions: React.FC = () => {
         <div>
           <div className="flex items-center gap-3">
             <h1 className="text-xl sm:text-2xl font-black text-white tracking-tight">
-              Secretaría → Gestión de Solicitudes de Admisión y Matrícula
+              Secretaría → Gestión de Transferencias y Admisión
             </h1>
             {kpis.pending_count > 0 && (
               <span className="bg-red-600 text-white text-xs font-black px-3 py-1 rounded-full shadow-lg animate-bounce">
                 {kpis.pending_count} Nuevas
               </span>
             )}
+            {kpis.receipts_uploaded_count > 0 && (
+              <span className="bg-cyan-600 text-white text-xs font-black px-3 py-1 rounded-full shadow-lg">
+                {kpis.receipts_uploaded_count} Justificantes
+              </span>
+            )}
           </div>
           <p className="text-xs text-gray-400 mt-1">
-            Gestión completa del recorrido de aspirantes: admisión, modalidades privada de pago, revisión de requisitos y aprobación final de matrícula.
+            Gestión de pagos por transferencia bancaria, comprobación de ingresos, aprobación final de matrícula y alta de alumnos.
           </p>
         </div>
 
-        <button
-          onClick={fetchRequests}
-          className="flex items-center gap-2 px-4 py-2 bg-gray-800 hover:bg-gray-700 text-white rounded-xl text-xs font-bold transition-all"
-        >
-          <RefreshCw className="w-3.5 h-3.5" />
-          Actualizar Lista
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => { fetchBankConfig(); setIsBankModalOpen(true); }}
+            className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-all shadow-md shadow-indigo-950/20"
+          >
+            <Landmark className="w-3.5 h-3.5" />
+            Configuración Bancaria
+          </button>
+          <button
+            onClick={fetchRequests}
+            className="flex items-center gap-2 px-4 py-2 bg-gray-800 hover:bg-gray-700 text-white rounded-xl text-xs font-bold transition-all"
+          >
+            <RefreshCw className="w-3.5 h-3.5" />
+            Actualizar Lista
+          </button>
+        </div>
       </div>
 
-      {/* KPI Counters Bar */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-3">
+      {/* KPI Counters Bar - Bank Transfers & Enrollments */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
         <div className="bg-white p-3.5 rounded-xl border border-gray-200 shadow-xs">
           <div className="text-[10px] font-bold text-gray-400 uppercase">Total Solicitudes</div>
           <div className="text-xl font-black text-gray-900 mt-0.5">{kpis.total_count}</div>
         </div>
-        <div className="bg-red-50 p-3.5 rounded-xl border border-red-200 shadow-xs">
-          <div className="text-[10px] font-bold text-red-600 uppercase">Nuevas (Pendientes)</div>
-          <div className="text-xl font-black text-red-700 mt-0.5">{kpis.pending_count}</div>
-        </div>
         <div className="bg-amber-50 p-3.5 rounded-xl border border-amber-200 shadow-xs">
-          <div className="text-[10px] font-bold text-amber-600 uppercase">En Revisión</div>
-          <div className="text-xl font-black text-amber-700 mt-0.5">{kpis.review_count}</div>
+          <div className="text-[10px] font-bold text-amber-700 uppercase">Pend. Transferencia</div>
+          <div className="text-xl font-black text-amber-800 mt-0.5">{kpis.transfers_pending_count}</div>
         </div>
-        <div className="bg-orange-50 p-3.5 rounded-xl border border-orange-200 shadow-xs">
-          <div className="text-[10px] font-bold text-orange-600 uppercase">Doc. Pendiente</div>
-          <div className="text-xl font-black text-orange-700 mt-0.5">{kpis.docs_count}</div>
+        <div className="bg-cyan-50 p-3.5 rounded-xl border border-cyan-200 shadow-xs">
+          <div className="text-[10px] font-bold text-cyan-700 uppercase">Justificante Aportado</div>
+          <div className="text-xl font-black text-cyan-800 mt-0.5">{kpis.receipts_uploaded_count}</div>
         </div>
         <div className="bg-emerald-50 p-3.5 rounded-xl border border-emerald-200 shadow-xs">
-          <div className="text-[10px] font-bold text-emerald-600 uppercase">Preaprobadas</div>
-          <div className="text-xl font-black text-emerald-700 mt-0.5">{kpis.preapproved_count}</div>
+          <div className="text-[10px] font-bold text-emerald-700 uppercase">Transf. Verificadas</div>
+          <div className="text-xl font-black text-emerald-800 mt-0.5">{kpis.transfers_verified_count}</div>
         </div>
-        <div className="bg-indigo-50 p-3.5 rounded-xl border border-indigo-200 shadow-xs">
-          <div className="text-[10px] font-bold text-indigo-600 uppercase">Compra Directa</div>
-          <div className="text-xl font-black text-indigo-700 mt-0.5">{kpis.direct_purchase_count}</div>
+        <div className="bg-rose-50 p-3.5 rounded-xl border border-rose-200 shadow-xs">
+          <div className="text-[10px] font-bold text-rose-700 uppercase">Incidencias de Pago</div>
+          <div className="text-xl font-black text-rose-800 mt-0.5">{kpis.payment_incidents_count}</div>
+        </div>
+        <div className="bg-purple-50 p-3.5 rounded-xl border border-purple-200 shadow-xs">
+          <div className="text-[10px] font-bold text-purple-700 uppercase">Matrículas Activas</div>
+          <div className="text-xl font-black text-purple-800 mt-0.5">{kpis.enrollments_active_count}</div>
         </div>
       </div>
 
@@ -951,7 +1181,7 @@ export const CampusSecretaryInscriptions: React.FC = () => {
         </button>
       </div>
 
-      {/* ─── TAB 1: SOLICITUDES DE INSCRIPCIÓN ─────────────────────────── */}
+      {/* ─── TAB 1: SOLICITUDES DE INSCRIPCIÓN & TRANSFERENCIAS ────────── */}
       {activeTab === 'inscripciones' && (
         <>
           {/* Multi-Filters & Search Bar */}
@@ -961,7 +1191,7 @@ export const CampusSecretaryInscriptions: React.FC = () => {
                 <Search className="w-4 h-4 text-gray-400 absolute left-3.5 top-3.5" />
                 <input
                   type="text"
-                  placeholder="Buscar por Aspirante, DNI/NIE, Email, Teléfono, Nº Solicitud (PEN-2026-...) o Curso..."
+                  placeholder="Buscar por Aspirante, DNI/NIE, Email, Ref. Transferencia (TRF-...), Nº Solicitud o Curso..."
                   value={searchTerm}
                   onChange={e => setSearchTerm(e.target.value)}
                   className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-gray-300 text-xs sm:text-sm focus:ring-2 focus:ring-red-500 focus:border-red-500 font-medium"
@@ -1021,21 +1251,22 @@ export const CampusSecretaryInscriptions: React.FC = () => {
                 </select>
               </div>
 
-              {/* Filter 3: Estado Pago */}
+              {/* Filter 3: Estado Pago (Transferencia Bancaria) */}
               <div>
-                <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Situación de Pago</label>
+                <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Estado de Pago</label>
                 <select
                   value={paymentFilter}
                   onChange={e => setPaymentFilter(e.target.value)}
                   className="w-full px-2.5 py-1.5 rounded-lg border border-gray-300 text-xs font-semibold text-gray-800 bg-gray-50"
                 >
-                  <option value="ALL">Todos los pagos</option>
-                  <option value="NO_INICIADO">No Iniciado</option>
-                  <option value="PENDIENTE">Pendiente</option>
-                  <option value="CONFIRMADO_PROVEEDOR">Confirmado Proveedor</option>
-                  <option value="PENDIENTE_VERIFICACION_ADMINISTRATIVA">Pend. Verif. Admin</option>
-                  <option value="VERIFICADO_ADMINISTRACION">Verificado Admin</option>
-                  <option value="FALLIDO">Fallido</option>
+                  <option value="ALL">Todos los estados de pago</option>
+                  <option value="PENDIENTE_TRANSFERENCIA">Pendiente de Transferencia</option>
+                  <option value="JUSTIFICANTE_APORTADO">Justificante Aportado</option>
+                  <option value="PENDIENTE_VERIFICACION">Pendiente Verificación</option>
+                  <option value="TRANSFERENCIA_VERIFICADA">Transferencia Verificada</option>
+                  <option value="INCIDENCIA">Incidencia de Pago</option>
+                  <option value="CANCELADO">Cancelado</option>
+                  <option value="REEMBOLSADO">Reembolsado</option>
                 </select>
               </div>
 
@@ -1074,12 +1305,12 @@ export const CampusSecretaryInscriptions: React.FC = () => {
             </div>
           </div>
 
-          {/* Inscriptions Table */}
+          {/* Inscriptions & Bank Transfers Table (Section 5) */}
           <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
             {loading ? (
               <div className="p-12 text-center text-gray-500 text-sm font-semibold flex items-center justify-center gap-2">
                 <div className="w-5 h-5 border-2 border-red-600 border-t-transparent rounded-full animate-spin" />
-                Cargando solicitudes de admisión y matrículas...
+                Cargando transferencias y solicitudes...
               </div>
             ) : requests.length === 0 ? (
               <div className="p-12 text-center text-gray-500 space-y-2">
@@ -1092,56 +1323,65 @@ export const CampusSecretaryInscriptions: React.FC = () => {
                 <table className="w-full text-left text-xs text-gray-600">
                   <thead className="bg-gray-50 border-b border-gray-200 text-[11px] uppercase tracking-wider font-extrabold text-gray-700">
                     <tr>
-                      <th className="p-3.5">N.º Solicitud</th>
-                      <th className="p-3.5">Fecha</th>
-                      <th className="p-3.5">Aspirante</th>
-                      <th className="p-3.5">DNI / NIE</th>
+                      <th className="p-3.5">Alumno</th>
                       <th className="p-3.5">Curso</th>
-                      <th className="p-3.5">Modalidad</th>
-                      <th className="p-3.5 text-center">Estado Solicitud</th>
+                      <th className="p-3.5 text-right">Importe</th>
+                      <th className="p-3.5">Ref. Transferencia</th>
+                      <th className="p-3.5">Fecha Solicitud</th>
                       <th className="p-3.5 text-center">Estado Pago</th>
-                      <th className="p-3.5 text-center">Matrícula</th>
+                      <th className="p-3.5 text-center">Estado Matrícula</th>
                       <th className="p-3.5 text-right">Acciones</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100 font-medium">
                     {requests.map(req => (
                       <tr key={req.id} className="hover:bg-red-50/30 transition-colors">
-                        <td className="p-3.5 font-black text-gray-900 whitespace-nowrap">
-                          <span className="text-red-600 bg-red-50 border border-red-200 px-2 py-0.5 rounded-md font-mono text-[11px]">
-                            {req.request_number}
+                        <td className="p-3.5 font-bold text-gray-900 whitespace-nowrap">
+                          <div className="font-black text-gray-900">{req.first_name} {req.last_name_1} {req.last_name_2 || ''}</div>
+                          <div className="text-[11px] font-normal text-gray-500 flex items-center gap-1 mt-0.5">
+                            <Mail className="w-3 h-3 text-gray-400" />
+                            <span>{req.email}</span>
+                          </div>
+                          <div className="text-[10px] font-mono text-gray-400 mt-0.5">DNI/NIE: {req.dni_nie}</div>
+                        </td>
+                        <td className="p-3.5 font-semibold text-gray-900 max-w-xs truncate" title={req.course_name}>
+                          <div>{req.course_name}</div>
+                          <div className="flex items-center gap-2 mt-0.5">
+                            {getModalityBadge(req.modalidad_inscripcion)}
+                            {req.course_code && (
+                              <span className="text-[10px] font-mono text-gray-400">{req.course_code}</span>
+                            )}
+                          </div>
+                        </td>
+                        <td className="p-3.5 text-right font-mono font-black text-gray-900 whitespace-nowrap">
+                          {req.precio_final_snapshot != null ? `${Number(req.precio_final_snapshot).toFixed(2)} €` : '---'}
+                        </td>
+                        <td className="p-3.5 font-mono font-bold text-gray-900 whitespace-nowrap">
+                          <span className="text-red-700 bg-red-50 border border-red-200 px-2 py-0.5 rounded-md text-[11px] block w-fit">
+                            {req.referencia_transferencia || req.request_number}
                           </span>
+                          <span className="text-[10px] text-gray-400 mt-0.5 block">Exp: {req.request_number}</span>
                         </td>
                         <td className="p-3.5 whitespace-nowrap text-gray-500 text-[11px]">
                           <div>{new Date(req.created_at).toLocaleDateString('es-ES')}</div>
                           <div className="text-[10px] text-gray-400">{new Date(req.created_at).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}</div>
                         </td>
-                        <td className="p-3.5 font-bold text-gray-900 whitespace-nowrap">
-                          <div>{req.first_name} {req.last_name_1} {req.last_name_2 || ''}</div>
-                          <div className="text-[11px] font-normal text-gray-500 flex items-center gap-1 mt-0.5">
-                            <Mail className="w-3 h-3 text-gray-400" />
-                            <span>{req.email}</span>
+                        <td className="p-3.5 text-center whitespace-nowrap">
+                          <div className="flex flex-col items-center gap-1">
+                            {getEstadoPagoBadge(req.estado_pago)}
+                            {req.justificante_ruta && (
+                              <button
+                                type="button"
+                                onClick={() => handleDownloadReceipt(req.id, req.justificante_nombre || undefined)}
+                                disabled={downloadingReceiptId === req.id}
+                                className="inline-flex items-center gap-1 text-[10px] text-cyan-800 bg-cyan-50 hover:bg-cyan-100 border border-cyan-200 px-1.5 py-0.5 rounded transition-all"
+                                title="Descargar justificante bancario aportado por el alumno"
+                              >
+                                <Paperclip className="w-2.5 h-2.5" />
+                                <span>{downloadingReceiptId === req.id ? 'Descargando...' : 'Ver justificante'}</span>
+                              </button>
+                            )}
                           </div>
-                        </td>
-                        <td className="p-3.5 font-mono font-bold text-gray-700 whitespace-nowrap">
-                          <span className="bg-gray-100 px-1.5 py-0.5 rounded border border-gray-200">
-                            {req.dni_nie}
-                          </span>
-                        </td>
-                        <td className="p-3.5 font-semibold text-gray-900 max-w-xs truncate" title={req.course_name}>
-                          <div>{req.course_name}</div>
-                          {req.course_code && (
-                            <div className="text-[10px] font-mono text-gray-400">{req.course_code}</div>
-                          )}
-                        </td>
-                        <td className="p-3.5 whitespace-nowrap">
-                          {getModalityBadge(req.modalidad_inscripcion)}
-                        </td>
-                        <td className="p-3.5 text-center whitespace-nowrap">
-                          {getEstadoSolicitudBadge(req.estado_solicitud || req.status)}
-                        </td>
-                        <td className="p-3.5 text-center whitespace-nowrap">
-                          {getEstadoPagoBadge(req.estado_pago)}
                         </td>
                         <td className="p-3.5 text-center whitespace-nowrap">
                           {getEstadoMatriculaBadge(req.estado_matricula)}
@@ -2029,7 +2269,7 @@ export const CampusSecretaryInscriptions: React.FC = () => {
                   </button>
                 </div>
 
-                {/* CONVERT TO STUDENT SECTION (Final Administrative Approval) */}
+                {/* CONVERT TO STUDENT SECTION (Final Administrative Approval - Section 7) */}
                 <div className="pt-3 border-t border-amber-200">
                   {selectedRequest.converted_to_student ? (
                     <div className="bg-purple-900/10 border border-purple-200 p-4 rounded-xl space-y-2">
@@ -2038,14 +2278,14 @@ export const CampusSecretaryInscriptions: React.FC = () => {
                           <UserCheck className="w-3.5 h-3.5" /> Alumno Activo en el Campus
                         </span>
                         <span className="text-[11px] text-purple-900 font-semibold">
-                          Aprobado finalmente el: {selectedRequest.aprobado_final_en || selectedRequest.converted_at ? new Date(selectedRequest.aprobado_final_en || selectedRequest.converted_at!).toLocaleString('es-ES') : '---'}
+                          Aprobado finalmente el: {selectedRequest.aprobado_alta_en || selectedRequest.converted_at ? new Date(selectedRequest.aprobado_alta_en || selectedRequest.converted_at!).toLocaleString('es-ES') : '---'}
                         </span>
                       </div>
 
                       <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs text-purple-950 font-medium pt-1">
-                        <p><span className="font-extrabold text-gray-900">Nombre:</span> {selectedRequest.first_name} {selectedRequest.last_name_1}</p>
-                        <p><span className="font-extrabold text-gray-900">Email:</span> {selectedRequest.email}</p>
+                        <p><span className="font-extrabold text-gray-900">Usuario Campus:</span> {selectedRequest.email}</p>
                         <p><span className="font-extrabold text-gray-900">Curso:</span> {selectedRequest.course_name}</p>
+                        <p><span className="font-extrabold text-gray-900">DNI/NIE Admin:</span> {selectedRequest.dni_nie}</p>
                       </div>
 
                       <div className="flex items-center gap-3 pt-2">
@@ -2055,7 +2295,7 @@ export const CampusSecretaryInscriptions: React.FC = () => {
                           className="px-3.5 py-1.5 bg-purple-700 hover:bg-purple-800 text-white font-bold text-xs rounded-xl shadow-sm transition-all flex items-center gap-1.5"
                         >
                           <Mail className="w-3.5 h-3.5" />
-                          <span>{resendingEmail ? 'Reenviando...' : 'Reenviar Email de Acceso'}</span>
+                          <span>{resendingEmail ? 'Reenviando...' : 'Reenviar Correo de Bienvenida (Sección 10)'}</span>
                         </button>
 
                         {resendEmailResult && (
@@ -2063,75 +2303,208 @@ export const CampusSecretaryInscriptions: React.FC = () => {
                         )}
                       </div>
                     </div>
-                  ) : (selectedRequest.estado_solicitud === 'PREAPROBADA' || selectedRequest.status === 'Aceptada') ? (
-                    <div className="bg-emerald-50 border border-emerald-200 p-4 rounded-xl flex flex-col sm:flex-row items-center justify-between gap-3">
-                      <div>
-                        <p className="text-xs font-black text-emerald-950 flex items-center gap-1.5">
-                          <CheckCircle2 className="w-4 h-4 text-emerald-600" /> Solicitud Preaprobada — Aprobación Final de Matrícula
+                  ) : (() => {
+                    const isPaymentVerified = selectedRequest.estado_pago === 'TRANSFERENCIA_VERIFICADA';
+                    const isAdmissionApproved = selectedRequest.modalidad_inscripcion === 'COMPRA_DIRECTA' || selectedRequest.estado_solicitud === 'PREAPROBADA';
+                    const canApprove = isPaymentVerified && isAdmissionApproved;
+
+                    if (canApprove) {
+                      return (
+                        <div className="bg-emerald-50 border-2 border-emerald-300 p-4 rounded-xl flex flex-col sm:flex-row items-center justify-between gap-3 shadow-sm">
+                          <div>
+                            <p className="text-xs font-black text-emerald-950 flex items-center gap-1.5">
+                              <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                              Requisitos Completados — Listo para Alta y Acceso al Campus
+                            </p>
+                            <p className="text-[11px] text-emerald-800 mt-0.5">
+                              Transferencia bancaria verificada por Administración. Al pulsar, se creará o vinculará la cuenta con usuario <strong>{selectedRequest.email}</strong>, contraseña temporal aleatoria cifrada y envío automático del correo de bienvenida.
+                            </p>
+                          </div>
+
+                          <button
+                            onClick={handleStartConversion}
+                            disabled={checkingConversion}
+                            className="w-full sm:w-auto px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs rounded-xl shadow-lg shadow-emerald-900/20 flex items-center justify-center gap-2 transition-all transform hover:-translate-y-0.5 shrink-0"
+                          >
+                            {checkingConversion ? (
+                              <>
+                                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                                <span>Verificando...</span>
+                              </>
+                            ) : (
+                              <>
+                                <UserPlus className="w-4 h-4" />
+                                <span>APROBAR MATRÍCULA Y DAR DE ALTA</span>
+                              </>
+                            )}
+                          </button>
+                        </div>
+                      );
+                    }
+
+                    return (
+                      <div className="text-xs text-amber-900 bg-amber-50 p-3.5 rounded-xl border border-amber-200 space-y-1">
+                        <p className="font-bold flex items-center gap-1.5 text-amber-950">
+                          <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                          Requisitos pendientes para poder Aprobar Matrícula y Dar de Alta:
                         </p>
-                        <p className="text-[11px] text-emerald-800 mt-0.5">
-                          Atención: La activación definitiva del acceso al campus requiere la aprobación final de Administración tras verificar el ingreso del curso.
+                        {!isAdmissionApproved && (
+                          <p className="text-[11px] pl-5">• La solicitud debe estar <strong>PREAPROBADA</strong> académicamente por Secretaría.</p>
+                        )}
+                        {!isPaymentVerified && (
+                          <p className="text-[11px] pl-5">• La transferencia bancaria debe estar <strong>VERIFICADA</strong> en el Bloque 6 tras comprobar los fondos en la cuenta de la academia.</p>
+                        )}
+                        <p className="text-[10px] text-amber-700 italic pl-5 mt-1">
+                          * Solamente la operación administrativa de alta, tras verificar el pago, concederá acceso al campus virtual.
                         </p>
                       </div>
-
-                      <button
-                        onClick={handleStartConversion}
-                        disabled={checkingConversion}
-                        className="w-full sm:w-auto px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs rounded-xl shadow-lg shadow-emerald-900/20 flex items-center justify-center gap-2 transition-all transform hover:-translate-y-0.5 shrink-0"
-                      >
-                        {checkingConversion ? (
-                          <>
-                            <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                            <span>Comprobando...</span>
-                          </>
-                        ) : (
-                          <>
-                            <UserPlus className="w-4 h-4" />
-                            <span>APROBACIÓN FINAL Y ACTIVAR ALUMNO</span>
-                          </>
-                        )}
-                      </button>
-                    </div>
-                  ) : (
-                    <div className="text-xs text-gray-500 bg-gray-100 p-3 rounded-xl border border-gray-200 flex items-center justify-between">
-                      <span>Para poder otorgar la aprobación final y conceder acceso al campus, la solicitud debe estar en estado <strong>PREAPROBADA</strong>.</span>
-                    </div>
-                  )}
+                    );
+                  })()}
                 </div>
               </div>
 
-              {/* ─── BLOQUE 6: ESTADO ECONÓMICO Y DE PAGO ──────────────────── */}
-              <div className="bg-gray-50 p-4 sm:p-5 rounded-xl border border-gray-200 space-y-3">
-                <h3 className="font-extrabold text-gray-900 text-sm flex items-center gap-2 border-b border-gray-200 pb-2">
-                  <CreditCard className="w-4 h-4 text-red-600" />
-                  6. Estado Económico y Situación de Pago
-                </h3>
+              {/* ─── BLOQUE 6: ESTADO ECONÓMICO Y TRANSFERENCIA BANCARIA ─────── */}
+              <div className="bg-gray-50 p-4 sm:p-5 rounded-xl border border-gray-200 space-y-4">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-gray-200 pb-2">
+                  <h3 className="font-extrabold text-gray-900 text-sm flex items-center gap-2">
+                    <CreditCard className="w-4 h-4 text-red-600" />
+                    6. Estado Económico y Gestión de Transferencia Bancaria
+                  </h3>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-bold text-gray-500">Estado:</span>
+                    {getEstadoPagoBadge(selectedRequest.estado_pago)}
+                  </div>
+                </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
                   <div className="bg-white p-3 rounded-xl border border-gray-200">
-                    <span className="text-[10px] uppercase font-bold text-gray-400 block">Estado del Pago</span>
-                    <div className="mt-1">{getEstadoPagoBadge(selectedRequest.estado_pago)}</div>
-                  </div>
-                  <div className="bg-white p-3 rounded-xl border border-gray-200">
-                    <span className="text-[10px] uppercase font-bold text-gray-400 block">Estado de la Matrícula</span>
-                    <div className="mt-1">{getEstadoMatriculaBadge(selectedRequest.estado_matricula)}</div>
-                  </div>
-                  <div className="bg-white p-3 rounded-xl border border-gray-200">
-                    <span className="text-[10px] uppercase font-bold text-gray-400 block">Importe Total Fijado</span>
+                    <span className="text-[10px] uppercase font-bold text-gray-400 block">Importe a Pagar</span>
                     <span className="font-black text-gray-900 font-mono text-base block mt-0.5">
                       {selectedRequest.precio_final_snapshot != null ? `${Number(selectedRequest.precio_final_snapshot).toFixed(2)} €` : '---'}
                     </span>
                   </div>
+                  <div className="bg-white p-3 rounded-xl border border-gray-200">
+                    <span className="text-[10px] uppercase font-bold text-gray-400 block">Referencia de Transferencia</span>
+                    <span className="font-mono font-black text-red-700 bg-red-50 px-2 py-0.5 rounded border border-red-200 text-xs block w-fit mt-0.5">
+                      {selectedRequest.referencia_transferencia || selectedRequest.request_number}
+                    </span>
+                  </div>
+                  <div className="bg-white p-3 rounded-xl border border-gray-200">
+                    <span className="text-[10px] uppercase font-bold text-gray-400 block">Fecha Comunicación Pago</span>
+                    <span className="font-semibold text-gray-800 block mt-0.5">
+                      {selectedRequest.fecha_comunicacion_pago ? new Date(selectedRequest.fecha_comunicacion_pago).toLocaleString('es-ES') : 'Pendiente'}
+                    </span>
+                  </div>
+                  <div className="bg-white p-3 rounded-xl border border-gray-200">
+                    <span className="text-[10px] uppercase font-bold text-gray-400 block">Estado Matrícula</span>
+                    <div className="mt-0.5">{getEstadoMatriculaBadge(selectedRequest.estado_matricula)}</div>
+                  </div>
                 </div>
 
-                <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 text-blue-900 text-xs space-y-1">
-                  <p className="font-bold flex items-center gap-1.5">
-                    <Info className="w-3.5 h-3.5 text-blue-600" />
-                    Modelo de Pagos — Modificación 03
-                  </p>
-                  <p className="text-[11px] text-blue-800">
-                    La pasarela de cobro telemático se integrará en la Modificación 04. La base de datos y la gestión interna están plenamente configuradas para distinguir entre pago confirmado por el proveedor y la verificación administrativa obligatoria previa a la activación de la matrícula.
-                  </p>
+                {/* Justificante Aportado */}
+                <div className="bg-white p-3.5 rounded-xl border border-gray-200 space-y-2 text-xs">
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold text-gray-800 flex items-center gap-1.5">
+                      <Paperclip className="w-3.5 h-3.5 text-cyan-600" />
+                      Justificante Bancario Aportado por el Aspirante
+                    </span>
+                    {selectedRequest.justificante_ruta && (
+                      <button
+                        type="button"
+                        onClick={() => handleDownloadReceipt(selectedRequest.id, selectedRequest.justificante_nombre || undefined)}
+                        disabled={downloadingReceiptId === selectedRequest.id}
+                        className="px-3 py-1 bg-cyan-600 hover:bg-cyan-700 text-white font-bold text-xs rounded-lg transition-all flex items-center gap-1 shadow-xs"
+                      >
+                        <Download className="w-3 h-3" />
+                        <span>{downloadingReceiptId === selectedRequest.id ? 'Descargando...' : 'Descargar Justificante'}</span>
+                      </button>
+                    )}
+                  </div>
+
+                  {selectedRequest.justificante_ruta ? (
+                    <div className="bg-cyan-50/70 border border-cyan-200 rounded-lg p-2.5 text-cyan-950 space-y-1">
+                      <p className="font-bold text-[11px] text-cyan-900">
+                        Archivo: <span className="font-mono">{selectedRequest.justificante_nombre || 'Justificante.pdf'}</span>
+                      </p>
+                      <p className="text-[10px] text-cyan-800">
+                        Subido el {selectedRequest.justificante_subido_en ? new Date(selectedRequest.justificante_subido_en).toLocaleString('es-ES') : 'recientemente'}.
+                      </p>
+                      <p className="text-[10px] text-cyan-900/80 italic pt-1 border-t border-cyan-200/60">
+                        * Nota legal: El justificante no demuestra por sí solo que el dinero esté recibido. Compruebe el apunte real en la cuenta bancaria antes de verificar.
+                      </p>
+                    </div>
+                  ) : (
+                    <p className="text-gray-400 italic text-[11px]">
+                      El alumno aún no ha subido ningún archivo justificante para esta solicitud.
+                    </p>
+                  )}
+                </div>
+
+                {/* Verificación Bancaria o Incidencia Status Cards */}
+                {selectedRequest.estado_pago === 'TRANSFERENCIA_VERIFICADA' && (
+                  <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-3.5 text-xs text-emerald-900 space-y-1">
+                    <p className="font-black flex items-center gap-1.5 text-emerald-800">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                      Transferencia Bancaria Verificada por Administración
+                    </p>
+                    <p className="text-[11px] text-emerald-800">
+                      Verificada el {selectedRequest.fecha_verificacion_bancaria ? new Date(selectedRequest.fecha_verificacion_bancaria).toLocaleString('es-ES') : '---'} por el Operador ID #{selectedRequest.verificado_por_usuario_id || 'Admin'}.
+                    </p>
+                    {selectedRequest.referencia_bancaria_externa && (
+                      <p className="text-[11px] text-emerald-800 font-mono">
+                        Apunte / Referencia bancaria externa: <strong>{selectedRequest.referencia_bancaria_externa}</strong>
+                      </p>
+                    )}
+                    {selectedRequest.observaciones_administrativas && (
+                      <p className="text-[11px] text-emerald-700 italic">
+                        Observaciones: {selectedRequest.observaciones_administrativas}
+                      </p>
+                    )}
+                  </div>
+                )}
+
+                {selectedRequest.estado_pago === 'INCIDENCIA' && (
+                  <div className="bg-rose-50 border-2 border-rose-300 rounded-xl p-3.5 text-xs text-rose-900 space-y-1">
+                    <p className="font-black flex items-center gap-1.5 text-rose-800">
+                      <AlertOctagon className="w-4 h-4 text-rose-600" />
+                      INCIDENCIA DE PAGO BLOQUEANTE ACTIVA
+                    </p>
+                    <p className="text-[11px] text-rose-800 font-medium">
+                      Motivo: {selectedRequest.motivo_incidencia || 'Incidencia de transferencia sin especificar.'}
+                    </p>
+                    <p className="text-[10px] text-rose-700 italic">
+                      Esta incidencia bloquea la aprobación de matrícula y el alta del alumno hasta que sea resuelta y verificada.
+                    </p>
+                  </div>
+                )}
+
+                {/* Transfer Management Actions (Section 5 & 6) */}
+                <div className="flex flex-wrap items-center gap-2.5 pt-2 border-t border-gray-200">
+                  {/* Button 1: CONFIRMAR TRANSFERENCIA RECIBIDA */}
+                  {selectedRequest.estado_pago !== 'TRANSFERENCIA_VERIFICADA' && (
+                    <button
+                      type="button"
+                      onClick={() => setIsVerifyTransferModalOpen(true)}
+                      disabled={actionInProgress || selectedRequest.estado_pago === 'INCIDENCIA'}
+                      className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 text-white font-black text-xs rounded-xl shadow-md transition-all flex items-center gap-1.5"
+                    >
+                      <CheckCircle2 className="w-4 h-4" />
+                      <span>CONFIRMAR TRANSFERENCIA RECIBIDA</span>
+                    </button>
+                  )}
+
+                  {/* Button 2: REGISTRAR INCIDENCIA DE PAGO */}
+                  {selectedRequest.estado_pago !== 'INCIDENCIA' && selectedRequest.estado_matricula !== 'ACTIVA' && (
+                    <button
+                      type="button"
+                      onClick={() => setIsIncidentModalOpen(true)}
+                      disabled={actionInProgress}
+                      className="px-3.5 py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 font-bold text-xs rounded-xl transition-all flex items-center gap-1.5"
+                    >
+                      <AlertTriangle className="w-3.5 h-3.5 text-rose-600" />
+                      <span>Registrar Incidencia de Pago</span>
+                    </button>
+                  )}
                 </div>
               </div>
 
@@ -2245,7 +2618,274 @@ export const CampusSecretaryInscriptions: React.FC = () => {
         </div>
       )}
 
-      {/* ─── MODAL COMPROBACIONES Y CONFIRMACIÓN DE CREACIÓN ALUMNO ──── */}
+      {/* ─── MODAL ACCIÓN: CONFIGURACIÓN BANCARIA DE LA ACADEMIA ───────── */}
+      {isBankModalOpen && (
+        <div className="fixed inset-0 z-[70] overflow-y-auto bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 animate-fadeIn">
+          <div className="w-full max-w-lg bg-white rounded-2xl shadow-2xl border border-gray-100 overflow-hidden space-y-4">
+            <div className="bg-indigo-900 text-white p-5 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center">
+                  <Landmark className="w-5 h-5 text-white" />
+                </div>
+                <div>
+                  <h3 className="font-black text-base">Configuración de Datos Bancarios</h3>
+                  <p className="text-xs text-indigo-200">Datos oficiales para transferencias bancarias de aspirantes</p>
+                </div>
+              </div>
+              <button onClick={() => setIsBankModalOpen(false)} className="text-white hover:text-indigo-200 font-bold">✕</button>
+            </div>
+
+            {loadingBankConfig ? (
+              <div className="p-8 text-center text-gray-500 text-xs flex items-center justify-center gap-2">
+                <div className="w-4 h-4 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin" />
+                Cargando datos bancarios configurados...
+              </div>
+            ) : (
+              <form onSubmit={handleSaveBankConfig} className="p-6 space-y-3.5 text-xs text-gray-700">
+                {bankConfigMsg && (
+                  <div className={`p-3 rounded-xl text-xs font-bold ${bankConfigMsg.startsWith('✅') ? 'bg-emerald-50 text-emerald-800 border border-emerald-200' : 'bg-amber-50 text-amber-800 border border-amber-200'}`}>
+                    {bankConfigMsg}
+                  </div>
+                )}
+
+                <div>
+                  <label className="block text-[11px] font-bold text-gray-800 uppercase mb-1">
+                    Titular de la Cuenta de la Academia *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={bankConfig.titular_cuenta || ''}
+                    onChange={e => setBankConfig({ ...bankConfig, titular_cuenta: e.target.value })}
+                    placeholder="Ej: Academias Péndulo S.L."
+                    className="w-full px-3 py-2 rounded-xl border border-gray-300 font-semibold focus:ring-2 focus:ring-indigo-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-gray-800 uppercase mb-1">
+                    IBAN Oficial de la Academia *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={bankConfig.iban || ''}
+                    onChange={e => setBankConfig({ ...bankConfig, iban: e.target.value.toUpperCase() })}
+                    placeholder="ESXX XXXX XXXX XXXX XXXX XXXX"
+                    className="w-full px-3 py-2 rounded-xl border border-gray-300 font-mono font-bold text-indigo-900 focus:ring-2 focus:ring-indigo-500 uppercase"
+                  />
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-[11px] font-bold text-gray-800 uppercase mb-1">
+                      Nombre de la Entidad Bancaria
+                    </label>
+                    <input
+                      type="text"
+                      value={bankConfig.nombre_entidad || ''}
+                      onChange={e => setBankConfig({ ...bankConfig, nombre_entidad: e.target.value })}
+                      placeholder="Ej: Banco Santander"
+                      className="w-full px-3 py-2 rounded-xl border border-gray-300 font-semibold focus:ring-2 focus:ring-indigo-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-bold text-gray-800 uppercase mb-1">
+                      Código BIC / SWIFT
+                    </label>
+                    <input
+                      type="text"
+                      value={bankConfig.bic_swift || ''}
+                      onChange={e => setBankConfig({ ...bankConfig, bic_swift: e.target.value.toUpperCase() })}
+                      placeholder="BSCHESMMXXX"
+                      className="w-full px-3 py-2 rounded-xl border border-gray-300 font-mono focus:ring-2 focus:ring-indigo-500 uppercase"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-gray-800 uppercase mb-1">
+                    Instrucciones Adicionales para el Alumno
+                  </label>
+                  <textarea
+                    rows={2}
+                    value={bankConfig.instrucciones_adicionales || ''}
+                    onChange={e => setBankConfig({ ...bankConfig, instrucciones_adicionales: e.target.value })}
+                    placeholder="Ej: Indicar obligatoriamente la referencia única de matrícula en el concepto de la transferencia."
+                    className="w-full px-3 py-2 rounded-xl border border-gray-300 text-xs focus:ring-2 focus:ring-indigo-500"
+                  />
+                </div>
+
+                <div className="flex gap-3 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setIsBankModalOpen(false)}
+                    className="flex-1 py-2.5 border border-gray-200 rounded-xl font-bold text-gray-700 hover:bg-gray-50"
+                  >
+                    Cerrar
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={savingBankConfig}
+                    className="flex-1 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-black flex items-center justify-center gap-2 disabled:opacity-50 shadow-md"
+                  >
+                    {savingBankConfig ? 'Guardando...' : 'Guardar Datos Bancarios'}
+                  </button>
+                </div>
+              </form>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ─── MODAL ACCIÓN: CONFIRMAR TRANSFERENCIA RECIBIDA (Sección 6) ─── */}
+      {isVerifyTransferModalOpen && selectedRequest && (
+        <div className="fixed inset-0 z-[70] overflow-y-auto bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 animate-fadeIn">
+          <div className="w-full max-w-lg bg-white rounded-2xl shadow-2xl border border-gray-100 overflow-hidden space-y-4">
+            <div className="bg-emerald-700 text-white p-5 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center">
+                  <CheckCircle2 className="w-6 h-6 text-white" />
+                </div>
+                <div>
+                  <h3 className="font-black text-base">Confirmar Transferencia Bancaria Recibida</h3>
+                  <p className="text-xs text-emerald-100">Verificación Administrativa de Fondos</p>
+                </div>
+              </div>
+              <button onClick={() => setIsVerifyTransferModalOpen(false)} className="text-white hover:text-emerald-200 font-bold">✕</button>
+            </div>
+
+            <div className="p-6 space-y-4 text-xs text-gray-700">
+              <div className="bg-emerald-50 border border-emerald-200 p-4 rounded-xl space-y-2">
+                <p className="font-bold text-emerald-950">Comprobaciones de la Solicitud:</p>
+                <div className="space-y-1 text-[11px] text-emerald-900 font-medium">
+                  <p>• Aspirante: <strong>{selectedRequest.first_name} {selectedRequest.last_name_1}</strong> ({selectedRequest.email})</p>
+                  <p>• Curso: <strong>{selectedRequest.course_name}</strong></p>
+                  <p>• Importe Esperado: <strong className="font-mono text-sm">{selectedRequest.precio_final_snapshot != null ? `${Number(selectedRequest.precio_final_snapshot).toFixed(2)} €` : 'A comprobar'}</strong></p>
+                  <p>• Referencia Exigida: <strong className="font-mono text-red-700">{selectedRequest.referencia_transferencia || selectedRequest.request_number}</strong></p>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold text-gray-800 uppercase mb-1">
+                  Referencia Bancaria Externa o Apunte Bancario (Opcional)
+                </label>
+                <input
+                  type="text"
+                  value={verifyExtRef}
+                  onChange={e => setVerifyExtRef(e.target.value)}
+                  placeholder="Ej: Remesa 2026-10 / Apunte Santander #94821"
+                  className="w-full px-3 py-2 rounded-xl border border-gray-300 font-mono text-xs focus:ring-2 focus:ring-emerald-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold text-gray-800 uppercase mb-1">
+                  Observaciones Administrativas de Verificación (Opcional)
+                </label>
+                <textarea
+                  rows={2}
+                  value={verifyNotes}
+                  onChange={e => setVerifyNotes(e.target.value)}
+                  placeholder="Ej: Ingreso verificado en extracto del día 24/10/2026 sin incidencias..."
+                  className="w-full px-3 py-2 rounded-xl border border-gray-300 text-xs focus:ring-2 focus:ring-emerald-500"
+                />
+              </div>
+
+              <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-amber-900 text-[11px] space-y-1">
+                <p className="font-bold flex items-center gap-1">
+                  <Info className="w-3.5 h-3.5 text-amber-600" />
+                  Efectos de la verificación:
+                </p>
+                <p>
+                  El estado económico pasará a <strong>TRANSFERENCIA_VERIFICADA</strong> y quedará registrado el operador, fecha y hora.
+                  <strong> La verificación bancaria aún no activa automáticamente el campus virtual.</strong> El alta definitiva se realizará mediante el botón de aprobación de matrícula.
+                </p>
+              </div>
+
+              <div className="flex gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setIsVerifyTransferModalOpen(false)}
+                  disabled={verifyingTransfer}
+                  className="flex-1 py-2.5 border border-gray-200 rounded-xl font-bold text-gray-700 hover:bg-gray-50"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  onClick={handleConfirmVerifyTransfer}
+                  disabled={verifyingTransfer}
+                  className="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-black flex items-center justify-center gap-2 disabled:opacity-50 shadow-md"
+                >
+                  {verifyingTransfer ? 'Verificando...' : 'Confirmar Transferencia Recibida'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ─── MODAL ACCIÓN: REGISTRAR INCIDENCIA DE PAGO ────────────────── */}
+      {isIncidentModalOpen && selectedRequest && (
+        <div className="fixed inset-0 z-[70] overflow-y-auto bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 animate-fadeIn">
+          <div className="w-full max-w-md bg-white rounded-2xl shadow-2xl border border-gray-100 overflow-hidden space-y-4">
+            <div className="bg-rose-600 text-white p-5 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center">
+                  <AlertTriangle className="w-5 h-5 text-white" />
+                </div>
+                <div>
+                  <h3 className="font-black text-base">Registrar Incidencia de Transferencia</h3>
+                  <p className="text-xs text-rose-100">Expediente {selectedRequest.request_number}</p>
+                </div>
+              </div>
+              <button onClick={() => setIsIncidentModalOpen(false)} className="text-white hover:text-rose-200 font-bold">✕</button>
+            </div>
+
+            <div className="p-6 space-y-4 text-xs">
+              <p className="text-gray-700 font-medium">
+                Indique el motivo por el cual no se puede verificar la transferencia (ej: importe inferior al fijado, concepto erróneo, apunte no localizado o comprobante ilegible):
+              </p>
+
+              <div>
+                <label className="block text-[11px] font-bold text-gray-700 uppercase mb-1">
+                  Motivo de la Incidencia *
+                </label>
+                <textarea
+                  rows={4}
+                  value={incidentReason}
+                  onChange={e => setIncidentReason(e.target.value)}
+                  placeholder="Ej: El importe recibido es de 100€ pero el coste del curso es de 250€..."
+                  className="w-full px-3 py-2 rounded-xl border border-rose-300 text-xs focus:ring-2 focus:ring-rose-500"
+                  required
+                />
+              </div>
+
+              <div className="flex gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setIsIncidentModalOpen(false)}
+                  disabled={reportingIncident}
+                  className="flex-1 py-2.5 border border-gray-200 rounded-xl font-bold text-gray-700 hover:bg-gray-50"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  onClick={handleConfirmReportIncident}
+                  disabled={reportingIncident || !incidentReason.trim()}
+                  className="flex-1 py-2.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl font-black flex items-center justify-center gap-2 disabled:opacity-50"
+                >
+                  {reportingIncident ? 'Registrando...' : 'Marcar Incidencia'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ─── MODAL COMPROBACIONES Y CONFIRMACIÓN DE ALTA (Secciones 7, 8, 9, 10) ─── */}
       {isConvertModalOpen && convertCheckData && selectedRequest && (
         <div className="fixed inset-0 z-50 overflow-y-auto bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 animate-fadeIn">
           <div className="bg-white text-gray-900 rounded-2xl shadow-2xl max-w-xl w-full p-6 space-y-5 border border-gray-200 my-6">
@@ -2253,70 +2893,73 @@ export const CampusSecretaryInscriptions: React.FC = () => {
             <div className="flex justify-between items-center border-b border-gray-100 pb-3">
               <h3 className="text-lg font-black text-gray-900 flex items-center gap-2">
                 <UserPlus className="w-5 h-5 text-emerald-600" />
-                Aprobación Final de Matrícula & Activación en Campus
+                Aprobar Matrícula y Dar de Alta al Alumno
               </h3>
               <button onClick={() => setIsConvertModalOpen(false)} className="text-gray-400 hover:text-gray-600">
                 <XCircle className="w-5 h-5" />
               </button>
             </div>
 
-            <p className="text-xs text-gray-600">
-              Esta operación otorga la aprobación administrativa final, activa la matrícula y genera las credenciales de acceso al Campus Virtual para el alumno.
+            <p className="text-xs text-gray-600 leading-relaxed">
+              Esta operación otorga la aprobación administrativa final, crea o vincula la cuenta del alumno en el Campus Virtual y envía automáticamente el correo de bienvenida.
             </p>
 
-            {/* Resumen de Datos a transferir */}
-            <div className="bg-gray-50 p-4 rounded-xl border border-gray-200 text-xs space-y-1.5">
-              <p><span className="font-bold text-gray-900">Aspirante:</span> {selectedRequest.first_name} {selectedRequest.last_name_1} {selectedRequest.last_name_2 || ''}</p>
-              <p><span className="font-bold text-gray-900">DNI / NIE:</span> <span className="font-mono font-bold bg-white px-1.5 py-0.5 rounded border border-gray-300">{selectedRequest.dni_nie}</span></p>
-              <p><span className="font-bold text-gray-900">Email:</span> {selectedRequest.email}</p>
-              <p><span className="font-bold text-gray-900">Teléfono:</span> {selectedRequest.phone}</p>
-              <p><span className="font-bold text-gray-900">Curso:</span> <span className="font-black text-red-600">{selectedRequest.course_name}</span></p>
-              <p><span className="font-bold text-gray-900">Modalidad:</span> {selectedRequest.modalidad_inscripcion === 'COMPRA_DIRECTA' ? 'Compra Directa' : 'Solicitud con Aprobación'}</p>
+            {/* Resumen de Datos de Alta */}
+            <div className="bg-gray-50 p-4 rounded-xl border border-gray-200 text-xs space-y-2">
+              <div className="flex justify-between border-b border-gray-200 pb-1.5">
+                <span className="font-bold text-gray-700">Aspirante:</span>
+                <span className="font-extrabold text-gray-900">{selectedRequest.first_name} {selectedRequest.last_name_1} {selectedRequest.last_name_2 || ''}</span>
+              </div>
+              <div className="flex justify-between border-b border-gray-200 pb-1.5">
+                <span className="font-bold text-gray-700">Usuario de acceso al Campus (Sección 8):</span>
+                <span className="font-mono font-black text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded border border-indigo-200">
+                  {selectedRequest.email}
+                </span>
+              </div>
+              <div className="flex justify-between border-b border-gray-200 pb-1.5">
+                <span className="font-bold text-gray-700">DNI / NIE (Dato Administrativo):</span>
+                <span className="font-mono text-gray-800">{selectedRequest.dni_nie}</span>
+              </div>
+              <div className="flex justify-between border-b border-gray-200 pb-1.5">
+                <span className="font-bold text-gray-700">Curso Aprobado:</span>
+                <span className="font-black text-red-600">{selectedRequest.course_name}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="font-bold text-gray-700">Estado Transferencia:</span>
+                <span className="font-black text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
+                  VERIFICADA
+                </span>
+              </div>
             </div>
 
-            {/* Comprobaciones automáticas */}
+            {/* Comprobaciones de Identidad y Cuentas (Sección 8) */}
             <div className="space-y-3">
-              
-              {/* Comprobación 1: Email */}
               {convertCheckData.emailUserExists ? (
                 <div className="bg-amber-50 border border-amber-200 p-3 rounded-xl text-xs text-amber-900 space-y-1">
                   <div className="font-bold flex items-center gap-1.5 text-amber-800">
-                    <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
-                    <span>Ya existe un usuario con este correo electrónico.</span>
+                    <UserCheck className="w-4 h-4 text-amber-600 shrink-0" />
+                    <span>Reutilización de Cuenta Existente</span>
                   </div>
-                  <p className="text-amber-700">
-                    Usuario registrado: <strong>{convertCheckData.emailUserExists.nombre} {convertCheckData.emailUserExists.apellidos}</strong>. Se asociará la nueva matrícula a la cuenta existente sin duplicar el usuario.
+                  <p className="text-amber-700 text-[11px]">
+                    El alumno ya dispone de cuenta activa (<strong>{convertCheckData.emailUserExists.nombre} {convertCheckData.emailUserExists.apellidos}</strong>). Se activará la nueva matrícula en el curso aprobado conservando sus credenciales y accesos previos sin sobrescribirlos.
                   </p>
                 </div>
               ) : (
-                <div className="bg-emerald-50 border border-emerald-200 p-2.5 rounded-xl text-xs text-emerald-800 flex items-center gap-2 font-medium">
-                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                  <span>Comprobación 1 (Email): Ningún usuario previo registrado con {selectedRequest.email}.</span>
-                </div>
-              )}
-
-              {/* Comprobación 2: DNI/NIE */}
-              {convertCheckData.dniStudentExists ? (
-                <div className="bg-rose-50 border border-rose-200 p-3 rounded-xl text-xs text-rose-900 space-y-1">
-                  <div className="font-bold flex items-center gap-1.5 text-rose-800">
-                    <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
-                    <span>Atención: Ya existe un alumno con el mismo DNI/NIE ({selectedRequest.dni_nie}).</span>
+                <div className="bg-emerald-50 border border-emerald-200 p-3 rounded-xl text-xs text-emerald-900 space-y-1">
+                  <div className="font-bold flex items-center gap-1.5 text-emerald-800">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                    <span>Creación de Nueva Cuenta de Usuario</span>
                   </div>
-                  <p className="text-rose-700">
-                    Alumno encontrado: <strong>{convertCheckData.dniStudentExists.nombre} {convertCheckData.dniStudentExists.apellidos}</strong>.
+                  <p className="text-emerald-700 text-[11px]">
+                    Se creará una cuenta nueva con nombre de usuario <strong>{selectedRequest.email}</strong> y una contraseña inicial aleatoria de alta entropía (Sección 9), almacenada únicamente en hash seguro y con cambio obligatorio al primer inicio de sesión.
                   </p>
                 </div>
-              ) : (
-                <div className="bg-emerald-50 border border-emerald-200 p-2.5 rounded-xl text-xs text-emerald-800 flex items-center gap-2 font-medium">
-                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                  <span>Comprobación 2 (DNI/NIE): Documento único en el campus.</span>
-                </div>
               )}
 
-              {/* Comprobación 3: Asignación de Grupo/Curso */}
+              {/* Asignación de Grupo/Curso */}
               <div>
                 <label className="block text-xs font-bold text-gray-800 mb-1">
-                  Comprobación 3 (Curso): Seleccionar Grupo de Impartición
+                  Grupo de Impartición del Campus
                 </label>
                 {convertCheckData.matchedGroups && convertCheckData.matchedGroups.length > 0 ? (
                   <select
@@ -2332,11 +2975,21 @@ export const CampusSecretaryInscriptions: React.FC = () => {
                   </select>
                 ) : (
                   <p className="text-xs text-gray-500 italic bg-gray-50 p-2.5 rounded-xl border border-gray-200">
-                    Se creará la matrícula en la especialidad solicitada.
+                    Se creará la matrícula en la especialidad correspondiente al curso.
                   </p>
                 )}
               </div>
+            </div>
 
+            {/* Aviso de Correo Automático (Sección 10) */}
+            <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 text-blue-900 text-[11px] space-y-1">
+              <p className="font-bold flex items-center gap-1 text-blue-950">
+                <Mail className="w-3.5 h-3.5 text-blue-600" />
+                Envío Automático de Correo de Bienvenida (Sección 10):
+              </p>
+              <p className="text-blue-800">
+                Al confirmar, el sistema enviará automáticamente a <strong>{selectedRequest.email}</strong> el correo oficial con asunto: <em>"Bienvenido/a a ACADEMIAS PÉNDULO — Acceso al campus virtual"</em> con sus credenciales e instrucciones de primer acceso.
+              </p>
             </div>
 
             {/* Modal Actions */}
@@ -2356,12 +3009,12 @@ export const CampusSecretaryInscriptions: React.FC = () => {
                 {isConverting ? (
                   <>
                     <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                    <span>Aprobando matrícula...</span>
+                    <span>Aprobando matrícula y dando de alta...</span>
                   </>
                 ) : (
                   <>
                     <Check className="w-4 h-4" />
-                    <span>Confirmar Aprobación Final</span>
+                    <span>Confirmar Alta y Enviar Bienvenida</span>
                   </>
                 )}
               </button>
@@ -2371,7 +3024,7 @@ export const CampusSecretaryInscriptions: React.FC = () => {
         </div>
       )}
 
-      {/* ─── NOTIFICACIÓN FINAL TRAS CREAR ALUMNO ────────────────────── */}
+      {/* ─── NOTIFICACIÓN TRAS ALTA EXITOSA ──────────────────────────── */}
       {conversionResult && selectedRequest && (
         <div className="fixed inset-0 z-50 overflow-y-auto bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 animate-fadeIn">
           <div className="bg-white text-gray-900 rounded-2xl shadow-2xl max-w-md w-full p-6 space-y-5 text-center border border-gray-200">
@@ -2380,18 +3033,18 @@ export const CampusSecretaryInscriptions: React.FC = () => {
             </div>
 
             <div className="space-y-1">
-              <h3 className="text-xl font-black text-gray-900">✅ Matrícula Aprobada y Activada</h3>
+              <h3 className="text-xl font-black text-gray-900">✅ Matrícula Aprobada y Alumno Dado de Alta</h3>
               <p className="text-xs text-gray-500">
                 La solicitud ha sido convertida e integrada en el Campus Virtual con estado de matrícula ACTIVA.
               </p>
             </div>
 
             <div className="bg-gray-50 p-4 rounded-xl border border-gray-200 text-left text-xs space-y-2">
-              <p><span className="font-bold text-gray-900">Nombre:</span> {selectedRequest.first_name} {selectedRequest.last_name_1}</p>
+              <p><span className="font-bold text-gray-900">Alumno:</span> {selectedRequest.first_name} {selectedRequest.last_name_1}</p>
               <p><span className="font-bold text-gray-900">Curso:</span> {selectedRequest.course_name}</p>
-              <p><span className="font-bold text-gray-900">Usuario de acceso:</span> {selectedRequest.email}</p>
+              <p><span className="font-bold text-gray-900">Nombre de Usuario:</span> <span className="font-mono font-bold text-indigo-700">{selectedRequest.email}</span></p>
               <p><span className="font-bold text-gray-900">Estado de Matrícula:</span> <span className="bg-emerald-100 text-emerald-800 font-bold px-2 py-0.5 rounded text-[11px]">ACTIVA</span></p>
-              <p><span className="font-bold text-gray-900">Email de bienvenida e instrucciones:</span> {conversionResult.emailSent ? <span className="text-emerald-600 font-bold">Enviado al alumno</span> : <span className="text-amber-600 font-bold">Pendiente (puede reenviarse)</span>}</p>
+              <p><span className="font-bold text-gray-900">Correo de Bienvenida:</span> {conversionResult.emailSent ? <span className="text-emerald-600 font-bold">Enviado automáticamente</span> : <span className="text-amber-600 font-bold">Pendiente (registrado en logs)</span>}</p>
             </div>
 
             <div className="flex items-center justify-center gap-3 pt-2">

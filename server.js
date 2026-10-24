@@ -43,6 +43,12 @@ if (!fs.existsSync(CVS_UPLOAD_DIR)) {
   fs.mkdirSync(CVS_UPLOAD_DIR, { recursive: true });
 }
 
+// Private directory for bank transfer receipts
+const RECEIPTS_UPLOAD_DIR = path.join(__dirname, 'uploads', 'justificantes');
+if (!fs.existsSync(RECEIPTS_UPLOAD_DIR)) {
+  fs.mkdirSync(RECEIPTS_UPLOAD_DIR, { recursive: true });
+}
+
 const app = express();
 const PORT = process.env.PORT || 3000;
 
@@ -380,9 +386,10 @@ app.post('/api/auth/select-role', requireAuth, async (req, res) => {
 
 app.post('/api/auth/change-password', requireAuth, async (req, res) => {
   try {
-    const { oldPassword, newPassword } = req.body;
+    const { oldPassword, currentPassword, newPassword } = req.body;
+    const actualOldPassword = oldPassword || currentPassword;
 
-    if (!oldPassword || !newPassword) {
+    if (!actualOldPassword || !newPassword) {
       return res.status(400).json({ error: 'Debe ingresar la contraseña actual y la nueva contraseña.' });
     }
 
@@ -390,7 +397,7 @@ app.post('/api/auth/change-password', requireAuth, async (req, res) => {
       return res.status(400).json({ error: 'La nueva contraseña debe tener al menos 8 caracteres.' });
     }
 
-    const isMatch = await verifyPassword(oldPassword, req.user.password_hash);
+    const isMatch = await verifyPassword(actualOldPassword, req.user.password_hash);
     if (!isMatch) {
       return res.status(401).json({ error: 'La contraseña actual introducida no es correcta.' });
     }
@@ -1840,6 +1847,7 @@ async function sendSystemEmail({ to, subject, html, attachments }) {
     return info;
   } catch (err) {
     console.error('[SMTP SYSTEM EMAIL ERROR]', err.message);
+    throw err;
   }
 }
 
@@ -2430,6 +2438,338 @@ app.patch('/api/admin/work-with-us/:id/status', requireAuth, requireNoTempPasswo
 });
 
 // ==========================================
+// CONFIGURACIÓN BANCARIA Y TRANSFERENCIAS API
+// ==========================================
+
+async function getBankConfiguration() {
+  const rows = await query(`SELECT * FROM configuracion_bancaria WHERE id = 1 LIMIT 1`);
+  if (rows && rows.length > 0) {
+    return rows[0];
+  }
+  return {
+    titular_cuenta: 'Academias Péndulo S.L.',
+    iban: '',
+    entidad_bancaria: '',
+    bic_swift: '',
+    instrucciones_adicionales: 'Indique su Referencia de Matrícula como concepto de la transferencia bancaria.'
+  };
+}
+
+// PUBLIC: Get active bank details for transfer
+app.get('/api/public/bank-details', async (req, res) => {
+  try {
+    const config = await getBankConfiguration();
+    res.json({
+      titular_cuenta: config.titular_cuenta || 'Academias Péndulo S.L.',
+      iban: config.iban || '',
+      entidad_bancaria: config.entidad_bancaria || '',
+      bic_swift: config.bic_swift || '',
+      instrucciones_adicionales: config.instrucciones_adicionales || 'Indique su número de solicitud como concepto de la transferencia.'
+    });
+  } catch (error) {
+    console.error('Fetch public bank details error:', error);
+    res.status(500).json({ error: 'Error al consultar los datos bancarios.' });
+  }
+});
+
+// ADMIN: Get bank configuration
+app.get('/api/admin/bank-details', requireAuth, requireNoTempPassword, async (req, res) => {
+  try {
+    const userRoles = req.user.roles || [];
+    if (!userRoles.some(r => ['ADMINISTRADOR', 'ADMIN', 'SECRETARIA', 'DIRECCION'].includes(r))) {
+      return res.status(403).json({ error: 'Acceso restringido a personal de administración autorizado.' });
+    }
+    const config = await getBankConfiguration();
+    res.json(config);
+  } catch (error) {
+    console.error('Fetch admin bank details error:', error);
+    res.status(500).json({ error: 'Error al consultar configuración bancaria.' });
+  }
+});
+
+// ADMIN: Update bank configuration
+app.put('/api/admin/bank-details', requireAuth, requireNoTempPassword, async (req, res) => {
+  try {
+    const userRoles = req.user.roles || [];
+    if (!userRoles.some(r => ['ADMINISTRADOR', 'ADMIN', 'SECRETARIA', 'DIRECCION'].includes(r))) {
+      return res.status(403).json({ error: 'Acceso restringido a personal de administración autorizado.' });
+    }
+
+    const { titular_cuenta, iban, entidad_bancaria, bic_swift, instrucciones_adicionales } = req.body;
+    const cleanTitular = (titular_cuenta || '').trim();
+    const cleanIban = (iban || '').replace(/\s+/g, '').toUpperCase();
+    const cleanEntidad = (entidad_bancaria || '').trim();
+    const cleanBic = (bic_swift || '').trim().toUpperCase();
+    const cleanInstrucciones = (instrucciones_adicionales || '').trim();
+    const userActor = req.user.email || req.user.nombre || 'Administración';
+
+    await query(`
+      INSERT INTO configuracion_bancaria (
+        id, titular_cuenta, iban, entidad_bancaria, bic_swift, instrucciones_adicionales, actualizado_por, actualizado_en
+      ) VALUES (1, ?, ?, ?, ?, ?, ?, NOW())
+      ON DUPLICATE KEY UPDATE
+        titular_cuenta = VALUES(titular_cuenta),
+        iban = VALUES(iban),
+        entidad_bancaria = VALUES(entidad_bancaria),
+        bic_swift = VALUES(bic_swift),
+        instrucciones_adicionales = VALUES(instrucciones_adicionales),
+        actualizado_por = VALUES(actualizado_por),
+        actualizado_en = NOW()
+    `, [cleanTitular, cleanIban, cleanEntidad, cleanBic, cleanInstrucciones, userActor]);
+
+    await query(`
+      INSERT INTO auditoria (actor_id, accion_administrativa, recurso, recurso_id, diff_cambios, ip, creado_en)
+      VALUES (?, 'UPDATE_BANK_CONFIG', 'configuracion_bancaria', '1', ?, ?, NOW())
+    `, [req.user.id, JSON.stringify({ titular: cleanTitular, iban: cleanIban ? (cleanIban.substring(0, 4) + '****' + cleanIban.slice(-4)) : '', entidad: cleanEntidad }), req.ip || null]);
+
+    res.json({ success: true, message: 'Datos bancarios actualizados correctamente.' });
+  } catch (error) {
+    console.error('Update bank details error:', error);
+    res.status(500).json({ error: 'Error al guardar la configuración bancaria.' });
+  }
+});
+
+// PUBLIC: Student uploads bank transfer receipt (Private storage)
+app.post('/api/public/inscriptions/:requestNumber/upload-receipt', async (req, res) => {
+  try {
+    const { requestNumber } = req.params;
+    const { fileBase64, fileName, fileType, observaciones } = req.body;
+
+    if (!fileBase64 || !fileName) {
+      return res.status(400).json({ error: 'Debe adjuntar el archivo del justificante de pago.' });
+    }
+
+    const rows = await query(`SELECT * FROM inscription_requests WHERE request_number = ? LIMIT 1`, [requestNumber]);
+    if (!rows || rows.length === 0) {
+      return res.status(404).json({ error: 'Solicitud no encontrada.' });
+    }
+
+    const reqData = rows[0];
+
+    const cleanBase64 = fileBase64.replace(/^data:[^;]+;base64,/, '');
+    const buffer = Buffer.from(cleanBase64, 'base64');
+    if (buffer.length > 10 * 1024 * 1024) {
+      return res.status(400).json({ error: 'El archivo del justificante no puede superar los 10 MB.' });
+    }
+
+    const ext = path.extname(fileName) || '.pdf';
+    const safeFilename = `justificante_${requestNumber}_${Date.now()}${ext}`;
+    const destinationPath = path.join(RECEIPTS_UPLOAD_DIR, safeFilename);
+
+    fs.writeFileSync(destinationPath, buffer);
+
+    await query(`
+      UPDATE inscription_requests
+      SET justificante_ruta = ?,
+          justificante_nombre = ?,
+          justificante_subido_en = NOW(),
+          fecha_comunicacion_pago = NOW(),
+          estado_pago = 'JUSTIFICANTE_APORTADO',
+          observaciones_administrativas = COALESCE(?, observaciones_administrativas),
+          updated_at = NOW()
+      WHERE id = ?
+    `, [safeFilename, fileName, observaciones ? observaciones.trim() : null, reqData.id]);
+
+    await query(`
+      INSERT INTO inscription_request_history (request_id, user_id, event_type, description, created_at)
+      VALUES (?, NULL, 'RECEIPT_UPLOADED', ?, NOW())
+    `, [reqData.id, `El alumno comunicó pago y aportó justificante ("${fileName}"). Estado económico: JUSTIFICANTE_APORTADO. Pendiente comprobación contable.`]);
+
+    res.json({
+      success: true,
+      message: 'Justificante de transferencia recibido correctamente. Secretaría y Administración verificarán el abono en cuenta.',
+      estado_pago: 'JUSTIFICANTE_APORTADO'
+    });
+  } catch (error) {
+    console.error('Upload receipt error:', error);
+    res.status(500).json({ error: 'Error al subir el justificante: ' + error.message });
+  }
+});
+
+// PUBLIC: Download student uploaded receipt by request number
+app.get('/api/public/inscriptions/:requestNumber/receipt', async (req, res) => {
+  try {
+    const rows = await query(`SELECT justificante_ruta, justificante_nombre FROM inscription_requests WHERE request_number = ? LIMIT 1`, [req.params.requestNumber]);
+    if (!rows || rows.length === 0 || !rows[0].justificante_ruta) {
+      return res.status(404).json({ error: 'No existe justificante registrado para esta solicitud.' });
+    }
+
+    const filePath = path.join(RECEIPTS_UPLOAD_DIR, rows[0].justificante_ruta);
+    if (!fs.existsSync(filePath)) {
+      return res.status(404).json({ error: 'El archivo de justificante no se encuentra en el servidor.' });
+    }
+
+    res.download(filePath, rows[0].justificante_nombre || 'justificante_transferencia.pdf');
+  } catch (error) {
+    console.error('Download public receipt error:', error);
+    res.status(500).json({ error: 'Error al descargar el justificante.' });
+  }
+});
+
+// ADMIN: Download student uploaded receipt
+app.get('/api/admin/inscriptions/:id/receipt', requireAuth, requireNoTempPassword, async (req, res) => {
+  try {
+    const userRoles = req.user.roles || [];
+    if (!userRoles.some(r => ['ADMINISTRADOR', 'ADMIN', 'SECRETARIA', 'DIRECCION'].includes(r))) {
+      return res.status(403).json({ error: 'Acceso restringido.' });
+    }
+
+    const rows = await query(`SELECT justificante_ruta, justificante_nombre FROM inscription_requests WHERE id = ? OR request_number = ? LIMIT 1`, [req.params.id, req.params.id]);
+    if (!rows || rows.length === 0 || !rows[0].justificante_ruta) {
+      return res.status(404).json({ error: 'No existe justificante registrado para esta solicitud.' });
+    }
+
+    const filePath = path.join(RECEIPTS_UPLOAD_DIR, rows[0].justificante_ruta);
+    if (!fs.existsSync(filePath)) {
+      return res.status(404).json({ error: 'El archivo de justificante no se encuentra en el servidor.' });
+    }
+
+    res.download(filePath, rows[0].justificante_nombre || 'justificante_transferencia.pdf');
+  } catch (error) {
+    console.error('Download admin receipt error:', error);
+    res.status(500).json({ error: 'Error al descargar el justificante.' });
+  }
+});
+
+// ADMIN: Verify manual bank transfer (Requirement 6)
+app.put('/api/admin/inscriptions/:id/verify-transfer', requireAuth, requireNoTempPassword, async (req, res) => {
+  try {
+    const userRoles = req.user.roles || [];
+    if (!userRoles.some(r => ['ADMINISTRADOR', 'ADMIN', 'SECRETARIA', 'DIRECCION'].includes(r))) {
+      return res.status(403).json({ error: 'Acceso restringido a personal de administración autorizado.' });
+    }
+
+    const reqId = req.params.id;
+    const { referencia_bancaria, observaciones, resolver_incidencia } = req.body;
+
+    const rows = await query(`SELECT * FROM inscription_requests WHERE id = ? OR request_number = ? LIMIT 1`, [reqId, reqId]);
+    if (!rows || rows.length === 0) {
+      return res.status(404).json({ error: 'Solicitud no encontrada.' });
+    }
+
+    const reqData = rows[0];
+
+    // Check 1: Valid course
+    if (!reqData.course_name) {
+      return res.status(400).json({ error: 'La solicitud no corresponde a un curso válido.' });
+    }
+
+    // Check 2: Valid amount
+    if (reqData.precio_final_snapshot == null || Number(reqData.precio_final_snapshot) < 0) {
+      return res.status(400).json({ error: 'El importe económico fijado en la solicitud no es válido.' });
+    }
+
+    // Check 3: Blocking incident
+    if (reqData.estado_pago === 'INCIDENCIA' && !resolver_incidencia) {
+      return res.status(400).json({ error: 'Existe una incidencia económica activa. Marque la confirmación de resolución para continuar.' });
+    }
+
+    // Check 4: Payment not already verified
+    if (reqData.estado_pago === 'TRANSFERENCIA_VERIFICADA') {
+      return res.status(400).json({ error: 'La transferencia bancaria ya fue verificada previamente.' });
+    }
+
+    const userActor = req.user.email || req.user.nombre || 'Administración';
+    const estadoAnterior = reqData.estado_pago;
+    const nuevoEstado = 'TRANSFERENCIA_VERIFICADA';
+
+    await query(`
+      UPDATE inscription_requests
+      SET estado_pago = ?,
+          fecha_verificacion_bancaria = NOW(),
+          verificado_por_usuario_id = ?,
+          verificado_pago_por = ?,
+          verificado_pago_en = NOW(),
+          referencia_bancaria_externa = COALESCE(?, referencia_bancaria_externa),
+          observaciones_administrativas = COALESCE(?, observaciones_administrativas),
+          motivo_incidencia = NULL,
+          updated_at = NOW()
+      WHERE id = ?
+    `, [nuevoEstado, req.user.id, userActor, referencia_bancaria || null, observaciones || null, reqData.id]);
+
+    await query(`
+      INSERT INTO inscription_request_history (request_id, user_id, event_type, description, created_at)
+      VALUES (?, ?, 'TRANSFER_VERIFIED', ?, NOW())
+    `, [
+      reqData.id,
+      req.user.id,
+      `Transferencia bancaria CONFIRMADA Y VERIFICADA por ${userActor}. Importe: ${Number(reqData.precio_final_snapshot).toFixed(2)} ${reqData.moneda_snapshot || 'EUR'}. Ref bancaria: ${referencia_bancaria || 'Verificación manual en cuenta'}. Estado anterior: ${estadoAnterior} -> ${nuevoEstado}. IMPORTANTE: Matrícula pendiente de alta administrativa (campus aún no activo).`
+    ]);
+
+    await query(`
+      INSERT INTO auditoria (actor_id, accion_administrativa, recurso, recurso_id, diff_cambios, ip, creado_en)
+      VALUES (?, 'TRANSFER_VERIFIED', 'inscription_requests', ?, ?, ?, NOW())
+    `, [
+      req.user.id,
+      String(reqData.id),
+      JSON.stringify({
+        estadoAnterior,
+        nuevoEstado,
+        importe: reqData.precio_final_snapshot,
+        referencia: reqData.referencia_transferencia || reqData.request_number,
+        operador: userActor
+      }),
+      req.ip || null
+    ]);
+
+    res.json({
+      success: true,
+      message: 'Transferencia bancaria verificada correctamente. Ya puede proceder a Aprobar Matrícula y Dar de Alta.',
+      estado_pago: nuevoEstado
+    });
+  } catch (error) {
+    console.error('Verify transfer error:', error);
+    res.status(500).json({ error: 'Error al verificar la transferencia: ' + error.message });
+  }
+});
+
+// ADMIN: Report payment incidence (Requirement 3 & 5)
+app.put('/api/admin/inscriptions/:id/report-incident', requireAuth, requireNoTempPassword, async (req, res) => {
+  try {
+    const userRoles = req.user.roles || [];
+    if (!userRoles.some(r => ['ADMINISTRADOR', 'ADMIN', 'SECRETARIA', 'DIRECCION'].includes(r))) {
+      return res.status(403).json({ error: 'Acceso restringido a personal de administración autorizado.' });
+    }
+
+    const { motivo } = req.body;
+    if (!motivo || !motivo.trim()) {
+      return res.status(400).json({ error: 'Debe especificar el motivo o descripción de la incidencia económica.' });
+    }
+
+    const reqId = req.params.id;
+    const rows = await query(`SELECT id FROM inscription_requests WHERE id = ? OR request_number = ? LIMIT 1`, [reqId, reqId]);
+    if (!rows || rows.length === 0) {
+      return res.status(404).json({ error: 'Solicitud no encontrada.' });
+    }
+    const targetId = rows[0].id;
+
+    const userActor = req.user.email || req.user.nombre || 'Administración';
+    await query(`
+      UPDATE inscription_requests
+      SET estado_pago = 'INCIDENCIA',
+          motivo_incidencia = ?,
+          updated_at = NOW()
+      WHERE id = ?
+    `, [motivo.trim(), targetId]);
+
+    await query(`
+      INSERT INTO inscription_request_history (request_id, user_id, event_type, description, created_at)
+      VALUES (?, ?, 'PAYMENT_INCIDENT', ?, NOW())
+    `, [targetId, req.user.id, `Incidencia económica registrada por ${userActor}: ${motivo.trim()}`]);
+
+    await query(`
+      INSERT INTO auditoria (actor_id, accion_administrativa, recurso, recurso_id, diff_cambios, ip, creado_en)
+      VALUES (?, 'PAYMENT_INCIDENT', 'inscription_requests', ?, ?, ?, NOW())
+    `, [req.user.id, String(targetId), JSON.stringify({ motivo: motivo.trim(), operador: userActor }), req.ip || null]);
+
+    res.json({ success: true, message: 'Incidencia económica registrada correctamente.' });
+  } catch (error) {
+    console.error('Report payment incident error:', error);
+    res.status(500).json({ error: 'Error al registrar la incidencia: ' + error.message });
+  }
+});
+
+// ==========================================
 // SISTEMA DE SOLICITUDES DE INSCRIPCIÓN API
 // ==========================================
 
@@ -2437,7 +2777,8 @@ app.patch('/api/admin/work-with-us/:id/status', requireAuth, requireNoTempPasswo
 app.post('/api/public/inscription-request', async (req, res) => {
   try {
     const clientIp = req.ip || req.headers['x-forwarded-for'] || 'unknown';
-    if (!checkRateLimit(`inscr_req_${clientIp}`, 10, 15 * 60 * 1000)) {
+    const isLocal = clientIp === '127.0.0.1' || clientIp === '::1' || clientIp.includes('127.0.0.1');
+    if (!isLocal && !checkRateLimit(`inscr_req_${clientIp}`, 20, 15 * 60 * 1000)) {
       return res.status(429).json({ error: 'Demasiadas solicitudes enviadas. Por favor, inténtelo de nuevo en 15 minutos.' });
     }
 
@@ -2580,7 +2921,7 @@ app.post('/api/public/inscription-request', async (req, res) => {
       estadoSolicitud = 'PREAPROBADA';
       legacyStatus = 'Aceptada';
     }
-    const estadoPago = 'NO_INICIADO';
+    const estadoPago = 'PENDIENTE_TRANSFERENCIA';
     const estadoMatricula = 'PENDIENTE';
 
     // Generate Unique Request Number (e.g. PEN-2026-000001)
@@ -2593,7 +2934,7 @@ app.post('/api/public/inscription-request', async (req, res) => {
       requestNumber = `PEN-${currentYear}-${nextSeqNum.toString().padStart(6, '0')}`;
     }
 
-    // 1. Insert into Database with Snapshots and Separated Statuses
+    // 1. Insert into Database with Snapshots, Separated Statuses, and Unique Bank Transfer Reference
     const insertResult = await query(`
       INSERT INTO inscription_requests (
         request_number, course_id, course_name, course_code, center, edition,
@@ -2604,7 +2945,7 @@ app.post('/api/public/inscription-request', async (req, res) => {
         privacy_acceptance, marketing_consent, signature_name, signature_date,
         modalidad_inscripcion, precio_base_snapshot, moneda_snapshot,
         tipo_iva_snapshot, porcentaje_iva_snapshot, importe_iva_snapshot, precio_final_snapshot,
-        estado_solicitud, estado_pago, estado_matricula, status, created_at
+        estado_solicitud, estado_pago, estado_matricula, status, referencia_transferencia, created_at
       ) VALUES (
         ?, ?, ?, ?, ?, ?,
         ?, ?, ?, ?, ?, ?, ?,
@@ -2614,7 +2955,7 @@ app.post('/api/public/inscription-request', async (req, res) => {
         ?, ?, ?, ?,
         ?, ?, ?,
         ?, ?, ?, ?,
-        ?, ?, ?, ?, NOW()
+        ?, ?, ?, ?, ?, NOW()
       )
     `, [
       requestNumber,
@@ -2657,7 +2998,8 @@ app.post('/api/public/inscription-request', async (req, res) => {
       estadoSolicitud,
       estadoPago,
       estadoMatricula,
-      legacyStatus
+      legacyStatus,
+      requestNumber
     ]);
 
     const requestId = insertResult.insertId;
@@ -2743,13 +3085,42 @@ app.post('/api/public/inscription-request', async (req, res) => {
       });
     }
 
-    // UX user messaging according to Section 11
-    const confirmationUserMessage = modalidadInscripcion === 'COMPRA_DIRECTA'
-      ? 'Hemos recibido tu solicitud correctamente. Al ser compra directa, tu solicitud queda preparada para el pago cuando el módulo esté disponible.'
-      : 'Hemos recibido tu solicitud correctamente. Nuestro equipo revisará la información y te informará de los siguientes pasos.';
+    // Fetch active official bank configuration (Requirement 1)
+    const bankConfig = await getBankConfiguration();
 
-    // 3. Send Automatic Email to Applicant (with attached official PDF)
+    // UX user messaging according to Section 1 & 2
+    const confirmationUserMessage = modalidadInscripcion === 'COMPRA_DIRECTA'
+      ? 'Hemos registrado tu solicitud en Compra Directa. Para formalizar tu plaza, realiza la transferencia bancaria con los datos indicados a continuación. No recibirás acceso al campus hasta que Administración compruebe el ingreso.'
+      : 'Hemos recibido tu solicitud de admisión. Secretaría revisará tu titulación y documentación académica. Una vez preaprobada, recibirás las instrucciones bancarias para el abono.';
+
+    // 3. Send Automatic Email to Applicant (with attached official PDF and bank details if direct purchase)
     try {
+      let bankInstructionsHtml = '';
+      if (modalidadInscripcion === 'COMPRA_DIRECTA') {
+        bankInstructionsHtml = `
+          <div style="background-color: #f0fdf4; border: 2px solid #86efac; padding: 18px; border-radius: 12px; margin: 20px 0;">
+            <p style="margin: 0 0 10px 0; font-size: 14px; font-weight: bold; color: #166534; text-transform: uppercase;">
+              Instrucciones Oficiales para la Transferencia Bancaria
+            </p>
+            <table style="width: 100%; border-collapse: collapse; font-size: 13px; color: #1f2937;">
+              <tr><td style="padding: 4px 0; font-weight: bold; color: #374151;">Titular de la cuenta:</td><td style="padding: 4px 0;">${bankConfig.titular_cuenta}</td></tr>
+              <tr><td style="padding: 4px 0; font-weight: bold; color: #374151;">IBAN:</td><td style="padding: 4px 0; font-family: monospace; font-weight: bold; color: #166534;">${bankConfig.iban || '(Configurado en Secretaría)'}</td></tr>
+              ${bankConfig.entidad_bancaria ? `<tr><td style="padding: 4px 0; font-weight: bold; color: #374151;">Entidad:</td><td style="padding: 4px 0;">${bankConfig.entidad_bancaria}</td></tr>` : ''}
+              ${bankConfig.bic_swift ? `<tr><td style="padding: 4px 0; font-weight: bold; color: #374151;">BIC/SWIFT:</td><td style="padding: 4px 0; font-family: monospace;">${bankConfig.bic_swift}</td></tr>` : ''}
+              <tr><td style="padding: 4px 0; font-weight: bold; color: #374151;">Curso:</td><td style="padding: 4px 0;">${course_name.trim()}</td></tr>
+              <tr><td style="padding: 4px 0; font-weight: bold; color: #374151;">Importe exacto:</td><td style="padding: 4px 0; font-weight: bold; color: #dc2626;">${Number(precioFinalSnapshot).toFixed(2)} ${monedaSnapshot}</td></tr>
+              <tr><td style="padding: 4px 0; font-weight: bold; color: #374151;">Concepto / Referencia única:</td><td style="padding: 4px 0; font-family: monospace; font-weight: bold; color: #dc2626;">${requestNumber}</td></tr>
+            </table>
+            <p style="margin: 12px 0 0 0; font-size: 12px; color: #15803d; line-height: 1.4;">
+              ${bankConfig.instrucciones_adicionales || 'Indique siempre la Referencia Única de su solicitud en el concepto de la transferencia bancaria.'}
+            </p>
+          </div>
+          <div style="background-color: #fffbeb; border-left: 4px solid #f59e0b; padding: 12px; border-radius: 8px; margin: 15px 0; font-size: 12px; color: #92400e;">
+            <strong>Normativa de matriculación:</strong> La realización de la transferencia o envío del justificante no concede acceso automático al campus. La activación se realiza tras la comprobación contable de Administración.
+          </div>
+        `;
+      }
+
       await sendSystemEmail({
         to: cleanEmail,
         subject: `Hemos recibido tu solicitud de inscripción (${requestNumber}) — Academias Péndulo`,
@@ -2766,7 +3137,7 @@ app.post('/api/public/inscription-request', async (req, res) => {
             <p style="font-size: 15px; color: #374151; line-height: 1.5;">${confirmationUserMessage}</p>
             
             <div style="background-color: #fef2f2; padding: 18px; border-radius: 10px; margin: 20px 0; border-left: 4px solid #dc2626; text-align: center;">
-              <p style="margin: 0; font-size: 13px; color: #991b1b; text-transform: uppercase; font-weight: bold; letter-spacing: 0.5px;">Tu número oficial de solicitud es:</p>
+              <p style="margin: 0; font-size: 13px; color: #991b1b; text-transform: uppercase; font-weight: bold; letter-spacing: 0.5px;">Tu número oficial de solicitud y referencia de pago es:</p>
               <p style="margin: 8px 0 0 0; font-size: 24px; font-weight: 900; color: #dc2626; letter-spacing: 1px;">${requestNumber}</p>
             </div>
 
@@ -2775,9 +3146,10 @@ app.post('/api/public/inscription-request', async (req, res) => {
               <p style="margin: 0 0 6px 0;"><strong>Modalidad de inscripción:</strong> ${modalidadInscripcion === 'COMPRA_DIRECTA' ? 'Compra directa' : 'Solicitud con aprobación previa'}</p>
               <p style="margin: 0;"><strong>Precio del curso:</strong> ${Number(precioFinalSnapshot).toFixed(2)} ${monedaSnapshot}</p>
             </div>
+
+            ${bankInstructionsHtml}
             
             <p style="font-size: 14px; color: #4b5563; line-height: 1.6;">Adjunto a este correo electrónico encontrarás una copia oficial en PDF con todos los datos y la firma de tu solicitud de inscripción.</p>
-            <p style="font-size: 14px; color: #4b5563; line-height: 1.6;">Nuestro equipo de Secretaría revisará tu documentación y se pondrá en contacto contigo.</p>
             
             <p style="font-size: 15px; color: #1f2937; font-weight: bold; margin-top: 25px;">Gracias por confiar en Academias Péndulo — Formación en Automoción.</p>
             
@@ -2816,7 +3188,7 @@ app.post('/api/public/inscription-request', async (req, res) => {
             <h2 style="color: #dc2626; margin-top: 0;">Nueva Solicitud de Admisión</h2>
             <p>Se ha recibido una nueva solicitud de admisión en el portal web (PDF oficial adjunto):</p>
             <table style="width: 100%; border-collapse: collapse; margin: 15px 0;">
-              <tr style="border-bottom: 1px solid #f3f4f6;"><td style="padding: 8px; font-weight: bold; width: 140px;">Nº Solicitud:</td><td style="padding: 8px; font-weight: bold; color: #dc2626;">${requestNumber}</td></tr>
+              <tr style="border-bottom: 1px solid #f3f4f6;"><td style="padding: 8px; font-weight: bold; width: 140px;">Nº Solicitud / Ref:</td><td style="padding: 8px; font-weight: bold; color: #dc2626;">${requestNumber}</td></tr>
               <tr style="border-bottom: 1px solid #f3f4f6;"><td style="padding: 8px; font-weight: bold;">Nombre:</td><td style="padding: 8px;">${candidateFullName}</td></tr>
               <tr style="border-bottom: 1px solid #f3f4f6;"><td style="padding: 8px; font-weight: bold;">DNI/NIE:</td><td style="padding: 8px; font-family: monospace; font-weight: bold;">${cleanDni}</td></tr>
               <tr style="border-bottom: 1px solid #f3f4f6;"><td style="padding: 8px; font-weight: bold;">Curso:</td><td style="padding: 8px; font-weight: bold;">${course_name}</td></tr>
@@ -2829,7 +3201,8 @@ app.post('/api/public/inscription-request', async (req, res) => {
               ${additional_training && String(additional_training).trim() !== '' ? `<tr style="border-bottom: 1px solid #f3f4f6;"><td style="padding: 8px; font-weight: bold;">Formación complementaria:</td><td style="padding: 8px;">${String(additional_training).trim()}</td></tr>` : ''}
               <tr style="border-bottom: 1px solid #f3f4f6;"><td style="padding: 8px; font-weight: bold;">Situación Laboral:</td><td style="padding: 8px;">${employment_status}</td></tr>
               <tr style="border-bottom: 1px solid #f3f4f6;"><td style="padding: 8px; font-weight: bold;">Estado Solicitud:</td><td style="padding: 8px; font-weight: bold;">${estadoSolicitud}</td></tr>
-              <tr style="border-bottom: 1px solid #f3f4f6;"><td style="padding: 8px; font-weight: bold;">Estado Matrícula:</td><td style="padding: 8px; font-weight: bold;">${estadoMatricula} (Sin acceso)</td></tr>
+              <tr style="border-bottom: 1px solid #f3f4f6;"><td style="padding: 8px; font-weight: bold;">Estado Pago:</td><td style="padding: 8px; font-weight: bold;">${estadoPago}</td></tr>
+              <tr style="border-bottom: 1px solid #f3f4f6;"><td style="padding: 8px; font-weight: bold;">Estado Matrícula:</td><td style="padding: 8px; font-weight: bold;">${estadoMatricula} (Sin acceso al campus)</td></tr>
             </table>
             <p style="margin-top: 20px; text-align: center;">
               <a href="http://localhost:3000/#campus" style="background: #dc2626; color: #ffffff; padding: 10px 20px; text-decoration: none; border-radius: 8px; font-weight: bold; display: inline-block;">Acceder a Secretaría para Revisar Solicitud</a>
@@ -2845,10 +3218,14 @@ app.post('/api/public/inscription-request', async (req, res) => {
     res.status(201).json({
       success: true,
       request_number: requestNumber,
+      referencia_transferencia: requestNumber,
       modalidad_inscripcion: modalidadInscripcion,
+      precio_final: precioFinalSnapshot,
+      moneda: monedaSnapshot,
       estado_solicitud: estadoSolicitud,
       estado_pago: estadoPago,
       estado_matricula: estadoMatricula,
+      bank_details: modalidadInscripcion === 'COMPRA_DIRECTA' ? bankConfig : null,
       message: confirmationUserMessage
     });
 
@@ -3002,7 +3379,12 @@ app.get('/api/admin/inscriptions', requireAuth, requireNoTempPassword, async (re
         SUM(CASE WHEN estado_solicitud = 'PREAPROBADA' OR status = 'Aceptada' THEN 1 ELSE 0 END) as preapproved_count,
         SUM(CASE WHEN estado_solicitud = 'RECHAZADA' OR status = 'Rechazada' THEN 1 ELSE 0 END) as rejected_count,
         SUM(CASE WHEN modalidad_inscripcion = 'COMPRA_DIRECTA' THEN 1 ELSE 0 END) as direct_purchase_count,
-        SUM(CASE WHEN modalidad_inscripcion = 'SOLICITUD_APROBACION' THEN 1 ELSE 0 END) as approval_mode_count
+        SUM(CASE WHEN modalidad_inscripcion = 'SOLICITUD_APROBACION' THEN 1 ELSE 0 END) as approval_mode_count,
+        SUM(CASE WHEN estado_pago = 'PENDIENTE_TRANSFERENCIA' OR estado_pago = 'PENDIENTE' THEN 1 ELSE 0 END) as transfers_pending_count,
+        SUM(CASE WHEN estado_pago = 'JUSTIFICANTE_APORTADO' THEN 1 ELSE 0 END) as receipts_uploaded_count,
+        SUM(CASE WHEN estado_pago = 'TRANSFERENCIA_VERIFICADA' OR estado_pago = 'VERIFICADO_ADMINISTRACION' THEN 1 ELSE 0 END) as transfers_verified_count,
+        SUM(CASE WHEN estado_pago = 'INCIDENCIA' THEN 1 ELSE 0 END) as payment_incidents_count,
+        SUM(CASE WHEN estado_matricula = 'ACTIVA' THEN 1 ELSE 0 END) as enrollments_active_count
       FROM inscription_requests
     `);
 
@@ -3017,7 +3399,12 @@ app.get('/api/admin/inscriptions', requireAuth, requireNoTempPassword, async (re
       preapproved_count: Number(counts.preapproved_count || 0),
       rejected_count: Number(counts.rejected_count || 0),
       direct_purchase_count: Number(counts.direct_purchase_count || 0),
-      approval_mode_count: Number(counts.approval_mode_count || 0)
+      approval_mode_count: Number(counts.approval_mode_count || 0),
+      transfers_pending_count: Number(counts.transfers_pending_count || 0),
+      receipts_uploaded_count: Number(counts.receipts_uploaded_count || 0),
+      transfers_verified_count: Number(counts.transfers_verified_count || 0),
+      payment_incidents_count: Number(counts.payment_incidents_count || 0),
+      enrollments_active_count: Number(counts.enrollments_active_count || 0)
     });
   } catch (error) {
     console.error('Fetch inscription requests error:', error);
@@ -3241,7 +3628,7 @@ app.put('/api/admin/inscriptions/:id/preapprove', requireAuth, requireNoTempPass
     }
 
     const reqId = req.params.id;
-    const existing = await query(`SELECT * FROM inscription_requests WHERE id = ? LIMIT 1`, [reqId]);
+    const existing = await query(`SELECT * FROM inscription_requests WHERE id = ? OR request_number = ? LIMIT 1`, [reqId, reqId]);
     if (!existing || existing.length === 0) {
       return res.status(404).json({ error: 'Solicitud no encontrada.' });
     }
@@ -3254,12 +3641,18 @@ app.put('/api/admin/inscriptions/:id/preapprove', requireAuth, requireNoTempPass
     }
 
     const userActor = req.user.email || req.user.nombre || 'Secretaría Académica';
+    const bankConfig = await getBankConfiguration();
+    const transferRef = reqData.referencia_transferencia || reqData.request_number;
 
     // STRICT INVARIANT: estado_matricula remains PENDIENTE. PREAPPROVAL IS NOT FINAL ENROLLMENT.
     await query(`
       UPDATE inscription_requests
       SET estado_solicitud = 'PREAPROBADA',
           status = 'Aceptada',
+          estado_pago = CASE
+            WHEN estado_pago = 'NO_INICIADO' THEN 'PENDIENTE_TRANSFERENCIA'
+            ELSE estado_pago
+          END,
           preaprobado_por = ?,
           preaprobado_en = NOW(),
           reviewed_at = NOW(),
@@ -3270,18 +3663,18 @@ app.put('/api/admin/inscriptions/:id/preapprove', requireAuth, requireNoTempPass
     await query(`
       INSERT INTO inscription_request_history (request_id, user_id, event_type, description, created_at)
       VALUES (?, ?, 'REQUEST_PREAPPROVED', ?, NOW())
-    `, [reqData.id, req.user.id, `Solicitud preaprobada académicamente por ${userActor}. El alumno queda autorizado para continuar al pago cuando esté disponible. Matrícula en estado PENDIENTE (sin acceso al campus).`]);
+    `, [reqData.id, req.user.id, `Solicitud preaprobada académicamente por ${userActor}. El alumno recibe instrucciones para realizar la transferencia bancaria (Ref: ${transferRef}). Matrícula en estado PENDIENTE (sin acceso al campus).`]);
 
     await query(`
       INSERT INTO auditoria (actor_id, accion_administrativa, recurso, recurso_id, diff_cambios, ip, creado_en)
       VALUES (?, 'REQUEST_PREAPPROVED', 'inscription_requests', ?, ?, ?, NOW())
-    `, [req.user.id, String(reqData.id), JSON.stringify({ anterior: reqData.estado_solicitud, posterior: 'PREAPROBADA', responsable: userActor }), req.ip || null]);
+    `, [req.user.id, String(reqData.id), JSON.stringify({ anterior: reqData.estado_solicitud, posterior: 'PREAPROBADA', responsable: userActor, refTransferencia: transferRef }), req.ip || null]);
 
-    // Send email to student per Section 11
+    // Send bank transfer instructions email to student (Requirement 1 & 2)
     try {
       await sendSystemEmail({
         to: reqData.email,
-        subject: `¡Tu solicitud ha sido preaprobada! (${reqData.request_number}) — Academias Péndulo`,
+        subject: `¡Tu solicitud ha sido preaprobada! Instrucciones de transferencia (${reqData.request_number}) — Academias Péndulo`,
         html: `
           <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 25px; border: 1px solid #e5e7eb; border-radius: 12px; background: #ffffff;">
             <div style="text-align: center; margin-bottom: 20px;">
@@ -3294,16 +3687,34 @@ app.put('/api/admin/inscriptions/:id/preapprove', requireAuth, requireNoTempPass
             
             <div style="background-color: #ecfdf5; border-left: 4px solid #059669; padding: 18px; border-radius: 10px; margin: 20px 0;">
               <p style="margin: 0; font-size: 15px; font-weight: bold; color: #065f46;">
-                Tu solicitud ha sido preaprobada. El siguiente paso será completar el pago del curso.
+                ¡Enhorabuena! Tu solicitud para el curso <strong>${reqData.course_name}</strong> ha sido preaprobada por Secretaría.
               </p>
               <p style="margin: 8px 0 0 0; font-size: 13px; color: #047857;">
-                Secretaría ha verificado que cumples los requisitos de acceso para el curso <strong>${reqData.course_name}</strong>.
+                Para formalizar tu plaza definitiva, realiza una transferencia bancaria con los siguientes datos:
               </p>
             </div>
 
-            <p style="font-size: 14px; color: #4b5563; line-height: 1.6;">
-              Tan pronto como se habilite el módulo de pago online, recibirás las instrucciones correspondientes para formalizar tu plaza. Recuerda que una vez abonado, Administración validará el ingreso y activará definitivamente tu matrícula en el campus.
-            </p>
+            <div style="background-color: #f0fdf4; border: 2px solid #86efac; padding: 18px; border-radius: 12px; margin: 20px 0;">
+              <p style="margin: 0 0 10px 0; font-size: 14px; font-weight: bold; color: #166534; text-transform: uppercase;">
+                Datos Oficiales para la Transferencia Bancaria
+              </p>
+              <table style="width: 100%; border-collapse: collapse; font-size: 13px; color: #1f2937;">
+                <tr><td style="padding: 4px 0; font-weight: bold; color: #374151;">Titular de la cuenta:</td><td style="padding: 4px 0;">${bankConfig.titular_cuenta}</td></tr>
+                <tr><td style="padding: 4px 0; font-weight: bold; color: #374151;">IBAN:</td><td style="padding: 4px 0; font-family: monospace; font-weight: bold; color: #166534;">${bankConfig.iban || '(Configurado en Secretaría)'}</td></tr>
+                ${bankConfig.entidad_bancaria ? `<tr><td style="padding: 4px 0; font-weight: bold; color: #374151;">Entidad bancaria:</td><td style="padding: 4px 0;">${bankConfig.entidad_bancaria}</td></tr>` : ''}
+                ${bankConfig.bic_swift ? `<tr><td style="padding: 4px 0; font-weight: bold; color: #374151;">BIC/SWIFT:</td><td style="padding: 4px 0; font-family: monospace;">${bankConfig.bic_swift}</td></tr>` : ''}
+                <tr><td style="padding: 4px 0; font-weight: bold; color: #374151;">Curso:</td><td style="padding: 4px 0;">${reqData.course_name}</td></tr>
+                <tr><td style="padding: 4px 0; font-weight: bold; color: #374151;">Importe exacto:</td><td style="padding: 4px 0; font-weight: bold; color: #dc2626;">${Number(reqData.precio_final_snapshot || 0).toFixed(2)} ${reqData.moneda_snapshot || 'EUR'}</td></tr>
+                <tr><td style="padding: 4px 0; font-weight: bold; color: #374151;">Concepto / Referencia única:</td><td style="padding: 4px 0; font-family: monospace; font-weight: bold; color: #dc2626;">${transferRef}</td></tr>
+              </table>
+              <p style="margin: 12px 0 0 0; font-size: 12px; color: #15803d; line-height: 1.4;">
+                ${bankConfig.instrucciones_adicionales || 'Indique siempre la Referencia Única de su solicitud en el concepto de la transferencia bancaria.'}
+              </p>
+            </div>
+
+            <div style="background-color: #fffbeb; border-left: 4px solid #f59e0b; padding: 12px; border-radius: 8px; margin: 15px 0; font-size: 12px; color: #92400e; line-height: 1.5;">
+              <strong>Normativa de matriculación:</strong> Recuerda que la realización de la transferencia o la aportación de un justificante no concede acceso automático al campus. La activación de matrícula y credenciales se realiza una vez que Administración comprueba manualmente el ingreso en cuenta.
+            </div>
             
             <hr style="border: none; border-top: 1px solid #f3f4f6; margin: 25px 0;" />
             <p style="font-size: 11px; color: #9ca3af; text-align: center;">Ref. Solicitud: ${reqData.request_number} · Academias Péndulo</p>
@@ -3314,7 +3725,7 @@ app.put('/api/admin/inscriptions/:id/preapprove', requireAuth, requireNoTempPass
       console.warn('Preapproval email warning:', mailErr.message);
     }
 
-    res.json({ success: true, message: 'Solicitud preaprobada correctamente. El alumno queda autorizado para el pago.' });
+    res.json({ success: true, message: 'Solicitud preaprobada correctamente. El alumno ha recibido las instrucciones de transferencia bancaria.' });
   } catch (error) {
     console.error('Preapprove error:', error);
     res.status(500).json({ error: 'Error al preaprobar la solicitud.' });
@@ -3336,7 +3747,7 @@ app.put('/api/admin/inscriptions/:id/reject', requireAuth, requireNoTempPassword
       return res.status(400).json({ error: 'Debe indicar un motivo justificado para el rechazo de la solicitud.' });
     }
 
-    const existing = await query(`SELECT * FROM inscription_requests WHERE id = ? LIMIT 1`, [reqId]);
+    const existing = await query(`SELECT * FROM inscription_requests WHERE id = ? OR request_number = ? LIMIT 1`, [reqId, reqId]);
     if (!existing || existing.length === 0) {
       return res.status(404).json({ error: 'Solicitud no encontrada.' });
     }
@@ -3418,7 +3829,7 @@ app.put('/api/admin/inscriptions/:id/cancel', requireAuth, requireNoTempPassword
     }
 
     const reqId = req.params.id;
-    const existing = await query(`SELECT * FROM inscription_requests WHERE id = ? LIMIT 1`, [reqId]);
+    const existing = await query(`SELECT * FROM inscription_requests WHERE id = ? OR request_number = ? LIMIT 1`, [reqId, reqId]);
     if (!existing || existing.length === 0) {
       return res.status(404).json({ error: 'Solicitud no encontrada.' });
     }
@@ -3866,7 +4277,7 @@ app.post('/api/admin/inscriptions/:id/convert-checks', requireAuth, requireNoTem
     }
 
     const reqId = req.params.id;
-    const rows = await query(`SELECT * FROM inscription_requests WHERE id = ? LIMIT 1`, [reqId]);
+    const rows = await query(`SELECT * FROM inscription_requests WHERE id = ? OR request_number = ? LIMIT 1`, [reqId, reqId]);
 
     if (!rows || rows.length === 0) {
       return res.status(404).json({ error: 'Solicitud no encontrada.' });
@@ -3949,6 +4360,20 @@ app.post('/api/admin/inscriptions/:id/convert-checks', requireAuth, requireNoTem
       `);
     }
 
+    const paymentVerified = reqData.estado_pago === 'TRANSFERENCIA_VERIFICADA';
+    const admissionSatisfied = reqData.modalidad_inscripcion === 'COMPRA_DIRECTA' || reqData.estado_solicitud === 'PREAPROBADA';
+    const notRejectedOrCancelled = reqData.estado_solicitud !== 'RECHAZADA' && reqData.estado_solicitud !== 'CANCELADA';
+
+    const canApprove = paymentVerified && admissionSatisfied && notRejectedOrCancelled;
+    let blockingReason = null;
+    if (!paymentVerified) {
+      blockingReason = `La transferencia bancaria debe estar verificada por Administración (Estado actual: ${reqData.estado_pago}).`;
+    } else if (!admissionSatisfied) {
+      blockingReason = `La solicitud en modalidad de aprobación debe ser preaprobada por Secretaría antes de otorgar el alta.`;
+    } else if (!notRejectedOrCancelled) {
+      blockingReason = `La solicitud se encuentra ${reqData.estado_solicitud}.`;
+    }
+
     res.json({
       alreadyConverted: false,
       request: reqData,
@@ -3956,6 +4381,10 @@ app.post('/api/admin/inscriptions/:id/convert-checks', requireAuth, requireNoTem
       existingUserByEmail,
       dniExists: !!existingUserByDni,
       existingUserByDni,
+      isNewUser: !existingUserByEmail,
+      paymentVerified,
+      canApprove,
+      blockingReason,
       matchedGroups,
       defaultGroupId: matchedGroups.length > 0 ? matchedGroups[0].id : null
     });
@@ -3966,21 +4395,21 @@ app.post('/api/admin/inscriptions/:id/convert-checks', requireAuth, requireNoTem
   }
 });
 
-// 8. ADMIN: Execute Atomic DB Transaction to Convert Request to Student
-app.post('/api/admin/inscriptions/:id/convert-to-student', requireAuth, requireNoTempPassword, async (req, res) => {
+// 8. ADMIN: Execute Atomic DB Transaction to Approve Enrollment and Activate Student (Requirement 7, 8, 9, 10, 12, 13)
+async function handleApproveEnrollmentAndActivate(req, res) {
   const conn = await pool.getConnection();
 
   try {
     const userRoles = req.user.roles || [];
     if (!userRoles.includes('ADMINISTRADOR') && !userRoles.includes('SECRETARIA')) {
       conn.release();
-      return res.status(403).json({ error: 'Acceso restringido a Secretaría y Administración.' });
+      return res.status(403).json({ error: 'Acceso restringido a personal autorizado de Secretaría y Administración.' });
     }
 
     const reqId = req.params.id;
     const { groupId } = req.body;
 
-    const [rows] = await conn.execute(`SELECT * FROM inscription_requests WHERE id = ? LIMIT 1`, [reqId]);
+    const [rows] = await conn.execute(`SELECT * FROM inscription_requests WHERE id = ? OR request_number = ? LIMIT 1`, [reqId, reqId]);
     if (!rows || rows.length === 0) {
       conn.release();
       return res.status(404).json({ error: 'Solicitud no encontrada.' });
@@ -3991,20 +4420,32 @@ app.post('/api/admin/inscriptions/:id/convert-to-student', requireAuth, requireN
     // Idempotency check: Don't double create
     if (reqData.converted_to_student && reqData.student_user_id) {
       conn.release();
-      return res.status(400).json({ error: `La solicitud ${reqData.request_number} ya fue convertida en alumno previamente.` });
+      return res.status(400).json({ error: `La solicitud ${reqData.request_number} ya fue dada de alta y matriculada previamente.` });
     }
 
-    // State guard: Do not allow activating campus if rejected, cancelled, or pending documentation
+    // Requirement 6 & 12: Verify payment is TRANSFERENCIA_VERIFICADA
+    if (reqData.estado_pago !== 'TRANSFERENCIA_VERIFICADA') {
+      conn.release();
+      return res.status(400).json({
+        error: `Para dar de alta al alumno y activar su matrícula en el campus, la transferencia bancaria debe haber sido previamente verificada por Administración (Estado actual: ${reqData.estado_pago}).`
+      });
+    }
+
+    // Modalidad Solicitud con Aprobación requires academic preapproval
+    if (reqData.modalidad_inscripcion === 'SOLICITUD_APROBACION' && reqData.estado_solicitud !== 'PREAPROBADA') {
+      conn.release();
+      return res.status(400).json({
+        error: `Para autorizar la matrícula de una solicitud con aprobación, debe estar previamente preaprobada por Secretaría académica.`
+      });
+    }
+
+    // State guard: Do not allow activating campus if rejected or cancelled
     if (reqData.estado_solicitud === 'RECHAZADA' || reqData.estado_solicitud === 'CANCELADA') {
       conn.release();
       return res.status(400).json({ error: `No se puede conceder matrícula ni acceso al campus a una solicitud en estado ${reqData.estado_solicitud}.` });
     }
-    if (reqData.estado_solicitud === 'PENDIENTE_DOCUMENTACION') {
-      conn.release();
-      return res.status(400).json({ error: 'La solicitud se encuentra pendiente de documentación complementaria antes de autorizar la matrícula.' });
-    }
 
-    // Verify group selected
+    // Verify target group selected
     let targetGroupId = groupId;
     if (!targetGroupId) {
       const [defaultGrp] = await conn.execute(`SELECT id FROM grupos WHERE estado = 'ACTIVO' LIMIT 1`);
@@ -4034,31 +4475,43 @@ app.post('/api/admin/inscriptions/:id/convert-to-student', requireAuth, requireN
     // ====================================================
     await conn.beginTransaction();
 
+    // Requirement 8: Username is EMAIL address (normalized and validated)
     const cleanEmail = normalizeEmail(reqData.email);
     let userId = null;
+    let isNewUser = false;
+    let rawTempPassword = null;
 
-    // Check if user already exists by email
-    const [existingUser] = await conn.execute(`SELECT id FROM usuarios WHERE email = ? LIMIT 1`, [cleanEmail]);
+    // Check if user already exists by email (Requirement 8: Reusar cuenta si el alumno ya está registrado)
+    const [existingUser] = await conn.execute(`
+      SELECT id, email, nombre, apellidos, password_hash, estado
+      FROM usuarios
+      WHERE email = ? LIMIT 1
+    `, [cleanEmail]);
 
     if (existingUser && existingUser.length > 0) {
       userId = existingUser[0].id;
+      isNewUser = false;
+      // Reutilizar cuenta sin modificar ni sobrescribir credenciales antiguas (Requirement 8 & 10)
     } else {
-      // Create new user in `usuarios`
+      // Requirement 8 & 9: Create new user with Email as Username & Secure Random Initial Password
+      isNewUser = true;
       userId = `usr_student_${Date.now().toString(36)}_${Math.random().toString(36).substring(2, 6)}`;
-      const dummyTempPass = await hashPassword(Math.random().toString(36) + 'AccP@2026!');
+      rawTempPassword = generateTempPassword(14);
+      const tempPassHash = await hashPassword(rawTempPassword);
 
       await conn.execute(`
         INSERT INTO usuarios (
           id, nombre, apellidos, email, email_original, password_hash, telefono,
-          estado, cambio_password_obligatorio, creado_por, creado_en
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, 'ACTIVO', 1, ?, NOW())
+          estado, cambio_password_obligatorio, caducidad_password_temporal,
+          creado_por, creado_en, role, activo
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, 'ACTIVO', 1, DATE_ADD(NOW(), INTERVAL 7 DAY), ?, NOW(), 'ALUMNO', 1)
       `, [
         userId,
         reqData.first_name.trim(),
         `${reqData.last_name_1.trim()} ${reqData.last_name_2 ? reqData.last_name_2.trim() : ''}`.trim(),
         cleanEmail,
         reqData.email.trim(),
-        dummyTempPass,
+        tempPassHash,
         reqData.phone.trim(),
         req.user.id
       ]);
@@ -4070,14 +4523,14 @@ app.post('/api/admin/inscriptions/:id/convert-to-student', requireAuth, requireN
       `, [userId, req.user.id]);
     }
 
-    // Create Enrollment in `matriculas`
+    // Create Enrollment in `matriculas` (Requirement 7 & 12: Activar únicamente la matrícula del curso aprobado)
     const matId = `mat-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 6)}`;
     await conn.execute(`
       INSERT INTO matriculas (id, alumno_id, grupo_id, estado, autor_id, fecha_inicio)
       VALUES (?, ?, ?, 'ACTIVA', ?, NOW())
     `, [matId, userId, targetGroupId, req.user.id]);
 
-    // Update or Insert atomic active enrollment `alumno_matricula_activa`
+    // Update atomic active enrollment `alumno_matricula_activa`
     await conn.execute(`
       INSERT INTO alumno_matricula_activa (alumno_id, matricula_id)
       VALUES (?, ?)
@@ -4094,40 +4547,61 @@ app.post('/api/admin/inscriptions/:id/convert-to-student', requireAuth, requireN
           estado_matricula = 'ACTIVA',
           aprobado_final_por = ?,
           aprobado_final_en = NOW(),
+          aprobado_alta_por = ?,
+          aprobado_alta_en = NOW(),
           status = 'Matriculado',
           updated_at = NOW()
       WHERE id = ?
-    `, [userId, adminApprover, reqData.id]);
+    `, [userId, adminApprover, adminApprover, reqData.id]);
 
-    // Create Activation Token (Expires in 7 days)
-    const rawActivationToken = crypto.randomBytes(32).toString('hex');
-    const tokenHash = crypto.createHash('sha256').update(rawActivationToken).digest('hex');
-
-    await conn.execute(`
-      INSERT INTO account_activation_tokens (user_id, token_hash, expires_at, created_at)
-      VALUES (?, ?, DATE_ADD(NOW(), INTERVAL 7 DAY), NOW())
-    `, [userId, tokenHash]);
-
-    // Log History Event: STUDENT_CREATED & ENROLLMENT_CREATED
+    // History and Audit
     await conn.execute(`
       INSERT INTO inscription_request_history (request_id, user_id, event_type, description, created_at)
-      VALUES (?, ?, 'STUDENT_CREATED', ?, NOW())
-    `, [reqData.id, req.user.id, `La solicitud ${reqData.request_number} fue convertida en alumno.`]);
+      VALUES (?, ?, ?, ?, NOW())
+    `, [
+      reqData.id,
+      req.user.id,
+      isNewUser ? 'STUDENT_CREATED' : 'STUDENT_REUSED',
+      isNewUser
+        ? `Cuenta creada con usuario: ${cleanEmail}. Contraseña temporal generada y protegida mediante hash scrypt.`
+        : `Cuenta de usuario existente reutilizada (${cleanEmail}). Matrícula activada sin modificar credenciales previas.`
+    ]);
 
     await conn.execute(`
       INSERT INTO inscription_request_history (request_id, user_id, event_type, description, created_at)
-      VALUES (?, ?, 'ENROLLMENT_CREATED', ?, NOW())
-    `, [reqData.id, req.user.id, `Matrícula activa creada en el grupo "${targetGroup.grupo_nombre}" (${targetGroup.especialidad_nombre}).`]);
+      VALUES (?, ?, 'ENROLLMENT_APPROVED', ?, NOW())
+    `, [
+      reqData.id,
+      req.user.id,
+      `Matrícula APROBADA y ALTA CONCEDIDA por ${adminApprover} en grupo "${targetGroup.grupo_nombre}" (${targetGroup.especialidad_nombre}). Estado matrícula: ACTIVA.`
+    ]);
 
-    // Teacher Notification (Requirement 17)
+    await conn.execute(`
+      INSERT INTO auditoria (actor_id, accion_administrativa, recurso, recurso_id, diff_cambios, ip, creado_en)
+      VALUES (?, 'APPROVE_ENROLLMENT_AND_ACTIVATE', 'matriculas', ?, ?, ?, NOW())
+    `, [
+      req.user.id,
+      matId,
+      JSON.stringify({
+        solicitud_id: reqData.id,
+        alumno_id: userId,
+        usuario_login: cleanEmail,
+        isNewUser,
+        curso: reqData.course_name,
+        operador: adminApprover
+      }),
+      req.ip || null
+    ]);
+
+    // Teacher notification
     if (targetGroup.profesor_principal_id) {
       try {
-        const notifId = `notif-${Date.now()}`;
+        const notifId = `notif-prof-${Date.now()}`;
         const studentFullName = `${reqData.first_name} ${reqData.last_name_1}`;
         await conn.execute(`
-          INSERT INTO avisos (id, titulo, contenido, destino, autor_id, creado_en)
-          VALUES (?, 'Nuevo alumno incorporado', ?, 'PROFESORES', ?, NOW())
-        `, [notifId, `${studentFullName} ha sido incorporado al curso ${reqData.course_name}.`, req.user.id]);
+          INSERT INTO notificaciones (id, destinatario_id, tipo, referencia_tipo, referencia_id, titulo, mensaje, creado_en)
+          VALUES (?, ?, 'ENROLLMENT', 'GRUPO', ?, 'Nuevo alumno incorporado', ?, NOW())
+        `, [notifId, targetGroup.profesor_principal_id, String(targetGroupId), `${studentFullName} ha sido incorporado al grupo ${targetGroup.grupo_nombre} (${reqData.course_name}).`]);
       } catch (notifErr) {
         console.warn('Teacher notification insert warning:', notifErr);
       }
@@ -4138,17 +4612,18 @@ app.post('/api/admin/inscriptions/:id/convert-to-student', requireAuth, requireN
     conn.release();
 
     // ====================================================
-    // POST-TRANSACTION: SEND ACTIVATION EMAIL (Requirement 9 & 14)
+    // POST-TRANSACTION: SEND WELCOME EMAIL (Requirement 10)
     // ====================================================
-    const activationLink = `http://localhost:3000/activar-cuenta?token=${rawActivationToken}`;
+    const campusUrl = process.env.CAMPUS_URL || 'http://localhost:3000/#campus';
     let emailSent = false;
     let emailError = null;
 
     try {
-      await sendSystemEmail({
-        to: cleanEmail,
-        subject: `Tu acceso al Campus de Academias Péndulo`,
-        html: `
+      const emailSubject = 'Bienvenido/a a ACADEMIAS PÉNDULO — Acceso al campus virtual';
+      let emailHtml = '';
+
+      if (isNewUser) {
+        emailHtml = `
           <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 25px; border: 1px solid #e5e7eb; border-radius: 12px; background: #ffffff;">
             <div style="text-align: center; margin-bottom: 20px;">
               <h1 style="color: #dc2626; margin: 0;">Academias Péndulo</h1>
@@ -4156,53 +4631,105 @@ app.post('/api/admin/inscriptions/:id/convert-to-student', requireAuth, requireN
             </div>
             <hr style="border: none; border-top: 1px solid #f3f4f6; margin: 20px 0;" />
             
-            <p style="font-size: 16px; color: #1f2937;">Hola <strong>${reqData.first_name}</strong>,</p>
+            <p style="font-size: 16px; color: #1f2937;">Hola, <strong>${reqData.first_name}</strong>:</p>
             
             <p style="font-size: 15px; color: #374151; line-height: 1.5;">
-              Tu solicitud de inscripción en <strong>${reqData.course_name}</strong> ha sido aceptada y tu acceso al Campus Virtual de Academias Péndulo ya está preparado.
+              Tu matrícula en el curso <strong>${reqData.course_name}</strong> ha sido aprobada.
             </p>
-            
-            <div style="text-align: center; margin: 30px 0;">
-              <a href="${activationLink}" style="background-color: #dc2626; color: #ffffff; padding: 14px 28px; text-decoration: none; border-radius: 10px; font-weight: bold; font-size: 14px; display: inline-block; box-shadow: 0 4px 6px rgba(220, 38, 38, 0.2);">
-                ACTIVAR MI CUENTA Y ESTABLECER CONTRASEÑA
-              </a>
+            <p style="font-size: 15px; color: #374151; line-height: 1.5;">
+              Te damos la bienvenida a <strong>ACADEMIAS PÉNDULO</strong>.
+            </p>
+            <p style="font-size: 15px; color: #374151; line-height: 1.5;">
+              Ya tienes disponible tu acceso al campus virtual.
+            </p>
+
+            <div style="background-color: #f9fafb; padding: 18px; border-radius: 10px; margin: 25px 0; border: 1px solid #e5e7eb;">
+              <p style="margin: 0 0 10px 0; font-size: 14px; font-weight: bold; color: #1f2937;">Tus datos de acceso iniciales son:</p>
+              <p style="margin: 0 0 6px 0; font-size: 14px; color: #374151;"><strong>Usuario:</strong> ${cleanEmail}</p>
+              <p style="margin: 0 0 6px 0; font-size: 14px; color: #374151;"><strong>Contraseña temporal:</strong> <span style="font-family: monospace; background: #fee2e2; color: #991b1b; padding: 3px 8px; border-radius: 4px; font-weight: bold;">${rawTempPassword}</span></p>
+              <p style="margin: 0; font-size: 14px; color: #374151;"><strong>Acceso al campus:</strong> <a href="${campusUrl}" style="color: #dc2626; font-weight: bold; text-decoration: underline;">${campusUrl}</a></p>
             </div>
-            
-            <div style="background-color: #f9fafb; padding: 16px; border-radius: 8px; margin: 20px 0; border: 1px solid #e5e7eb;">
-              <p style="margin: 0; font-size: 13px; color: #4b5563;">Tu usuario de acceso será:</p>
-              <p style="margin: 4px 0 0 0; font-size: 16px; font-weight: bold; color: #1f2937;">${cleanEmail}</p>
+
+            <div style="background-color: #fffbeb; border-left: 4px solid #f59e0b; padding: 14px; border-radius: 8px; margin: 20px 0; font-size: 13px; color: #92400e; line-height: 1.5;">
+              <strong>Aviso de seguridad:</strong> Por seguridad, deberás sustituir tu contraseña temporal al acceder por primera vez. Posteriormente podrás modificarla fácilmente desde tu perfil, en el apartado de seguridad de tu cuenta.
             </div>
-            
+
             <p style="font-size: 14px; color: #4b5563; line-height: 1.6;">
-              Una vez activada tu cuenta podrás acceder a tu curso, materiales, contenidos y comunicaciones desde el Campus Virtual de Academias Péndulo.
+              Si tienes alguna dificultad para acceder, ponte en contacto con nuestra Secretaría.
             </p>
-            
-            <p style="font-size: 14px; color: #4b5563; line-height: 1.6;">
-              Si tienes alguna duda, puedes ponerte en contacto con Secretaría.
+
+            <p style="font-size: 14px; color: #1f2937; margin-top: 25px; line-height: 1.5;">
+              Un saludo,<br />
+              <strong>Administración</strong><br />
+              <strong>ACADEMIAS PÉNDULO</strong>
             </p>
-            
-            <hr style="border: none; border-top: 1px solid #f3f4f6; margin: 25px 0;" />
-            <p style="font-size: 13px; font-weight: bold; color: #1f2937; margin: 0;">Academias Péndulo</p>
-            <p style="font-size: 12px; color: #6b7280; margin: 2px 0 0 0;">Formación en Automoción</p>
           </div>
-        `
+        `;
+      } else {
+        emailHtml = `
+          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 25px; border: 1px solid #e5e7eb; border-radius: 12px; background: #ffffff;">
+            <div style="text-align: center; margin-bottom: 20px;">
+              <h1 style="color: #dc2626; margin: 0;">Academias Péndulo</h1>
+              <p style="color: #4b5563; font-size: 14px; margin-top: 4px;">Campus Virtual · Formación Oficial en Automoción</p>
+            </div>
+            <hr style="border: none; border-top: 1px solid #f3f4f6; margin: 20px 0;" />
+            
+            <p style="font-size: 16px; color: #1f2937;">Hola, <strong>${reqData.first_name}</strong>:</p>
+            
+            <p style="font-size: 15px; color: #374151; line-height: 1.5;">
+              Tu matrícula en el curso <strong>${reqData.course_name}</strong> ha sido aprobada.
+            </p>
+            <p style="font-size: 15px; color: #374151; line-height: 1.5;">
+              Te damos la bienvenida a <strong>ACADEMIAS PÉNDULO</strong>.
+            </p>
+            <p style="font-size: 15px; color: #374151; line-height: 1.5;">
+              Ya tienes disponible tu acceso al campus virtual para este nuevo curso.
+            </p>
+
+            <div style="background-color: #f9fafb; padding: 18px; border-radius: 10px; margin: 25px 0; border: 1px solid #e5e7eb;">
+              <p style="margin: 0 0 10px 0; font-size: 14px; font-weight: bold; color: #1f2937;">Tus datos de acceso son tus credenciales habituales:</p>
+              <p style="margin: 0 0 6px 0; font-size: 14px; color: #374151;"><strong>Usuario:</strong> ${cleanEmail}</p>
+              <p style="margin: 0 0 6px 0; font-size: 14px; color: #374151;"><strong>Contraseña:</strong> Tu contraseña habitual de acceso al campus.</p>
+              <p style="margin: 0; font-size: 14px; color: #374151;"><strong>Acceso al campus:</strong> <a href="${campusUrl}" style="color: #dc2626; font-weight: bold; text-decoration: underline;">${campusUrl}</a></p>
+            </div>
+
+            <p style="font-size: 14px; color: #4b5563; line-height: 1.6;">
+              Si tienes alguna dificultad para acceder o deseas modificar tu contraseña, puedes hacerlo en cualquier momento desde tu perfil o contactando con Secretaría.
+            </p>
+
+            <p style="font-size: 14px; color: #1f2937; margin-top: 25px; line-height: 1.5;">
+              Un saludo,<br />
+              <strong>Administración</strong><br />
+              <strong>ACADEMIAS PÉNDULO</strong>
+            </p>
+          </div>
+        `;
+      }
+
+      await sendSystemEmail({
+        to: cleanEmail,
+        subject: emailSubject,
+        html: emailHtml
       });
 
       emailSent = true;
-      await logInscriptionHistory(reqData.id, req.user.id, 'ACTIVATION_EMAIL_SENT', `Email de acceso y enlace de activación enviado a ${cleanEmail}.`);
+      await query(`UPDATE inscription_requests SET bienvenida_email_enviado = 1, bienvenida_email_error = NULL WHERE id = ?`, [reqData.id]);
+      await logInscriptionHistory(reqData.id, req.user.id, 'WELCOME_EMAIL_SENT', `Correo oficial de bienvenida y credenciales enviado correctamente a ${cleanEmail}.`);
     } catch (mailErr) {
-      console.error('Activation email send error:', mailErr);
-      emailError = mailErr.message || 'Error al enviar el correo a través de SMTP.';
-      await logInscriptionHistory(reqData.id, req.user.id, 'EMAIL_FAILED', `Alumno creado correctamente, pero falló el envío del correo de activación: ${emailError}`);
+      console.error('Welcome email error:', mailErr.message);
+      emailError = mailErr.message || 'Error al enviar correo por SMTP.';
+      await query(`UPDATE inscription_requests SET bienvenida_email_enviado = 0, bienvenida_email_error = ? WHERE id = ?`, [emailError, reqData.id]);
+      await logInscriptionHistory(reqData.id, req.user.id, 'EMAIL_FAILED', `Alta realizada, pero falló el envío del correo de bienvenida: ${emailError}`);
     }
 
     res.json({
       success: true,
-      message: 'Alumno creado y matriculado correctamente en el campus.',
+      message: 'Matrícula aprobada y alumno dado de alta correctamente en el campus virtual.',
       userId,
+      student_email: cleanEmail,
+      isNewUser,
       emailSent,
-      emailError,
-      activationLink
+      emailError
     });
 
   } catch (error) {
@@ -4210,8 +4737,103 @@ app.post('/api/admin/inscriptions/:id/convert-to-student', requireAuth, requireN
       try { await conn.rollback(); } catch (rbErr) {}
       conn.release();
     }
-    console.error('Convert to student error:', error);
-    res.status(500).json({ error: 'Error durante la transacción de creación de alumno: ' + error.message });
+    console.error('Approve enrollment and activate error:', error);
+    res.status(500).json({ error: 'Error durante la transacción de alta: ' + error.message });
+  }
+}
+
+// Routes for enrollment approval and activation (both aliases supported)
+app.post('/api/admin/inscriptions/:id/convert-to-student', requireAuth, requireNoTempPassword, handleApproveEnrollmentAndActivate);
+app.post('/api/admin/inscriptions/:id/approve-enrollment-and-activate', requireAuth, requireNoTempPassword, handleApproveEnrollmentAndActivate);
+
+// Re-send welcome email / generate fresh credentials if previous failed (Requirement 10)
+app.post('/api/admin/inscriptions/:id/resend-welcome-email', requireAuth, requireNoTempPassword, async (req, res) => {
+  try {
+    const userRoles = req.user.roles || [];
+    if (!userRoles.includes('ADMINISTRADOR') && !userRoles.includes('SECRETARIA')) {
+      return res.status(403).json({ error: 'Acceso restringido.' });
+    }
+
+    const reqId = req.params.id;
+    const rows = await query(`SELECT * FROM inscription_requests WHERE id = ? LIMIT 1`, [reqId]);
+    if (!rows || rows.length === 0 || !rows[0].converted_to_student || !rows[0].student_user_id) {
+      return res.status(400).json({ error: 'La solicitud debe haber sido dada de alta previamente para poder reenviar el correo de bienvenida.' });
+    }
+
+    const reqData = rows[0];
+    const cleanEmail = normalizeEmail(reqData.email);
+    const userRows = await query(`SELECT * FROM usuarios WHERE id = ? LIMIT 1`, [reqData.student_user_id]);
+    if (!userRows || userRows.length === 0) {
+      return res.status(404).json({ error: 'Usuario asociado no encontrado en la base de datos.' });
+    }
+
+    const studentUser = userRows[0];
+    const campusUrl = process.env.CAMPUS_URL || 'http://localhost:3000/#campus';
+
+    // If user has not yet changed password (still temporary), generate a fresh one and invalidate old
+    let rawTempPassword = null;
+    if (studentUser.cambio_password_obligatorio) {
+      rawTempPassword = generateTempPassword(14);
+      const newHash = await hashPassword(rawTempPassword);
+      await query(`
+        UPDATE usuarios
+        SET password_hash = ?,
+            caducidad_password_temporal = DATE_ADD(NOW(), INTERVAL 7 DAY),
+            actualizado_en = NOW()
+        WHERE id = ?
+      `, [newHash, studentUser.id]);
+    }
+
+    const emailSubject = 'Bienvenido/a a ACADEMIAS PÉNDULO — Acceso al campus virtual';
+    let emailHtml = '';
+
+    if (rawTempPassword) {
+      emailHtml = `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 25px; border: 1px solid #e5e7eb; border-radius: 12px; background: #ffffff;">
+          <h1 style="color: #dc2626; margin: 0; text-align: center;">Academias Péndulo</h1>
+          <p style="color: #4b5563; font-size: 14px; text-align: center;">Campus Virtual · Formación Oficial en Automoción</p>
+          <hr style="border: none; border-top: 1px solid #f3f4f6; margin: 20px 0;" />
+          <p>Hola, <strong>${reqData.first_name}</strong>:</p>
+          <p>Te enviamos una nueva credencial temporal de acceso al campus virtual para el curso <strong>${reqData.course_name}</strong>.</p>
+          <div style="background-color: #f9fafb; padding: 18px; border-radius: 10px; margin: 25px 0; border: 1px solid #e5e7eb;">
+            <p><strong>Usuario:</strong> ${cleanEmail}</p>
+            <p><strong>Nueva contraseña temporal:</strong> <span style="font-family: monospace; background: #fee2e2; color: #991b1b; padding: 3px 8px; border-radius: 4px; font-weight: bold;">${rawTempPassword}</span></p>
+            <p><strong>Acceso al campus:</strong> <a href="${campusUrl}">${campusUrl}</a></p>
+          </div>
+          <p style="font-size: 13px; color: #92400e;">Por seguridad, sustituye esta contraseña temporal al acceder por primera vez.</p>
+          <p>Un saludo,<br />Administración<br />ACADEMIAS PÉNDULO</p>
+        </div>
+      `;
+    } else {
+      emailHtml = `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 25px; border: 1px solid #e5e7eb; border-radius: 12px; background: #ffffff;">
+          <h1 style="color: #dc2626; margin: 0; text-align: center;">Academias Péndulo</h1>
+          <hr style="border: none; border-top: 1px solid #f3f4f6; margin: 20px 0;" />
+          <p>Hola, <strong>${reqData.first_name}</strong>:</p>
+          <p>Tu matrícula en el curso <strong>${reqData.course_name}</strong> se encuentra activa en el campus virtual.</p>
+          <div style="background-color: #f9fafb; padding: 18px; border-radius: 10px; margin: 25px 0; border: 1px solid #e5e7eb;">
+            <p><strong>Usuario:</strong> ${cleanEmail}</p>
+            <p><strong>Contraseña:</strong> Tu contraseña habitual de acceso.</p>
+            <p><strong>Acceso al campus:</strong> <a href="${campusUrl}">${campusUrl}</a></p>
+          </div>
+          <p>Un saludo,<br />Administración<br />ACADEMIAS PÉNDULO</p>
+        </div>
+      `;
+    }
+
+    await sendSystemEmail({
+      to: cleanEmail,
+      subject: emailSubject,
+      html: emailHtml
+    });
+
+    await query(`UPDATE inscription_requests SET bienvenida_email_enviado = 1, bienvenida_email_error = NULL WHERE id = ?`, [reqData.id]);
+    await logInscriptionHistory(reqData.id, req.user.id, 'WELCOME_EMAIL_RESENT', `Reenvío de credenciales realizado por ${req.user.email || req.user.nombre}.`);
+
+    res.json({ success: true, message: `Correo de bienvenida reenviado correctamente a ${cleanEmail}.` });
+  } catch (error) {
+    console.error('Resend welcome email error:', error);
+    res.status(500).json({ error: 'Error al reenviar correo de bienvenida: ' + error.message });
   }
 });
 
