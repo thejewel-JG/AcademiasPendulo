@@ -1,0 +1,14 @@
+User-agent: *
+Allow: /
+Allow: /cursos
+Allow: /contacto
+Allow: /nosotros
+Allow: /matricula
+Disallow: /api/
+Disallow: /admin
+Disallow: /#admin
+Disallow: /campus
+Disallow: /#campus
+Disallow: /#reset-password
+Disallow: /#activar-cuenta
+Disallow: /uploads/

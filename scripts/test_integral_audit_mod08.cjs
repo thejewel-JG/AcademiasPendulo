@@ -120,6 +120,8 @@ async function runAuditSuite() {
     // ========================================================================
     // ESCENARIO A — NUEVO ALUMNO, INSCRIPCIÓN DIRECTA (Flujo Completo de 15 Pasos)
     // ========================================================================
+    await query(`UPDATE especialidades SET estado_disponibilidad = 'ABIERTA' WHERE id = 'tmvg0004'`);
+
     const tsA = Date.now();
     const dniA = generateRandomDni();
     const emailA = `alumno.directo.${tsA}@example.com`;
@@ -258,6 +260,8 @@ async function runAuditSuite() {
     // ========================================================================
     // ESCENARIO C — ALUMNO YA REGISTRADO (Reutilización de Cuenta)
     // ========================================================================
+    await query(`UPDATE especialidades SET estado_disponibilidad = 'ABIERTA' WHERE id = 'tmvg0002'`);
+
     const tsC = Date.now();
     // Inscribir al mismo alumno de Escenario A en un segundo curso
     const submitResC = await makeRequest('POST', '/api/public/inscription-request', {}, {

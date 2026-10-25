@@ -166,3 +166,96 @@ export function isValidDniNie(documentNumber) {
 
   return letter === validLetters[num % 23];
 }
+
+/**
+ * Generate HMAC-SHA256 signature for signed download links or tokens
+ */
+export function generateHmacSignature(data, secret = process.env.MAIL_ENCRYPTION_SECRET || 'academias_pendulo_secure_outbox_key_2026') {
+  return crypto.createHmac('sha256', secret).update(String(data)).digest('hex').substring(0, 32);
+}
+
+/**
+ * Verify HMAC-SHA256 signature in constant time
+ */
+export function verifyHmacSignature(data, signature, secret = process.env.MAIL_ENCRYPTION_SECRET || 'academias_pendulo_secure_outbox_key_2026') {
+  if (!signature || typeof signature !== 'string') return false;
+  const expected = generateHmacSignature(data, secret);
+  try {
+    const a = Buffer.from(signature, 'hex');
+    const b = Buffer.from(expected, 'hex');
+    if (a.length !== b.length) return false;
+    return crypto.timingSafeEqual(a, b);
+  } catch (err) {
+    return false;
+  }
+}
+
+/**
+ * Validate file uploads against whitelist and malicious magic byte patterns
+ */
+export function validateFileBuffer(buffer, filename, category = 'RECEIPT') {
+  if (!buffer || !Buffer.isBuffer(buffer) || buffer.length === 0) {
+    return { valid: false, error: 'Archivo vacío o corrupto.' };
+  }
+
+  // Maximum sizes: 10 MB
+  if (buffer.length > 10 * 1024 * 1024) {
+    return { valid: false, error: 'El archivo excede el tamaño máximo permitido (10 MB).' };
+  }
+
+  const ext = (filename ? filename.substring(filename.lastIndexOf('.')) : '').toLowerCase();
+  
+  // Forbidden executable signatures
+  if (buffer.length >= 2 && buffer[0] === 0x4D && buffer[1] === 0x5A) {
+    return { valid: false, error: 'Formato de archivo no permitido (ejecutable detectado).' };
+  }
+  if (buffer.length >= 4 && buffer[0] === 0x7F && buffer[1] === 0x45 && buffer[2] === 0x4C && buffer[3] === 0x46) {
+    return { valid: false, error: 'Formato de archivo binario no permitido.' };
+  }
+
+  // Scan start of buffer for script or PHP tags
+  const startStr = buffer.slice(0, 512).toString('latin1').toLowerCase();
+  if (startStr.includes('<?php') || startStr.includes('<script') || startStr.includes('<html')) {
+    return { valid: false, error: 'El contenido del archivo contiene código no permitido.' };
+  }
+
+  if (category === 'RECEIPT') {
+    const allowedExts = ['.pdf', '.jpg', '.jpeg', '.png', '.webp'];
+    if (!allowedExts.includes(ext)) {
+      return { valid: false, error: `Extensión no válida (${ext}). Solo se admiten archivos PDF o imágenes (JPG, PNG, WebP).` };
+    }
+
+    // Magic bytes check
+    const isPdf = buffer.length >= 4 && buffer.slice(0, 4).toString() === '%PDF';
+    const isPng = buffer.length >= 8 && buffer[0] === 0x89 && buffer[1] === 0x50 && buffer[2] === 0x4E && buffer[3] === 0x47;
+    const isJpg = buffer.length >= 3 && buffer[0] === 0xFF && buffer[1] === 0xD8 && buffer[2] === 0xFF;
+    const isWebp = buffer.length >= 12 && buffer.slice(0, 4).toString() === 'RIFF' && buffer.slice(8, 12).toString() === 'WEBP';
+
+    if (!isPdf && !isPng && !isJpg && !isWebp) {
+      return { valid: false, error: 'El contenido del archivo no coincide con un formato de documento o imagen válido.' };
+    }
+
+    return { valid: true, ext };
+  }
+
+  if (category === 'CV') {
+    const allowedExts = ['.pdf', '.doc', '.docx', '.odt', '.rtf'];
+    if (!allowedExts.includes(ext)) {
+      return { valid: false, error: `Extensión no válida (${ext}). Solo se admiten documentos en formato PDF o Word (DOC, DOCX, ODT).` };
+    }
+
+    const isPdf = buffer.length >= 4 && buffer.slice(0, 4).toString() === '%PDF';
+    const isDoc = buffer.length >= 4 && buffer[0] === 0xD0 && buffer[1] === 0xCF && buffer[2] === 0x11 && buffer[3] === 0xE0;
+    const isDocxOrZip = buffer.length >= 4 && buffer[0] === 0x50 && buffer[1] === 0x4B && buffer[2] === 0x03 && buffer[3] === 0x04;
+    const isRtf = buffer.length >= 5 && buffer.slice(0, 5).toString() === '{\\rtf';
+
+    if (!isPdf && !isDoc && !isDocxOrZip && !isRtf) {
+      return { valid: false, error: 'El contenido del archivo de currículum no coincide con el tipo de documento declarado.' };
+    }
+
+    return { valid: true, ext };
+  }
+
+  return { valid: false, error: 'Categoría de archivo no soportada.' };
+}
+
