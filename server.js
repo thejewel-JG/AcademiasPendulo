@@ -3795,7 +3795,7 @@ app.put('/api/admin/inscriptions/:id/verify-transfer', requireAuth, requireNoTem
     const estadoAnterior = reqData.estado_pago;
     const nuevoEstado = 'TRANSFERENCIA_VERIFICADA';
 
-    await query(`
+    const updateResult = await query(`
       UPDATE inscription_requests
       SET estado_pago = ?,
           fecha_verificacion_bancaria = NOW(),
@@ -3806,8 +3806,12 @@ app.put('/api/admin/inscriptions/:id/verify-transfer', requireAuth, requireNoTem
           observaciones_administrativas = COALESCE(?, observaciones_administrativas),
           motivo_incidencia = NULL,
           updated_at = NOW()
-      WHERE id = ?
+      WHERE id = ? AND estado_pago != 'TRANSFERENCIA_VERIFICADA'
     `, [nuevoEstado, req.user.id, userActor, referencia_bancaria || null, observaciones || null, reqData.id]);
+
+    if (updateResult.affectedRows === 0) {
+      return res.status(400).json({ error: 'La transferencia bancaria ya fue verificada simultáneamente por otro operador.' });
+    }
 
     await query(`
       INSERT INTO inscription_request_history (request_id, user_id, event_type, description, created_at)
@@ -5545,22 +5549,37 @@ async function handleApproveEnrollmentAndActivate(req, res) {
     const reqId = req.params.id;
     const { groupId } = req.body;
 
-    const [rows] = await conn.execute(`SELECT * FROM inscription_requests WHERE id = ? OR request_number = ? LIMIT 1`, [reqId, reqId]);
+    // ====================================================
+    // BEGIN DATABASE TRANSACTION (Critical Operations & Concurrency Lock)
+    // ====================================================
+    await conn.beginTransaction();
+
+    const [rows] = await conn.execute(`SELECT * FROM inscription_requests WHERE id = ? OR request_number = ? LIMIT 1 FOR UPDATE`, [reqId, reqId]);
     if (!rows || rows.length === 0) {
+      await conn.rollback();
       conn.release();
       return res.status(404).json({ error: 'Solicitud no encontrada.' });
     }
 
     const reqData = rows[0];
 
-    // Idempotency check: Don't double create
+    // Idempotency check: Don't double create (Scenario J: Concurrent operators protection)
     if (reqData.converted_to_student && reqData.student_user_id) {
+      await conn.rollback();
       conn.release();
       return res.status(400).json({ error: `La solicitud ${reqData.request_number} ya fue dada de alta y matriculada previamente.` });
     }
 
+    // State guard: Do not allow activating campus if rejected or cancelled
+    if (reqData.estado_solicitud === 'RECHAZADA' || reqData.estado_solicitud === 'CANCELADA') {
+      await conn.rollback();
+      conn.release();
+      return res.status(400).json({ error: `No se puede conceder matrícula ni acceso al campus a una solicitud en estado ${reqData.estado_solicitud}.` });
+    }
+
     // Requirement 6 & 12: Verify payment is TRANSFERENCIA_VERIFICADA
     if (reqData.estado_pago !== 'TRANSFERENCIA_VERIFICADA') {
+      await conn.rollback();
       conn.release();
       return res.status(400).json({
         error: `Para dar de alta al alumno y activar su matrícula en el campus, la transferencia bancaria debe haber sido previamente verificada por Administración (Estado actual: ${reqData.estado_pago}).`
@@ -5569,16 +5588,11 @@ async function handleApproveEnrollmentAndActivate(req, res) {
 
     // Modalidad Solicitud con Aprobación requires academic preapproval
     if (reqData.modalidad_inscripcion === 'SOLICITUD_APROBACION' && reqData.estado_solicitud !== 'PREAPROBADA') {
+      await conn.rollback();
       conn.release();
       return res.status(400).json({
         error: `Para autorizar la matrícula de una solicitud con aprobación, debe estar previamente preaprobada por Secretaría académica.`
       });
-    }
-
-    // State guard: Do not allow activating campus if rejected or cancelled
-    if (reqData.estado_solicitud === 'RECHAZADA' || reqData.estado_solicitud === 'CANCELADA') {
-      conn.release();
-      return res.status(400).json({ error: `No se puede conceder matrícula ni acceso al campus a una solicitud en estado ${reqData.estado_solicitud}.` });
     }
 
     // Verify target group selected
@@ -5586,6 +5600,7 @@ async function handleApproveEnrollmentAndActivate(req, res) {
     if (!targetGroupId) {
       const [defaultGrp] = await conn.execute(`SELECT id FROM grupos WHERE estado = 'ACTIVO' LIMIT 1`);
       if (!defaultGrp || defaultGrp.length === 0) {
+        await conn.rollback();
         conn.release();
         return res.status(400).json({ error: 'No existe ningún grupo activo en el campus para matricular al alumno.' });
       }
@@ -5600,16 +5615,12 @@ async function handleApproveEnrollmentAndActivate(req, res) {
     `, [targetGroupId]);
 
     if (!groupDetail || groupDetail.length === 0) {
+      await conn.rollback();
       conn.release();
       return res.status(400).json({ error: 'El grupo de destino seleccionado no existe.' });
     }
 
     const targetGroup = groupDetail[0];
-
-    // ====================================================
-    // BEGIN DATABASE TRANSACTION (Critical Operations)
-    // ====================================================
-    await conn.beginTransaction();
 
     // Requirement 8: Username is EMAIL address (normalized and validated)
     const cleanEmail = normalizeEmail(reqData.email);
@@ -5960,16 +5971,32 @@ app.post('/api/admin/inscriptions/:id/resend-welcome-email', requireAuth, requir
       `;
     }
 
-    await sendSystemEmail({
-      to: cleanEmail,
-      subject: emailSubject,
-      html: emailHtml
+    let emailSent = false;
+    let emailError = null;
+    try {
+      await sendSystemEmail({
+        to: cleanEmail,
+        subject: emailSubject,
+        html: emailHtml
+      });
+      emailSent = true;
+      await query(`UPDATE inscription_requests SET bienvenida_email_enviado = 1, bienvenida_email_error = NULL WHERE id = ?`, [reqData.id]);
+      await logInscriptionHistory(reqData.id, req.user.id, 'WELCOME_EMAIL_RESENT', `Reenvío de credenciales realizado por ${req.user.email || req.user.nombre}.`);
+    } catch (mailErr) {
+      console.error('Resend welcome email SMTP error:', mailErr.message);
+      emailError = mailErr.message || 'Error al conectar con servidor SMTP';
+      await query(`UPDATE inscription_requests SET bienvenida_email_enviado = 0, bienvenida_email_error = ? WHERE id = ?`, [emailError, reqData.id]);
+      await logInscriptionHistory(reqData.id, req.user.id, 'EMAIL_FAILED', `Fallo al reenviar correo de bienvenida: ${emailError}`);
+    }
+
+    res.json({
+      success: true,
+      emailSent,
+      emailError,
+      message: emailSent
+        ? `Correo de bienvenida reenviado correctamente a ${cleanEmail}.`
+        : `Credenciales actualizadas pero falló el envío SMTP: ${emailError}`
     });
-
-    await query(`UPDATE inscription_requests SET bienvenida_email_enviado = 1, bienvenida_email_error = NULL WHERE id = ?`, [reqData.id]);
-    await logInscriptionHistory(reqData.id, req.user.id, 'WELCOME_EMAIL_RESENT', `Reenvío de credenciales realizado por ${req.user.email || req.user.nombre}.`);
-
-    res.json({ success: true, message: `Correo de bienvenida reenviado correctamente a ${cleanEmail}.` });
   } catch (error) {
     console.error('Resend welcome email error:', error);
     res.status(500).json({ error: 'Error al reenviar correo de bienvenida: ' + error.message });
