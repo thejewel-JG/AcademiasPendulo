@@ -23,6 +23,8 @@ export function mergeCourseWithCommercialData(staticCourse: Course, dbData?: any
       fecha_apertura_inscripcion: null,
       fecha_cierre_inscripcion: null,
       estado_publicacion: 'PUBLICADO',
+      orden_visualizacion: 0,
+      modificado_por_admin: null,
     };
   }
 
@@ -37,6 +39,10 @@ export function mergeCourseWithCommercialData(staticCourse: Course, dbData?: any
   const importeIvaNum = dbData.importe_iva !== null && dbData.importe_iva !== undefined
     ? Number(dbData.importe_iva)
     : null;
+
+  const ordenVisualizacionNum = dbData.orden_visualizacion !== null && dbData.orden_visualizacion !== undefined
+    ? Number(dbData.orden_visualizacion)
+    : 0;
 
   return {
     ...staticCourse,
@@ -54,11 +60,17 @@ export function mergeCourseWithCommercialData(staticCourse: Course, dbData?: any
     fecha_apertura_inscripcion: dbData.fecha_apertura_inscripcion || null,
     fecha_cierre_inscripcion: dbData.fecha_cierre_inscripcion || null,
     estado_publicacion: dbData.estado_publicacion || 'PUBLICADO',
+    orden_visualizacion: ordenVisualizacionNum,
+    modificado_por_admin: dbData.modificado_por_admin || null,
   };
 }
 
 /**
  * Fetch all public courses from backend and return combined catalog
+ * strictly sorted by:
+ * 1. Priority 1: Matrícula abierta first, then cerrada
+ * 2. Priority 2: Manual display order (orden_visualizacion ASC)
+ * 3. Priority 3: Stable tie breaker (code ASC)
  */
 export async function fetchPublicCoursesWithCommercial(): Promise<Course[]> {
   try {
@@ -73,9 +85,21 @@ export async function fetchPublicCoursesWithCommercial(): Promise<Course[]> {
       if (item.codigo) dbMap.set(item.codigo.toLowerCase(), item);
     });
 
-    return COURSES.map(c => {
+    const merged = COURSES.map(c => {
       const match = dbMap.get(c.id.toLowerCase()) || dbMap.get(c.code.toLowerCase());
       return mergeCourseWithCommercialData(c, match);
+    });
+
+    return merged.sort((a, b) => {
+      const aOpen = a.estado_disponibilidad === 'ABIERTA' ? 0 : 1;
+      const bOpen = b.estado_disponibilidad === 'ABIERTA' ? 0 : 1;
+      if (aOpen !== bOpen) return aOpen - bOpen;
+
+      const aOrder = a.orden_visualizacion || 0;
+      const bOrder = b.orden_visualizacion || 0;
+      if (aOrder !== bOrder) return aOrder - bOrder;
+
+      return a.code.localeCompare(b.code);
     });
   } catch (err) {
     console.warn('Error loading dynamic courses, falling back to static:', err);
@@ -116,32 +140,24 @@ export function formatCoursePrice(course: Course): { priceLabel: string; isConfi
 }
 
 /**
- * Get display badge for course availability
+ * Get display badge for course availability (Section 2)
+ * - Matrícula abierta: verde coherente
+ * - Matrícula cerrada: distintivo discreto
  */
 export function getAvailabilityInfo(course: Course): { label: string; badgeClass: string; isOpen: boolean } {
   switch (course.estado_disponibilidad) {
     case 'CERRADA':
-      return {
-        label: 'Inscripciones cerradas',
-        badgeClass: 'bg-zinc-800 text-zinc-300 border-zinc-700',
-        isOpen: false
-      };
     case 'SUSPENDIDA_TEMPORALMENTE':
-      return {
-        label: 'Matrícula suspendida temporalmente',
-        badgeClass: 'bg-amber-900/60 text-amber-300 border-amber-800',
-        isOpen: false
-      };
     case 'COMPLETA':
       return {
-        label: 'Plazas completas',
-        badgeClass: 'bg-rose-900/60 text-rose-300 border-rose-800',
+        label: 'Matrícula cerrada',
+        badgeClass: 'bg-zinc-800 text-zinc-300 border-zinc-700',
         isOpen: false
       };
     case 'ABIERTA':
     default:
       return {
-        label: 'Inscripción Abierta',
+        label: 'Matrícula abierta',
         badgeClass: 'bg-emerald-950/80 text-emerald-300 border-emerald-800',
         isOpen: true
       };

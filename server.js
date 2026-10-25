@@ -2976,30 +2976,26 @@ async function sendSystemEmail({ to, subject, html, attachments }) {
 // Public Contact & Course Information Request endpoint
 app.post('/api/public/contact', async (req, res) => {
   try {
-    const {
-      first_name,
-      last_name,
-      email,
-      phone,
-      course_id,
-      course_code,
-      course_name,
-      preferred_schedule,
-      employment_status,
-      comments,
-      message,
-      source
-    } = req.body;
+    const firstName = (req.body.first_name || req.body.nombre || '').trim();
+    const lastName = (req.body.last_name || req.body.apellidos || '').trim();
+    const email = (req.body.email || '').trim();
+    const phone = (req.body.phone || req.body.telefono || '').trim();
+    const courseId = req.body.course_id || req.body.especialidad_id || '';
+    const courseCode = req.body.course_code || '';
+    const courseName = req.body.course_name || req.body.curso_interes || 'Curso Academias Péndulo';
+    const preferredSchedule = req.body.preferred_schedule || 'Indiferente';
+    const employmentStatus = req.body.employment_status || 'No especificado';
+    const userMessage = req.body.comments || req.body.message || req.body.mensaje || 'Solicitud de información desde formulario público web.';
+    const requestSource = req.body.source || 'Formulario de Información de Curso';
 
-    if (!first_name || !phone) {
-      return res.status(400).json({ error: 'Nombre y teléfono son obligatorios.' });
+    if (!firstName || (!email && !phone)) {
+      return res.status(400).json({ error: 'Nombre y método de contacto (correo electrónico o teléfono) son obligatorios.' });
     }
 
     const reqId = `req_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
-    const userEmail = email ? email.trim() : `${phone}@pendiente.es`;
-    const userMessage = comments || message || 'Solicitud de información desde formulario público web.';
-    const requestSource = source || 'Formulario Web Principal';
-    const courseTitle = course_name || 'Curso Academias Péndulo';
+    const userEmail = email ? email : `${phone}@pendiente.es`;
+    const userPhone = phone;
+    const courseTitle = courseName;
 
     // 1. Insert into contact_requests
     await query(`
@@ -3008,15 +3004,15 @@ app.post('/api/public/contact', async (req, res) => {
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'new', NOW())
     `, [
       reqId,
-      first_name.trim(),
-      last_name ? last_name.trim() : '',
+      firstName,
+      lastName,
       userEmail,
-      phone.trim(),
-      course_id || 'TMVG0004',
-      course_code || 'TMVG0004',
+      userPhone,
+      courseId || 'TMVG0004',
+      courseCode || courseId || 'TMVG0004',
       courseTitle,
-      preferred_schedule || 'Indiferente',
-      employment_status || 'No especificado',
+      preferredSchedule,
+      employmentStatus,
       userMessage,
       userMessage,
       requestSource
@@ -3024,7 +3020,7 @@ app.post('/api/public/contact', async (req, res) => {
 
     // 2. Insert into solicitudes_secretaria
     const secRef = `SEC-${Date.now().toString(36).toUpperCase().slice(-6)}`;
-    const fullName = `${first_name.trim()} ${last_name ? last_name.trim() : ''}`.trim();
+    const fullName = `${firstName} ${lastName}`.trim();
     await query(`
       INSERT INTO solicitudes_secretaria
       (id, referencia, estudiante_id, estudiante_nombre, tipo, asunto, descripcion, estado, fecha_creacion, fecha_actualizacion)
@@ -3034,10 +3030,28 @@ app.post('/api/public/contact', async (req, res) => {
       secRef,
       fullName,
       `Solicitud de Información: ${courseTitle}`,
-      `Interesado: ${fullName}\nEmail: ${userEmail}\nTeléfono: ${phone}\nCurso: ${courseTitle}\nHorario: ${preferred_schedule || 'Indiferente'}\nComentarios: ${userMessage}`
+      `Interesado: ${fullName}\nEmail: ${userEmail}\nTeléfono: ${userPhone || 'No facilitado'}\nCurso: ${courseTitle}\nHorario: ${preferredSchedule || 'Indiferente'}\nComentarios: ${userMessage}`
     ]);
 
-    // 3. Send email notification to Secretaría / Admin (info.academiaspendulo@gmail.com)
+    // 3. Create Admin Notification
+    try {
+      const adminUsers = await query("SELECT id FROM usuarios WHERE email LIKE '%admin%' OR email LIKE '%pendulo%' LIMIT 1");
+      const targetAdminId = adminUsers[0]?.id || 'usr-admin-1';
+      await query(`
+        INSERT INTO notificaciones (id, destinatario_id, tipo, referencia_tipo, referencia_id, titulo, mensaje, creado_en)
+        VALUES (?, ?, 'SOLICITUD_INFORMACION', 'contact_request', ?, ?, ?, NOW())
+      `, [
+        `notif_${reqId}`,
+        targetAdminId,
+        reqId,
+        `Consulta de Curso: ${courseTitle}`,
+        `Nueva consulta de información de ${fullName} (${userEmail}) sobre ${courseTitle}.`
+      ]);
+    } catch (notifErr) {
+      console.warn('Could not insert admin notification:', notifErr.message);
+    }
+
+    // 4. Send email notification to Secretaría / Admin (info.academiaspendulo@gmail.com)
     const adminNotificationEmail = process.env.DEFAULT_NOTIFICATION_EMAIL || process.env.SMTP_USER || 'info.academiaspendulo@gmail.com';
     sendSystemEmail({
       to: adminNotificationEmail,
@@ -3049,23 +3063,23 @@ app.post('/api/public/contact', async (req, res) => {
           <table style="width: 100%; border-collapse: collapse; margin: 15px 0;">
             <tr style="border-bottom: 1px solid #f3f4f6;"><td style="padding: 8px; font-weight: bold; width: 140px;">Nombre:</td><td style="padding: 8px;">${fullName}</td></tr>
             <tr style="border-bottom: 1px solid #f3f4f6;"><td style="padding: 8px; font-weight: bold;">Email:</td><td style="padding: 8px;"><a href="mailto:${userEmail}">${userEmail}</a></td></tr>
-            <tr style="border-bottom: 1px solid #f3f4f6;"><td style="padding: 8px; font-weight: bold;">Teléfono:</td><td style="padding: 8px;">${phone}</td></tr>
-            <tr style="border-bottom: 1px solid #f3f4f6;"><td style="padding: 8px; font-weight: bold;">Curso solicitado:</td><td style="padding: 8px;">${courseTitle} (${course_code || 'N/A'})</td></tr>
-            <tr style="border-bottom: 1px solid #f3f4f6;"><td style="padding: 8px; font-weight: bold;">Horario preferido:</td><td style="padding: 8px;">${preferred_schedule || 'Indiferente'}</td></tr>
-            <tr style="border-bottom: 1px solid #f3f4f6;"><td style="padding: 8px; font-weight: bold;">Situación laboral:</td><td style="padding: 8px;">${employment_status || 'No especificada'}</td></tr>
+            <tr style="border-bottom: 1px solid #f3f4f6;"><td style="padding: 8px; font-weight: bold;">Teléfono:</td><td style="padding: 8px;">${userPhone || 'No facilitado'}</td></tr>
+            <tr style="border-bottom: 1px solid #f3f4f6;"><td style="padding: 8px; font-weight: bold;">Curso solicitado:</td><td style="padding: 8px;">${courseTitle} (${courseCode || 'N/A'})</td></tr>
+            <tr style="border-bottom: 1px solid #f3f4f6;"><td style="padding: 8px; font-weight: bold;">Horario preferido:</td><td style="padding: 8px;">${preferredSchedule || 'Indiferente'}</td></tr>
+            <tr style="border-bottom: 1px solid #f3f4f6;"><td style="padding: 8px; font-weight: bold;">Situación laboral:</td><td style="padding: 8px;">${employmentStatus || 'No especificada'}</td></tr>
             <tr style="border-bottom: 1px solid #f3f4f6;"><td style="padding: 8px; font-weight: bold;">Mensaje / Notas:</td><td style="padding: 8px;">${userMessage}</td></tr>
             <tr style="border-bottom: 1px solid #f3f4f6;"><td style="padding: 8px; font-weight: bold;">Origen:</td><td style="padding: 8px;">${requestSource}</td></tr>
           </table>
           <p style="font-size: 12px; color: #6b7280; margin-top: 20px;">Fecha: ${new Date().toLocaleString('es-ES')}</p>
         </div>
       `
-    });
+    }).catch(err => console.warn('Admin notification email failed:', err.message));
 
-    // 4. Send confirmation email to prospective student if valid email provided
+    // 5. Send confirmation email to prospective student if valid email provided
     if (email && email.includes('@') && !email.includes('pendiente')) {
       sendSystemEmail({
         to: email.trim(),
-        subject: `✅ Solicitud Recibida - Academias Péndulo (${courseTitle})`,
+        subject: `✅ Consulta Recibida - Academias Péndulo (${courseTitle})`,
         html: `
           <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 25px; border: 1px solid #e0e7ff; border-radius: 12px; background: #ffffff;">
             <div style="text-align: center; margin-bottom: 20px;">
@@ -3073,22 +3087,25 @@ app.post('/api/public/contact', async (req, res) => {
               <p style="color: #6b7280; font-size: 14px; margin-top: 4px;">Centro de Formación Profesional Oficial</p>
             </div>
             <hr style="border: none; border-top: 1px solid #f3f4f6; margin: 20px 0;" />
-            <h2 style="color: #1f2937;">¡Hola ${first_name.trim()}! Hemos recibido tu solicitud</h2>
+            <h2 style="color: #1f2937;">¡Hola ${firstName}! Hemos recibido tu consulta</h2>
             <p>Muchas gracias por contactar con <strong>Academias Péndulo</strong>. Hemos registrado correctamente tu solicitud de información sobre el curso:</p>
             <div style="background-color: #f4f4f5; padding: 16px; border-radius: 8px; margin: 15px 0;">
               <p style="margin: 0; font-weight: bold; color: #111827;">${courseTitle}</p>
-              ${course_code ? `<p style="margin: 4px 0 0 0; font-size: 12px; color: #4b5563;">Código oficial: ${course_code}</p>` : ''}
+              ${courseCode ? `<p style="margin: 4px 0 0 0; font-size: 12px; color: #4b5563;">Código oficial: ${courseCode}</p>` : ''}
             </div>
-            <p>Un orientador pedagógico de nuestra sede en Almería revisará tus datos y se pondrá en contacto contigo en el teléfono <strong>${phone}</strong> a la mayor brevedad posible.</p>
-            <p style="margin-top: 20px; font-size: 13px; color: #4b5563;">Si deseas consultar cualquier duda urgente, puedes llamarnos o visitarnos en Carrera Doctoral 26, Almería.</p>
+            <p>Nuestro equipo se pondrá en contacto contigo para facilitarte más información.</p>
             <hr style="border: none; border-top: 1px solid #f3f4f6; margin: 20px 0;" />
             <p style="font-size: 11px; color: #9ca3af; text-align: center;">Academias Péndulo · Centro Homologado Nº 0400030892</p>
           </div>
         `
-      });
+      }).catch(err => console.warn('Student confirmation email failed:', err.message));
     }
 
-    res.status(201).json({ success: true, requestId: reqId });
+    res.status(201).json({
+      success: true,
+      requestId: reqId,
+      message: 'Hemos recibido tu consulta sobre este curso. Nuestro equipo se pondrá en contacto contigo para facilitarte más información.'
+    });
   } catch (error) {
     console.error('Public contact request error:', error);
     res.status(500).json({ error: 'Error al procesar la solicitud de contacto.' });
@@ -3908,10 +3925,49 @@ app.post('/api/public/inscription-request', async (req, res) => {
       return res.status(429).json({ error: 'Demasiadas solicitudes enviadas. Por favor, inténtelo de nuevo en 15 minutos.' });
     }
 
+    const targetCourseId = req.body.course_id || req.body.especialidad_id || '';
+    const targetCourseCode = req.body.course_code || '';
+    const rawCourseName = req.body.course_name ? String(req.body.course_name).trim() : '';
+
+    let whereClauses = [];
+    let params = [];
+    if (targetCourseId) {
+      whereClauses.push('id = ?');
+      params.push(targetCourseId);
+    }
+    if (targetCourseCode) {
+      whereClauses.push('codigo = ?');
+      params.push(targetCourseCode);
+    }
+    if (rawCourseName) {
+      whereClauses.push('nombre = ?');
+      params.push(rawCourseName);
+    }
+
+    let courseDb = null;
+    if (whereClauses.length > 0) {
+      const courseMatches = await query(`
+        SELECT id, codigo, nombre, modalidad, horas_totales, tipo_inscripcion,
+               precio_base, moneda, tipo_iva, porcentaje_iva, importe_iva, precio_final,
+               estado_disponibilidad
+        FROM especialidades
+        WHERE ${whereClauses.join(' OR ')}
+        LIMIT 1
+      `, params);
+      courseDb = courseMatches.length > 0 ? courseMatches[0] : null;
+    }
+
+    if (courseDb && (courseDb.estado_disponibilidad === 'CERRADA' || courseDb.estado_disponibilidad === 'SUSPENDIDA_TEMPORALMENTE' || courseDb.estado_disponibilidad === 'COMPLETA')) {
+      return res.status(400).json({
+        success: false,
+        error: 'Actualmente la matrícula de este curso se encuentra cerrada. Puedes solicitar información para conocer próximas convocatorias.'
+      });
+    }
+
     const {
       course_id,
-      course_name,
-      course_code,
+      course_name = courseDb ? courseDb.nombre : '',
+      course_code = courseDb ? courseDb.codigo : '',
       center,
       edition,
       first_name,
@@ -4007,23 +4063,7 @@ app.post('/api/public/inscription-request', async (req, res) => {
       });
     }
 
-    // Direct Database Course validation & commercial snapshot (cannot be manipulated by client)
-    const courseMatches = await query(`
-      SELECT id, codigo, nombre, modalidad, horas_totales, tipo_inscripcion,
-             precio_base, moneda, tipo_iva, porcentaje_iva, importe_iva, precio_final,
-             estado_disponibilidad
-      FROM especialidades
-      WHERE id = ? OR codigo = ? OR nombre = ?
-      LIMIT 1
-    `, [course_id || '', course_code || '', course_name.trim()]);
-
-    const courseDb = courseMatches.length > 0 ? courseMatches[0] : null;
-
-    if (courseDb && courseDb.estado_disponibilidad === 'CERRADA') {
-      return res.status(400).json({
-        error: 'El periodo de matriculación para este curso se encuentra actualmente cerrado.'
-      });
-    }
+    // Commercial snapshot inmutable (courseDb ya validado previamente)
 
     // Modalidad fijada y snapshot comercial inmutable
     const modalidadInscripcion = courseDb && courseDb.tipo_inscripcion
@@ -6628,6 +6668,9 @@ app.get('/api/academic/groups/:groupId/teacher-evaluations', requireAuth, requir
 // ============================================================
 
 // 1. PUBLIC: Get all courses with commercial info for public catalog
+// Priority 1: Matrícula abierta first, then cerrada
+// Priority 2: Manual display order (orden_visualizacion ASC)
+// Priority 3: Stable tie-breaker (codigo ASC)
 app.get('/api/public/courses', async (req, res) => {
   try {
     const rows = await query(`
@@ -6635,10 +6678,14 @@ app.get('/api/public/courses', async (req, res) => {
         id, codigo, nombre, categoria_id, descripcion, nivel, horas_totales, horas_practicas, modalidad, estado,
         precio_base, moneda, tipo_iva, porcentaje_iva, importe_iva, precio_final,
         estado_precio, tipo_inscripcion, plazas_maximas, plazas_disponibles,
-        estado_disponibilidad, fecha_apertura_inscripcion, fecha_cierre_inscripcion, estado_publicacion
+        estado_disponibilidad, fecha_apertura_inscripcion, fecha_cierre_inscripcion, estado_publicacion,
+        orden_visualizacion
       FROM especialidades
       WHERE estado_publicacion IN ('PUBLICADO', 'NO_DISPONIBLE')
-      ORDER BY FIELD(categoria_id, 'tmv', 'fco'), codigo ASC
+      ORDER BY 
+        (CASE WHEN estado_disponibilidad = 'ABIERTA' THEN 0 ELSE 1 END) ASC,
+        orden_visualizacion ASC,
+        codigo ASC
     `);
     res.json(rows || []);
   } catch (error) {
@@ -6655,9 +6702,13 @@ app.get('/api/academic/specialties', async (req, res) => {
         id, codigo, nombre, categoria_id, descripcion, nivel, horas_totales, horas_practicas, modalidad, estado,
         precio_base, moneda, tipo_iva, porcentaje_iva, importe_iva, precio_final,
         estado_precio, tipo_inscripcion, plazas_maximas, plazas_disponibles,
-        estado_disponibilidad, fecha_apertura_inscripcion, fecha_cierre_inscripcion, estado_publicacion
+        estado_disponibilidad, fecha_apertura_inscripcion, fecha_cierre_inscripcion, estado_publicacion,
+        orden_visualizacion
       FROM especialidades
-      ORDER BY FIELD(categoria_id, 'tmv', 'fco'), codigo ASC
+      ORDER BY 
+        (CASE WHEN estado_disponibilidad = 'ABIERTA' THEN 0 ELSE 1 END) ASC,
+        orden_visualizacion ASC,
+        codigo ASC
     `);
     res.json(rows || []);
   } catch (error) {
@@ -6680,9 +6731,12 @@ app.get('/api/admin/courses', requireAuth, requireNoTempPassword, async (req, re
         precio_base, moneda, tipo_iva, porcentaje_iva, importe_iva, precio_final,
         estado_precio, tipo_inscripcion, plazas_maximas, plazas_disponibles,
         estado_disponibilidad, fecha_apertura_inscripcion, fecha_cierre_inscripcion, estado_publicacion,
-        actualizado_en
+        orden_visualizacion, modificado_por_admin, actualizado_en
       FROM especialidades
-      ORDER BY FIELD(categoria_id, 'tmv', 'fco'), codigo ASC
+      ORDER BY 
+        (CASE WHEN estado_disponibilidad = 'ABIERTA' THEN 0 ELSE 1 END) ASC,
+        orden_visualizacion ASC,
+        codigo ASC
     `);
     res.json({ courses: rows || [] });
   } catch (error) {
@@ -6691,7 +6745,134 @@ app.get('/api/admin/courses', requireAuth, requireNoTempPassword, async (req, re
   }
 });
 
-// 3. ADMIN: Update course commercial configuration
+// 3. ADMIN: 1-Click Toggle / Update Course Enrollment Status (ABIERTA / CERRADA)
+const handleEnrollmentStatusChange = async (req, res) => {
+  try {
+    const userRoles = req.user.roles || [];
+    if (!userRoles.some(r => ['ADMINISTRADOR', 'ADMIN', 'SECRETARIA', 'DIRECCION'].includes(r))) {
+      return res.status(403).json({ error: 'Acceso restringido a personal de administración y secretaría.' });
+    }
+
+    const courseId = req.params.id;
+    const { estado_disponibilidad } = req.body;
+
+    const existing = await query(`SELECT id, codigo, nombre, estado_disponibilidad FROM especialidades WHERE id = ? OR codigo = ? LIMIT 1`, [courseId, courseId]);
+    if (!existing || existing.length === 0) {
+      return res.status(404).json({ error: 'Curso no encontrado.' });
+    }
+
+    const currentCourse = existing[0];
+    let newStatus = estado_disponibilidad;
+    if (!newStatus) {
+      newStatus = currentCourse.estado_disponibilidad === 'ABIERTA' ? 'CERRADA' : 'ABIERTA';
+    }
+
+    if (!['ABIERTA', 'CERRADA', 'SUSPENDIDA_TEMPORALMENTE', 'COMPLETA'].includes(newStatus)) {
+      return res.status(400).json({ error: 'Estado de matrícula no válido.' });
+    }
+
+    const userActor = req.user.email || req.user.nombre || 'Administrador';
+
+    await query(`
+      UPDATE especialidades
+      SET estado_disponibilidad = ?,
+          modificado_por_admin = ?,
+          actualizado_en = NOW()
+      WHERE id = ?
+    `, [newStatus, userActor, currentCourse.id]);
+
+    const updated = (await query(`SELECT * FROM especialidades WHERE id = ?`, [currentCourse.id]))[0];
+
+    res.json({
+      success: true,
+      course: updated,
+      message: `Matrícula del curso "${currentCourse.nombre}" establecida en ${newStatus === 'ABIERTA' ? 'ABIERTA' : 'CERRADA'}.`
+    });
+  } catch (error) {
+    console.error('Error updating course enrollment status:', error);
+    res.status(500).json({ error: 'Error al actualizar el estado de matrícula: ' + error.message });
+  }
+};
+
+app.put('/api/admin/courses/:id/enrollment-status', requireAuth, requireNoTempPassword, handleEnrollmentStatusChange);
+app.post('/api/admin/courses/:id/toggle-enrollment', requireAuth, requireNoTempPassword, handleEnrollmentStatusChange);
+
+// 4. ADMIN: Reorder courses manually (UP / DOWN buttons or array of ordered IDs)
+app.post('/api/admin/courses/reorder', requireAuth, requireNoTempPassword, async (req, res) => {
+  try {
+    const userRoles = req.user.roles || [];
+    if (!userRoles.some(r => ['ADMINISTRADOR', 'ADMIN', 'SECRETARIA', 'DIRECCION'].includes(r))) {
+      return res.status(403).json({ error: 'Acceso restringido a personal de administración y secretaría.' });
+    }
+
+    const { courseId, direction, orderedIds } = req.body;
+
+    // Mode 1: Batch reorder
+    if (Array.isArray(orderedIds) && orderedIds.length > 0) {
+      for (let i = 0; i < orderedIds.length; i++) {
+        await query(`UPDATE especialidades SET orden_visualizacion = ?, actualizado_en = NOW() WHERE id = ? OR codigo = ?`, [i + 1, orderedIds[i], orderedIds[i]]);
+      }
+      return res.json({ success: true, message: 'Orden de cursos guardado correctamente.' });
+    }
+
+    // Mode 2: Move a course UP or DOWN within its availability group
+    if (!courseId || !direction || !['UP', 'DOWN'].includes(direction.toUpperCase())) {
+      return res.status(400).json({ error: 'Debe especificar courseId y dirección ("UP" o "DOWN").' });
+    }
+
+    const currentRows = await query(`SELECT id, codigo, estado_disponibilidad, orden_visualizacion FROM especialidades WHERE id = ? OR codigo = ? LIMIT 1`, [courseId, courseId]);
+    if (!currentRows || currentRows.length === 0) {
+      return res.status(404).json({ error: 'Curso no encontrado.' });
+    }
+    const currentCourse = currentRows[0];
+    const isAbierta = currentCourse.estado_disponibilidad === 'ABIERTA';
+
+    // Fetch all courses in same availability group ordered by orden_visualizacion ASC, codigo ASC
+    const groupCourses = await query(`
+      SELECT id, orden_visualizacion 
+      FROM especialidades 
+      WHERE (CASE WHEN estado_disponibilidad = 'ABIERTA' THEN 1 ELSE 0 END) = ?
+      ORDER BY orden_visualizacion ASC, codigo ASC
+    `, [isAbierta ? 1 : 0]);
+
+    const currentIndex = groupCourses.findIndex(c => c.id === currentCourse.id);
+    if (currentIndex === -1) {
+      return res.status(400).json({ error: 'No se pudo localizar el curso en su grupo.' });
+    }
+
+    const targetIndex = direction.toUpperCase() === 'UP' ? currentIndex - 1 : currentIndex + 1;
+    if (targetIndex < 0 || targetIndex >= groupCourses.length) {
+      return res.json({ success: true, message: 'El curso ya se encuentra en el límite de su grupo.', unchanged: true });
+    }
+
+    const neighborCourse = groupCourses[targetIndex];
+
+    let currentOrder = currentCourse.orden_visualizacion;
+    let neighborOrder = neighborCourse.orden_visualizacion;
+
+    if (currentOrder === neighborOrder) {
+      for (let i = 0; i < groupCourses.length; i++) {
+        await query(`UPDATE especialidades SET orden_visualizacion = ? WHERE id = ?`, [(i + 1) * 10, groupCourses[i].id]);
+      }
+      currentOrder = (currentIndex + 1) * 10;
+      neighborOrder = (targetIndex + 1) * 10;
+    }
+
+    await query(`UPDATE especialidades SET orden_visualizacion = ?, actualizado_en = NOW() WHERE id = ?`, [neighborOrder, currentCourse.id]);
+    await query(`UPDATE especialidades SET orden_visualizacion = ?, actualizado_en = NOW() WHERE id = ?`, [currentOrder, neighborCourse.id]);
+
+    res.json({
+      success: true,
+      message: `Posición del curso actualizada (${direction.toUpperCase() === 'UP' ? 'Subido' : 'Bajado'}).`,
+      swappedWith: neighborCourse.id
+    });
+  } catch (error) {
+    console.error('Error reordering courses:', error);
+    res.status(500).json({ error: 'Error al reordenar cursos: ' + error.message });
+  }
+});
+
+// 5. ADMIN: Update course commercial configuration
 app.put('/api/admin/courses/:id', requireAuth, requireNoTempPassword, async (req, res) => {
   try {
     const userRoles = req.user.roles || [];
@@ -6802,6 +6983,12 @@ app.put('/api/admin/courses/:id', requireAuth, requireNoTempPassword, async (req
       });
     }
 
+    const cleanOrder = (orden_visualizacion !== undefined && orden_visualizacion !== null && !isNaN(Number(orden_visualizacion)))
+      ? Number(orden_visualizacion)
+      : (currentCourse.orden_visualizacion || 0);
+
+    const userActor = req.user.email || req.user.nombre || 'Administrador';
+
     // Update in MySQL
     await query(`
       UPDATE especialidades
@@ -6820,6 +7007,8 @@ app.put('/api/admin/courses/:id', requireAuth, requireNoTempPassword, async (req
         fecha_apertura_inscripcion = ?,
         fecha_cierre_inscripcion = ?,
         estado_publicacion = ?,
+        orden_visualizacion = ?,
+        modificado_por_admin = ?,
         actualizado_en = NOW()
       WHERE id = ?
     `, [
@@ -6836,6 +7025,8 @@ app.put('/api/admin/courses/:id', requireAuth, requireNoTempPassword, async (req
       fechaApertura,
       fechaCierre,
       cleanPublicacion,
+      cleanOrder,
+      userActor,
       currentCourse.id
     ]);
 

@@ -19,7 +19,10 @@ import {
   Info,
   Save,
   Check,
-  AlertTriangle
+  AlertTriangle,
+  ArrowUp,
+  ArrowDown,
+  Unlock
 } from 'lucide-react';
 import { Course } from '../../types';
 import { formatCoursePrice } from '../../services/courseService';
@@ -49,6 +52,8 @@ interface AdminCourseData {
   fecha_apertura_inscripcion: string | null;
   fecha_cierre_inscripcion: string | null;
   estado_publicacion: 'BORRADOR' | 'PUBLICADO' | 'NO_DISPONIBLE' | 'ARCHIVADO';
+  orden_visualizacion?: number;
+  modificado_por_admin?: string;
   actualizado_en?: string;
 }
 
@@ -80,6 +85,8 @@ export const CampusCommercialCatalog: React.FC = () => {
   const [formFechaApertura, setFormFechaApertura] = useState<string>('');
   const [formFechaCierre, setFormFechaCierre] = useState<string>('');
   const [formEstadoPublicacion, setFormEstadoPublicacion] = useState<'BORRADOR' | 'PUBLICADO' | 'NO_DISPONIBLE' | 'ARCHIVADO'>('PUBLICADO');
+  const [formOrdenVisualizacion, setFormOrdenVisualizacion] = useState<string>('0');
+  const [actionLoadingCourseId, setActionLoadingCourseId] = useState<string | null>(null);
 
   // Load courses from backend
   const fetchCourses = async () => {
@@ -129,6 +136,62 @@ export const CampusCommercialCatalog: React.FC = () => {
     setFormFechaApertura(course.fecha_apertura_inscripcion ? course.fecha_apertura_inscripcion.slice(0, 10) : '');
     setFormFechaCierre(course.fecha_cierre_inscripcion ? course.fecha_cierre_inscripcion.slice(0, 10) : '');
     setFormEstadoPublicacion(course.estado_publicacion || 'PUBLICADO');
+    setFormOrdenVisualizacion(course.orden_visualizacion !== undefined && course.orden_visualizacion !== null ? String(course.orden_visualizacion) : '0');
+  };
+
+  // 1-Click Toggle Course Enrollment Status (ABIERTA / CERRADA)
+  const handleToggleEnrollment = async (course: AdminCourseData) => {
+    setActionLoadingCourseId(course.id);
+    setErrorMsg('');
+    try {
+      const token = localStorage.getItem('token') || sessionStorage.getItem('token') || '';
+      const newStatus = course.estado_disponibilidad === 'ABIERTA' ? 'CERRADA' : 'ABIERTA';
+      const res = await fetch(`/api/admin/courses/${course.id}/enrollment-status`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ estado_disponibilidad: newStatus })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Error al actualizar el estado de matrícula.');
+      
+      setSuccessToast(`Matrícula del curso "${course.nombre}" cambiada a ${newStatus === 'ABIERTA' ? 'ABIERTA' : 'CERRADA'}.`);
+      setTimeout(() => setSuccessToast(''), 4000);
+      await fetchCourses();
+    } catch (err: any) {
+      setErrorMsg(err.message || 'Error de conexión.');
+    } finally {
+      setActionLoadingCourseId(null);
+    }
+  };
+
+  // Reorder Course (Move UP or DOWN within availability group)
+  const handleReorderCourse = async (courseId: string, direction: 'UP' | 'DOWN') => {
+    setActionLoadingCourseId(courseId);
+    setErrorMsg('');
+    try {
+      const token = localStorage.getItem('token') || sessionStorage.getItem('token') || '';
+      const res = await fetch('/api/admin/courses/reorder', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ courseId, direction })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Error al reordenar curso.');
+      
+      setSuccessToast(data.message || 'Posición actualizada correctamente.');
+      setTimeout(() => setSuccessToast(''), 4000);
+      await fetchCourses();
+    } catch (err: any) {
+      setErrorMsg(err.message || 'Error de conexión al reordenar.');
+    } finally {
+      setActionLoadingCourseId(null);
+    }
   };
 
   // Real-time tax and price calculations
@@ -234,6 +297,7 @@ export const CampusCommercialCatalog: React.FC = () => {
         fecha_apertura_inscripcion: formFechaApertura || null,
         fecha_cierre_inscripcion: formFechaCierre || null,
         estado_publicacion: formEstadoPublicacion,
+        orden_visualizacion: parseInt(formOrdenVisualizacion, 10) || 0
       };
 
       const res = await fetch(`/api/admin/courses/${editingCourse.id}`, {
@@ -445,41 +509,43 @@ export const CampusCommercialCatalog: React.FC = () => {
           <table className="w-full text-left text-xs">
             <thead className="bg-zinc-950/80 border-b border-zinc-800 text-zinc-400 font-bold uppercase tracking-wider">
               <tr>
-                <th className="py-3.5 px-4">Curso / Código</th>
-                <th className="py-3.5 px-3">Precio Final (EUR)</th>
-                <th className="py-3.5 px-3">Régimen Fiscal</th>
-                <th className="py-3.5 px-3">Tipo Matrícula</th>
-                <th className="py-3.5 px-3">Plazas</th>
-                <th className="py-3.5 px-3">Disponibilidad</th>
+                <th className="py-3.5 px-4">Curso</th>
+                <th className="py-3.5 px-3">Precio Final</th>
+                <th className="py-3.5 px-3">Matrícula</th>
+                <th className="py-3.5 px-3 text-center">Orden</th>
+                <th className="py-3.5 px-3">Modalidad / Plazas</th>
                 <th className="py-3.5 px-3">Publicación</th>
-                <th className="py-3.5 px-4 text-right">Acción</th>
+                <th className="py-3.5 px-4 text-right">Acciones</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-zinc-800/60">
               {loading ? (
                 <tr>
-                  <td colSpan={8} className="py-12 text-center text-zinc-400">
+                  <td colSpan={7} className="py-12 text-center text-zinc-400">
                     <RefreshCw className="w-6 h-6 animate-spin mx-auto mb-2 text-red-500" />
                     Cargando catálogo comercial desde MySQL...
                   </td>
                 </tr>
               ) : filteredCourses.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="py-12 text-center text-zinc-400">
+                  <td colSpan={7} className="py-12 text-center text-zinc-400">
                     No se encontraron cursos que coincidan con los filtros seleccionados.
                   </td>
                 </tr>
               ) : (
-                filteredCourses.map((course) => {
+                filteredCourses.map((course, idx) => {
                   const hasPrice = course.estado_precio === 'CONFIGURADO' && course.precio_final !== null && course.precio_final !== undefined;
                   const formattedPrice = hasPrice
                     ? new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR' }).format(course.precio_final!)
                     : 'Consultar precio';
 
+                  const isOpen = course.estado_disponibilidad === 'ABIERTA';
+                  const isBusy = actionLoadingCourseId === course.id;
+
                   return (
                     <tr key={course.id} className="hover:bg-zinc-800/40 transition">
                       <td className="py-3.5 px-4">
-                        <div className="font-bold text-white">{course.nombre}</div>
+                        <div className="font-bold text-white text-sm">{course.nombre}</div>
                         <div className="flex items-center gap-2 mt-0.5">
                           <span className="font-mono text-[11px] font-semibold text-red-400 bg-red-950/40 px-1.5 py-0.5 rounded border border-red-800/30">
                             {course.codigo}
@@ -508,59 +574,79 @@ export const CampusCommercialCatalog: React.FC = () => {
                         )}
                       </td>
 
+                      {/* MATRÍCULA: Badge + 1-Click Toggle Button (Section 4) */}
                       <td className="py-3.5 px-3">
-                        <span className="text-[11px] text-zinc-300 font-medium">
-                          {course.tipo_iva === 'EXENTO' && 'Exento de IVA'}
-                          {course.tipo_iva === 'GENERAL_21' && '21% Rég. General'}
-                          {course.tipo_iva === 'REDUCIDO_10' && '10% Reducido'}
-                          {course.tipo_iva === 'SUPERREDUCIDO_4' && '4% Superreducido'}
-                        </span>
+                        <div className="flex flex-col items-start gap-1">
+                          <span className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold border ${
+                            isOpen 
+                              ? 'bg-emerald-950/70 border-emerald-800 text-emerald-400' 
+                              : 'bg-rose-950/70 border-rose-800 text-rose-400'
+                          }`}>
+                            {isOpen ? 'Abierta' : 'Cerrada'}
+                          </span>
+
+                          <button
+                            onClick={() => handleToggleEnrollment(course)}
+                            disabled={isBusy}
+                            title={isOpen ? 'Cerrar matrícula para este curso' : 'Abrir matrícula para este curso'}
+                            className={`px-2.5 py-1 text-[10px] font-bold rounded-lg transition flex items-center gap-1 cursor-pointer disabled:opacity-50 ${
+                              isOpen
+                                ? 'bg-rose-950/50 hover:bg-rose-900/80 text-rose-300 border border-rose-800/60'
+                                : 'bg-emerald-950/50 hover:bg-emerald-900/80 text-emerald-300 border border-emerald-800/60'
+                            }`}
+                          >
+                            {isBusy ? (
+                              <RefreshCw className="w-3 h-3 animate-spin" />
+                            ) : isOpen ? (
+                              <>
+                                <Lock className="w-3 h-3" />
+                                <span>Cerrar</span>
+                              </>
+                            ) : (
+                              <>
+                                <Unlock className="w-3 h-3" />
+                                <span>Abrir</span>
+                              </>
+                            )}
+                          </button>
+                        </div>
+                      </td>
+
+                      {/* ORDEN: Position number + Subir / Bajar buttons (Section 4 & 6) */}
+                      <td className="py-3.5 px-3 text-center">
+                        <div className="flex items-center justify-center gap-1.5">
+                          <span className="font-mono text-xs font-bold text-zinc-300 bg-zinc-950 px-2 py-0.5 rounded-md border border-zinc-800 min-w-[28px]">
+                            {course.orden_visualizacion || (idx + 1)}
+                          </span>
+
+                          <div className="flex flex-col gap-0.5">
+                            <button
+                              onClick={() => handleReorderCourse(course.id, 'UP')}
+                              disabled={isBusy}
+                              title="Subir posición dentro de su grupo"
+                              className="p-1 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white transition cursor-pointer border border-zinc-700 disabled:opacity-40"
+                            >
+                              <ArrowUp className="w-3 h-3" />
+                            </button>
+                            <button
+                              onClick={() => handleReorderCourse(course.id, 'DOWN')}
+                              disabled={isBusy}
+                              title="Bajar posición dentro de su grupo"
+                              className="p-1 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white transition cursor-pointer border border-zinc-700 disabled:opacity-40"
+                            >
+                              <ArrowDown className="w-3 h-3" />
+                            </button>
+                          </div>
+                        </div>
                       </td>
 
                       <td className="py-3.5 px-3">
-                        {course.tipo_inscripcion === 'COMPRA_DIRECTA' ? (
-                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold bg-blue-950/70 border border-blue-800 text-blue-300">
-                            <ShoppingBag className="w-3 h-3" />
-                            Compra Directa
-                          </span>
-                        ) : (
-                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold bg-amber-950/70 border border-amber-800 text-amber-300">
-                            <FileCheck className="w-3 h-3" />
-                            Solicitud Aprobación
-                          </span>
-                        )}
-                      </td>
-
-                      <td className="py-3.5 px-3 text-zinc-300">
-                        <div className="font-semibold">
-                          {course.plazas_disponibles !== null ? course.plazas_disponibles : '—'} disp.
+                        <div className="font-medium text-[11px] text-zinc-300">
+                          {course.tipo_inscripcion === 'COMPRA_DIRECTA' ? 'Directa' : 'Aprobación'}
                         </div>
                         <div className="text-[10px] text-zinc-500">
-                          {course.plazas_maximas ? `Máx: ${course.plazas_maximas}` : 'Sin límite'}
+                          {course.plazas_disponibles !== null ? `${course.plazas_disponibles} plazas` : '15 plazas'}
                         </div>
-                      </td>
-
-                      <td className="py-3.5 px-3">
-                        {course.estado_disponibilidad === 'ABIERTA' && (
-                          <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-950/70 border border-emerald-800 text-emerald-400">
-                            Abierta
-                          </span>
-                        )}
-                        {course.estado_disponibilidad === 'CERRADA' && (
-                          <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-rose-950/70 border border-rose-800 text-rose-400">
-                            Cerrada
-                          </span>
-                        )}
-                        {course.estado_disponibilidad === 'SUSPENDIDA_TEMPORALMENTE' && (
-                          <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-yellow-950/70 border border-yellow-800 text-yellow-400">
-                            Suspendida
-                          </span>
-                        )}
-                        {course.estado_disponibilidad === 'COMPLETA' && (
-                          <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-purple-950/70 border border-purple-800 text-purple-400">
-                            Completa
-                          </span>
-                        )}
                       </td>
 
                       <td className="py-3.5 px-3">
@@ -593,10 +679,10 @@ export const CampusCommercialCatalog: React.FC = () => {
                       <td className="py-3.5 px-4 text-right">
                         <button
                           onClick={() => handleEditCourse(course)}
-                          className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-red-600/90 hover:bg-red-600 text-white font-semibold rounded-lg text-xs transition shadow-sm"
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-red-600/90 hover:bg-red-600 text-white font-semibold rounded-lg text-xs transition shadow-sm cursor-pointer"
                         >
                           <Edit3 className="w-3.5 h-3.5" />
-                          Configuración Comercial
+                          Editar
                         </button>
                       </td>
                     </tr>

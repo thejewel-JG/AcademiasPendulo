@@ -19,6 +19,8 @@ export interface CourseCommercialConfig {
   fecha_apertura_inscripcion?: string | null;
   fecha_cierre_inscripcion?: string | null;
   estado_publicacion?: 'BORRADOR' | 'PUBLICADO' | 'NO_DISPONIBLE' | 'ARCHIVADO';
+  orden_visualizacion?: number;
+  modificado_por_admin?: string | null;
 }
 
 export interface Course extends CourseCommercialConfig {

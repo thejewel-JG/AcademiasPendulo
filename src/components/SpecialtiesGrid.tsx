@@ -19,7 +19,8 @@ import {
   Coins,
   CreditCard,
   Tag,
-  Check
+  Check,
+  HelpCircle
 } from 'lucide-react';
 import { CATEGORIES, COURSES } from '../data/coursesData';
 import { Course } from '../types';
@@ -28,6 +29,7 @@ import {
   getAvailabilityInfo, 
   fetchPublicCoursesWithCommercial 
 } from '../services/courseService';
+import { CourseInfoRequestModal } from './CourseInfoRequestModal';
 
 interface SpecialtiesGridProps {
   onSelectCourse: (course: Course) => void;
@@ -41,6 +43,7 @@ export const SpecialtiesGrid: React.FC<SpecialtiesGridProps> = ({
   onOpenInscription
 }) => {
   const [coursesList, setCoursesList] = useState<Course[]>(COURSES);
+  const [infoRequestCourse, setInfoRequestCourse] = useState<Course | null>(null);
   const [activeCategory, setActiveCategory] = useState<string>('all');
   const [modalityFilter, setModalityFilter] = useState<'all' | 'presencial' | 'teleformacion'>('all');
   const [priceFilter, setPriceFilter] = useState<'all' | 'configured' | 'unconfigured'>('all');
@@ -64,7 +67,23 @@ export const SpecialtiesGrid: React.FC<SpecialtiesGridProps> = ({
     }
   };
 
-  const filteredCourses = coursesList.filter(course => {
+  // Strictly sorted according to Section 5:
+  // Priority 1: Matrícula abierta first, then matrícula cerrada
+  // Priority 2: Manual administrative order (orden_visualizacion ASC)
+  // Priority 3: Stable tie-breaker (code ASC)
+  const sortedCourses = [...coursesList].sort((a, b) => {
+    const aOpen = a.estado_disponibilidad === 'ABIERTA' ? 0 : 1;
+    const bOpen = b.estado_disponibilidad === 'ABIERTA' ? 0 : 1;
+    if (aOpen !== bOpen) return aOpen - bOpen;
+
+    const aOrder = a.orden_visualizacion || 0;
+    const bOrder = b.orden_visualizacion || 0;
+    if (aOrder !== bOrder) return aOrder - bOrder;
+
+    return a.code.localeCompare(b.code);
+  });
+
+  const filteredCourses = sortedCourses.filter(course => {
     const matchesCategory = activeCategory === 'all' || course.categoryId === activeCategory;
     const matchesSearch = 
       course.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -415,12 +434,12 @@ export const SpecialtiesGrid: React.FC<SpecialtiesGridProps> = ({
 
                     {!avail.isOpen ? (
                       <button
-                        disabled
-                        id={`btn-reserva-${course.id}`}
-                        className="w-full sm:w-1/2 py-3 px-4 rounded-xl bg-gray-200 text-gray-500 text-xs sm:text-sm font-bold flex items-center justify-center gap-2 cursor-not-allowed min-h-[48px] border border-gray-300"
+                        onClick={() => setInfoRequestCourse(course)}
+                        id={`btn-solicitar-info-${course.id}`}
+                        className="group relative overflow-hidden w-full sm:w-1/2 py-3 px-4 rounded-xl bg-gradient-to-r from-zinc-800 to-zinc-900 hover:from-zinc-700 hover:to-zinc-800 text-white text-xs sm:text-sm font-extrabold flex items-center justify-center gap-2 transition-all duration-300 shadow-sm hover:shadow-md hover:scale-[1.02] active:scale-95 cursor-pointer min-h-[48px] border border-zinc-700"
                       >
-                        <Clock className="w-4 h-4 text-gray-400" />
-                        <span>Inscripciones cerradas</span>
+                        <HelpCircle className="w-4 h-4 text-zinc-300" />
+                        <span className="relative z-10 tracking-wide">Solicitar información</span>
                       </button>
                     ) : course.tipo_inscripcion === 'COMPRA_DIRECTA' ? (
                       <button
@@ -436,7 +455,7 @@ export const SpecialtiesGrid: React.FC<SpecialtiesGridProps> = ({
                       >
                         <div className="absolute inset-0 w-full h-full bg-gradient-to-r from-transparent via-white/35 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-1000 ease-out pointer-events-none" />
                         <CreditCard className="w-4 h-4 text-emerald-200" />
-                        <span className="relative z-10 tracking-wide">Matricularme ahora</span>
+                        <span className="relative z-10 tracking-wide">Matricularme</span>
                       </button>
                     ) : (
                       <button
@@ -484,6 +503,13 @@ export const SpecialtiesGrid: React.FC<SpecialtiesGridProps> = ({
             Hablar con un Asesor Ahora
           </button>
         </div>
+
+        {/* Course Info Request Modal for Closed Enrollment Courses */}
+        <CourseInfoRequestModal
+          course={infoRequestCourse}
+          isOpen={!!infoRequestCourse}
+          onClose={() => setInfoRequestCourse(null)}
+        />
 
       </div>
     </section>
