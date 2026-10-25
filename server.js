@@ -26,6 +26,7 @@ import {
 } from './progressEngine.js';
 import { generateInscriptionPDF } from './pdfInscriptionGenerator.js';
 import PDFDocument from 'pdfkit';
+import { renderCoursePage, renderCatalogPage, renderSitemapXml, renderRobotsTxt, CENTER_INFO } from './seoRenderer.js';
 
 dotenv.config();
 
@@ -7145,7 +7146,7 @@ app.get('/api/public/courses', async (req, res) => {
         precio_base, moneda, tipo_iva, porcentaje_iva, importe_iva, precio_final,
         estado_precio, tipo_inscripcion, plazas_maximas, plazas_disponibles,
         estado_disponibilidad, fecha_apertura_inscripcion, fecha_cierre_inscripcion, estado_publicacion,
-        orden_visualizacion
+        orden_visualizacion, slug, meta_title, meta_description, alt_text, og_image, indexable
       FROM especialidades
       WHERE estado_publicacion IN ('PUBLICADO', 'NO_DISPONIBLE')
       ORDER BY 
@@ -7169,7 +7170,7 @@ app.get('/api/academic/specialties', async (req, res) => {
         precio_base, moneda, tipo_iva, porcentaje_iva, importe_iva, precio_final,
         estado_precio, tipo_inscripcion, plazas_maximas, plazas_disponibles,
         estado_disponibilidad, fecha_apertura_inscripcion, fecha_cierre_inscripcion, estado_publicacion,
-        orden_visualizacion
+        orden_visualizacion, slug, meta_title, meta_description, alt_text, og_image, indexable
       FROM especialidades
       ORDER BY 
         (CASE WHEN estado_disponibilidad = 'ABIERTA' THEN 0 ELSE 1 END) ASC,
@@ -7180,6 +7181,34 @@ app.get('/api/academic/specialties', async (req, res) => {
   } catch (error) {
     console.error('Error fetching academic specialties:', error);
     res.status(500).json({ error: 'Error al consultar las especialidades.' });
+  }
+});
+
+// PUBLIC: Get single course by slug or ID
+app.get('/api/courses/by-slug/:slug', async (req, res) => {
+  try {
+    const rawParam = req.params.slug.trim();
+    const rows = await query(`
+      SELECT 
+        id, codigo, nombre, categoria_id, descripcion, nivel, horas_totales, horas_practicas, modalidad, estado,
+        precio_base, moneda, tipo_iva, porcentaje_iva, importe_iva, precio_final,
+        estado_precio, tipo_inscripcion, plazas_maximas, plazas_disponibles,
+        estado_disponibilidad, fecha_apertura_inscripcion, fecha_cierre_inscripcion, estado_publicacion,
+        orden_visualizacion, slug, meta_title, meta_description, alt_text, og_image, indexable,
+        actualizado_en, creado_en
+      FROM especialidades
+      WHERE slug = ? OR id = ? OR codigo = ?
+      LIMIT 1
+    `, [rawParam, rawParam, rawParam]);
+
+    if (!rows || rows.length === 0) {
+      return res.status(404).json({ error: 'Curso no encontrado.' });
+    }
+
+    res.json({ course: rows[0] });
+  } catch (error) {
+    console.error('Error fetching course by slug:', error);
+    res.status(500).json({ error: 'Error al consultar el curso.' });
   }
 });
 
@@ -7197,7 +7226,8 @@ app.get('/api/admin/courses', requireAuth, requireNoTempPassword, async (req, re
         precio_base, moneda, tipo_iva, porcentaje_iva, importe_iva, precio_final,
         estado_precio, tipo_inscripcion, plazas_maximas, plazas_disponibles,
         estado_disponibilidad, fecha_apertura_inscripcion, fecha_cierre_inscripcion, estado_publicacion,
-        orden_visualizacion, modificado_por_admin, actualizado_en
+        orden_visualizacion, slug, meta_title, meta_description, alt_text, og_image, indexable,
+        modificado_por_admin, actualizado_en
       FROM especialidades
       ORDER BY 
         (CASE WHEN estado_disponibilidad = 'ABIERTA' THEN 0 ELSE 1 END) ASC,
@@ -7511,24 +7541,240 @@ app.put('/api/admin/courses/:id', requireAuth, requireNoTempPassword, async (req
   }
 });
 
-// SEO vs Security: Dedicated robots.txt endpoint to protect private paths from web crawlers
+// 6. ADMIN: Update course SEO & Positioning configuration (Modificación 10)
+app.put('/api/admin/courses/:id/seo', requireAuth, requireNoTempPassword, async (req, res) => {
+  try {
+    const userRoles = req.user.roles || [];
+    if (!userRoles.some(r => ['ADMINISTRADOR', 'ADMIN', 'SECRETARIA', 'DIRECCION'].includes(r))) {
+      return res.status(403).json({ error: 'Acceso restringido a personal de administración y secretaría.' });
+    }
+
+    const courseId = req.params.id;
+    const existing = await query(`SELECT * FROM especialidades WHERE id = ? OR codigo = ? LIMIT 1`, [courseId, courseId]);
+    if (!existing || existing.length === 0) {
+      return res.status(404).json({ error: 'Curso no encontrado.' });
+    }
+
+    const currentCourse = existing[0];
+    const { slug, meta_title, meta_description, alt_text, og_image, indexable } = req.body;
+
+    // Validate Slug: clean, lowercase, alphanumeric and dashes
+    let cleanSlug = (slug || '').trim().toLowerCase();
+    if (!cleanSlug) {
+      return res.status(400).json({ error: 'La URL amigable (slug) es obligatoria.' });
+    }
+
+    // Slug format check
+    cleanSlug = cleanSlug
+      .normalize('NFD').replace(/[\u0300-\u036f]/g, '') // remove accents
+      .replace(/[^a-z0-9-]/g, '-')                     // replace non-alphanumeric with hyphen
+      .replace(/-+/g, '-')                             // collapse hyphens
+      .replace(/^-|-$/g, '');                          // trim hyphens
+
+    if (!cleanSlug) {
+      return res.status(400).json({ error: 'La URL amigable generada contiene caracteres inválidos.' });
+    }
+
+    // Check slug uniqueness
+    const duplicateSlug = await query(
+      `SELECT id, codigo, nombre FROM especialidades WHERE slug = ? AND id != ? LIMIT 1`,
+      [cleanSlug, currentCourse.id]
+    );
+    if (duplicateSlug && duplicateSlug.length > 0) {
+      return res.status(400).json({
+        error: `La URL amigable "/cursos/${cleanSlug}" ya está asignada al curso "${duplicateSlug[0].nombre}" (${duplicateSlug[0].codigo}). Elija un slug único.`
+      });
+    }
+
+    // Clean meta title & description
+    const cleanMetaTitle = meta_title !== undefined ? String(meta_title).trim() : currentCourse.meta_title;
+    const cleanMetaDesc = meta_description !== undefined ? String(meta_description).trim() : currentCourse.meta_description;
+    const cleanAltText = alt_text !== undefined ? String(alt_text).trim() : currentCourse.alt_text;
+    const cleanOgImage = og_image !== undefined ? String(og_image).trim() : currentCourse.og_image;
+    const cleanIndexable = (indexable === false || indexable === 0 || indexable === '0') ? 0 : 1;
+
+    const userActor = req.user.email || req.user.nombre || 'Administrador';
+
+    await query(`
+      UPDATE especialidades
+      SET 
+        slug = ?,
+        meta_title = ?,
+        meta_description = ?,
+        alt_text = ?,
+        og_image = ?,
+        indexable = ?,
+        modificado_por_admin = ?,
+        actualizado_en = NOW()
+      WHERE id = ?
+    `, [
+      cleanSlug,
+      cleanMetaTitle || null,
+      cleanMetaDesc || null,
+      cleanAltText || null,
+      cleanOgImage || null,
+      cleanIndexable,
+      userActor,
+      currentCourse.id
+    ]);
+
+    const updated = (await query(`SELECT * FROM especialidades WHERE id = ?`, [currentCourse.id]))[0];
+
+    res.json({
+      success: true,
+      message: 'Configuración SEO y posicionamiento del curso guardada correctamente.',
+      course: updated
+    });
+  } catch (error) {
+    console.error('Error updating course SEO configuration:', error);
+    res.status(500).json({ error: 'Error al actualizar la configuración SEO: ' + error.message });
+  }
+});
+
+// ==============================================================================
+// SEO & ROBOT ACCESSIBILITY ROUTES (MODIFICACIÓN 10)
+// ==============================================================================
+
+// Helper to determine base public URL
+function getPublicBaseUrl(req) {
+  if (process.env.PUBLIC_URL) {
+    return process.env.PUBLIC_URL.replace(/\/$/, '');
+  }
+  const protocol = req.headers['x-forwarded-proto'] || req.protocol || 'http';
+  const host = req.headers['x-forwarded-host'] || req.get('host') || 'localhost:3000';
+  return `${protocol}://${host}`;
+}
+
+// 1. Dynamic XML Sitemap (/sitemap.xml)
+app.get('/sitemap.xml', async (req, res) => {
+  try {
+    const baseUrl = getPublicBaseUrl(req);
+    const courses = await query(`
+      SELECT id, codigo, nombre, slug, estado_publicacion, indexable, creado_en, actualizado_en
+      FROM especialidades
+      WHERE estado_publicacion = 'PUBLICADO' AND indexable = 1
+      ORDER BY orden_visualizacion ASC, codigo ASC
+    `);
+
+    const xml = renderSitemapXml(courses || [], baseUrl);
+    res.setHeader('Content-Type', 'application/xml; charset=utf-8');
+    res.setHeader('Cache-Control', 'public, max-age=3600'); // Cache for 1 hour
+    res.send(xml);
+  } catch (error) {
+    console.error('Error generating sitemap.xml:', error);
+    res.status(500).type('text/plain').send('Error al generar el mapa del sitio XML.');
+  }
+});
+
+// 2. Verified Robots.txt (/robots.txt)
 app.get('/robots.txt', (req, res) => {
-  res.type('text/plain');
-  res.send(`User-agent: *
-Allow: /
-Allow: /cursos
-Allow: /contacto
-Allow: /nosotros
-Allow: /matricula
-Disallow: /api/
-Disallow: /admin
-Disallow: /#admin
-Disallow: /campus
-Disallow: /#campus
-Disallow: /#reset-password
-Disallow: /#activar-cuenta
-Disallow: /uploads/
-`);
+  const baseUrl = getPublicBaseUrl(req);
+  const content = renderRobotsTxt(baseUrl);
+  res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+  res.setHeader('Cache-Control', 'public, max-age=86400'); // Cache for 24h
+  res.send(content);
+});
+
+// 3. SSR Catalog Index (/cursos)
+app.get('/cursos', async (req, res, next) => {
+  try {
+    // 301 Redirect legacy query parameters e.g. /cursos?id=tmvg0002 -> /cursos/slug
+    const queryId = req.query.id || req.query.courseId || req.query.codigo;
+    if (queryId) {
+      const match = await query(
+        `SELECT slug FROM especialidades WHERE id = ? OR codigo = ? LIMIT 1`,
+        [queryId, queryId]
+      );
+      if (match && match.length > 0 && match[0].slug) {
+        return res.redirect(301, `/cursos/${match[0].slug}`);
+      }
+    }
+
+    const baseUrl = getPublicBaseUrl(req);
+    const courses = await query(`
+      SELECT 
+        id, codigo, nombre, categoria_id, descripcion, nivel, horas_totales, horas_practicas, modalidad,
+        precio_final, estado_precio, estado_disponibilidad, estado_publicacion,
+        orden_visualizacion, slug, meta_title, meta_description, alt_text, og_image, indexable
+      FROM especialidades
+      WHERE estado_publicacion IN ('PUBLICADO', 'NO_DISPONIBLE')
+      ORDER BY 
+        (CASE WHEN estado_disponibilidad = 'ABIERTA' THEN 0 ELSE 1 END) ASC,
+        orden_visualizacion ASC,
+        codigo ASC
+    `);
+
+    const html = renderCatalogPage(courses || [], baseUrl);
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.send(html);
+  } catch (error) {
+    console.error('Error rendering /cursos page:', error);
+    next();
+  }
+});
+
+// 4. SSR Individual Permanent Course Page (/cursos/:slug)
+app.get('/cursos/:slug', async (req, res, next) => {
+  try {
+    const rawSlug = req.params.slug.trim().toLowerCase();
+    const baseUrl = getPublicBaseUrl(req);
+
+    // Look up by slug, id, or code
+    const rows = await query(`
+      SELECT *
+      FROM especialidades
+      WHERE slug = ? OR id = ? OR codigo = ?
+      LIMIT 1
+    `, [rawSlug, rawSlug, rawSlug]);
+
+    if (!rows || rows.length === 0) {
+      res.status(404).setHeader('Content-Type', 'text/html; charset=utf-8');
+      return res.send(`
+        <!doctype html>
+        <html lang="es">
+          <head>
+            <meta charset="UTF-8">
+            <title>Curso no encontrado (404) | Academias Péndulo</title>
+            <meta name="robots" content="noindex, nofollow" />
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <style>
+              body { font-family: system-ui, sans-serif; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; background: #09090b; color: #fafafa; text-align: center; }
+              .card { max-width: 500px; padding: 2.5rem; background: #18181b; border: 1px solid #27272a; border-radius: 1.5rem; }
+              h1 { color: #ef4444; font-size: 2rem; margin-bottom: 0.5rem; }
+              p { color: #a1a1aa; font-size: 1rem; line-height: 1.5; }
+              a { display: inline-block; margin-top: 1.5rem; padding: 0.75rem 1.5rem; background: #dc2626; color: white; border-radius: 0.75rem; text-decoration: none; font-weight: bold; }
+            </style>
+          </head>
+          <body>
+            <div class="card">
+              <h1>404 — Curso no encontrado</h1>
+              <p>Lo sentimos, la especialidad formativa que buscas no existe o ha cambiado de dirección permanente.</p>
+              <a href="/cursos">Explorar Catálogo de Cursos</a>
+            </div>
+          </body>
+        </html>
+      `);
+    }
+
+    const course = rows[0];
+
+    // If accessed by old id or code instead of canonical slug, perform 301 Permanent Redirect
+    if (course.slug && rawSlug !== course.slug.toLowerCase()) {
+      return res.redirect(301, `/cursos/${course.slug}`);
+    }
+
+    // Apply noindex headers if course is draft, archived, or marked non-indexable
+    if (course.indexable === 0 || course.estado_publicacion !== 'PUBLICADO') {
+      res.setHeader('X-Robots-Tag', 'noindex, nofollow');
+    }
+
+    const html = renderCoursePage(course, baseUrl);
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.send(html);
+  } catch (error) {
+    console.error('Error rendering course page:', error);
+    next();
+  }
 });
 
 // SPA fallback: send index.html for any unknown route

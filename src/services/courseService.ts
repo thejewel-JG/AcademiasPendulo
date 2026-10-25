@@ -25,6 +25,12 @@ export function mergeCourseWithCommercialData(staticCourse: Course, dbData?: any
       estado_publicacion: 'PUBLICADO',
       orden_visualizacion: 0,
       modificado_por_admin: null,
+      slug: generateSlug(staticCourse.title),
+      meta_title: `${staticCourse.title} en Almería | Academias Péndulo`,
+      meta_description: staticCourse.shortDescription,
+      alt_text: `Taller y formación de ${staticCourse.title} en Almería`,
+      og_image: staticCourse.imageUrl,
+      indexable: 1,
     };
   }
 
@@ -62,8 +68,67 @@ export function mergeCourseWithCommercialData(staticCourse: Course, dbData?: any
     estado_publicacion: dbData.estado_publicacion || 'PUBLICADO',
     orden_visualizacion: ordenVisualizacionNum,
     modificado_por_admin: dbData.modificado_por_admin || null,
+    slug: dbData.slug || generateSlug(staticCourse.title),
+    meta_title: dbData.meta_title || `${staticCourse.title} en Almería | Academias Péndulo`,
+    meta_description: dbData.meta_description || staticCourse.shortDescription,
+    alt_text: dbData.alt_text || `Taller de formación de ${staticCourse.title} en Academias Péndulo Almería`,
+    og_image: dbData.og_image || staticCourse.imageUrl,
+    indexable: dbData.indexable !== undefined ? dbData.indexable : 1,
   };
 }
+
+/**
+ * Generate a clean, SEO-friendly slug from title
+ */
+export function generateSlug(title: string): string {
+  return (title || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9-]/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '');
+}
+
+/**
+ * Fetch a single course by slug from API
+ */
+export async function fetchCourseBySlug(slug: string): Promise<Course | null> {
+  try {
+    const res = await fetch(`/api/courses/by-slug/${encodeURIComponent(slug)}`);
+    if (!res.ok) return null;
+    const data = await res.json();
+    if (!data || !data.course) return null;
+    const dbCourse = data.course;
+    const staticCourse = COURSES.find(c => c.id.toLowerCase() === dbCourse.id.toLowerCase() || c.code.toLowerCase() === dbCourse.codigo.toLowerCase()) || {
+      id: dbCourse.id,
+      code: dbCourse.codigo,
+      title: dbCourse.nombre,
+      categoryId: dbCourse.categoria_id,
+      categoryName: dbCourse.categoria_id === 'tmv' ? 'Transporte y Mantenimiento de Vehículos' : 'Formación Complementaria',
+      level: dbCourse.nivel || 'Especialidad Autorizada',
+      totalHours: dbCourse.horas_totales || 40,
+      practiceHours: dbCourse.horas_practicas || 10,
+      modality: dbCourse.modalidad || 'Presencial',
+      schedule: 'Flexible',
+      nextCall: 'Convocatoria Abierta',
+      placesLeft: dbCourse.plazas_disponibles || 15,
+      shortDescription: dbCourse.descripcion || '',
+      fullDescription: dbCourse.descripcion || '',
+      requirements: ['Consultar requisitos con secretaría.'],
+      jobOutlets: ['Inserción en el sector automotriz y talleres'],
+      modules: [{ code: `MOD-${dbCourse.codigo}`, name: dbCourse.nombre, hours: dbCourse.horas_totales || 40 }],
+      equipmentHighlights: ['Instalaciones y taller técnico homologado'],
+      imageUrl: dbCourse.og_image || 'https://res.cloudinary.com/dj3wfhav2/image/upload/v1788989687/Modern_car_in_calibration_bay_202609092333_srugod.jpg',
+      targetAudience: 'Alumnos y profesionales del sector.'
+    };
+    return mergeCourseWithCommercialData(staticCourse, dbCourse);
+  } catch (err) {
+    console.warn('Error in fetchCourseBySlug:', err);
+    return null;
+  }
+}
+
 
 /**
  * Fetch all public courses from backend and return combined catalog

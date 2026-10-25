@@ -1,9 +1,18 @@
+# ==============================================================================
+# ROBOTS.TXT — ACADEMIAS PÉNDULO (https://academiaspendulo.com)
+# Configuración técnica de rastreo e indexación para buscadores y motores de IA
+# ==============================================================================
+
+# 1. Reglas generales para todos los rastreadores legítimos
 User-agent: *
 Allow: /
 Allow: /cursos
+Allow: /cursos/*
 Allow: /contacto
 Allow: /nosotros
-Allow: /matricula
+Allow: /solicitud-inscripcion
+
+# Rutas privadas, administrativas y operativas excluidas de la indexación pública
 Disallow: /api/
 Disallow: /admin
 Disallow: /#admin
@@ -11,4 +20,47 @@ Disallow: /campus
 Disallow: /#campus
 Disallow: /#reset-password
 Disallow: /#activar-cuenta
+Disallow: /activar-cuenta
 Disallow: /uploads/
+Disallow: /uploads/private/
+Disallow: /uploads/justificantes/
+
+# 2. Rastreador oficial de Google (Googlebot)
+User-agent: Googlebot
+Allow: /
+Allow: /cursos
+Allow: /cursos/*
+Allow: /contacto
+Allow: /nosotros
+Disallow: /api/
+Disallow: /admin
+Disallow: /campus
+Disallow: /uploads/
+
+# 3. Rastreador oficial de Microsoft Bing (Bingbot)
+User-agent: Bingbot
+Allow: /
+Allow: /cursos
+Allow: /cursos/*
+Allow: /contacto
+Allow: /nosotros
+Disallow: /api/
+Disallow: /admin
+Disallow: /campus
+Disallow: /uploads/
+
+# 4. Rastreador oficial de ChatGPT Search (OAI-SearchBot)
+# Autorizado explícitamente para descubrimiento de contenidos públicos en búsquedas de IA
+User-agent: OAI-SearchBot
+Allow: /
+Allow: /cursos
+Allow: /cursos/*
+Allow: /contacto
+Allow: /nosotros
+Disallow: /api/
+Disallow: /admin
+Disallow: /campus
+Disallow: /uploads/
+
+# 5. Localización oficial del mapa del sitio XML
+Sitemap: https://academiaspendulo.com/sitemap.xml

@@ -21,6 +21,12 @@ export interface CourseCommercialConfig {
   estado_publicacion?: 'BORRADOR' | 'PUBLICADO' | 'NO_DISPONIBLE' | 'ARCHIVADO';
   orden_visualizacion?: number;
   modificado_por_admin?: string | null;
+  slug?: string;
+  meta_title?: string;
+  meta_description?: string;
+  alt_text?: string;
+  og_image?: string;
+  indexable?: number | boolean;
 }
 
 export interface Course extends CourseCommercialConfig {

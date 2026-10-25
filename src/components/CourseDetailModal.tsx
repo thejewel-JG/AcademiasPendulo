@@ -16,7 +16,8 @@ import {
   CreditCard,
   Calendar,
   ShieldCheck,
-  Info
+  Info,
+  HelpCircle
 } from 'lucide-react';
 import { Course } from '../types';
 import { CENTER_INFO } from '../data/coursesData';
@@ -137,6 +138,15 @@ export const CourseDetailModal: React.FC<CourseDetailModalProps> = ({
         {/* Modal Scrollable Body */}
         <div className="overflow-y-auto p-6 sm:p-8 flex-1 space-y-8">
           
+          {/* MIGA DE PAN / BREADCRUMB RASTREABLE */}
+          <nav aria-label="Migas de pan" className="flex items-center gap-2 text-xs text-gray-400 font-medium pb-2 border-b border-gray-100">
+            <button type="button" onClick={onClose} className="hover:text-red-600 transition cursor-pointer">Inicio</button>
+            <span className="text-gray-300">/</span>
+            <button type="button" onClick={onClose} className="hover:text-red-600 transition cursor-pointer">Catálogo de Cursos</button>
+            <span className="text-gray-300">/</span>
+            <span className="text-gray-700 font-bold truncate max-w-xs">{course.title}</span>
+          </nav>
+
           {/* BLOQUE VISUAL DESTACADO DE MATRICULACIÓN Y CONDICIONES ECONÓMICAS (SECCIÓN 5) */}
           <div className="bg-gradient-to-r from-gray-950 via-zinc-900 to-red-950 text-white p-6 rounded-3xl border border-red-900/40 shadow-xl space-y-5">
             <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b border-white/10 pb-4">
@@ -452,6 +462,63 @@ export const CourseDetailModal: React.FC<CourseDetailModalProps> = ({
                 </div>
               </form>
             )}
+          </div>
+
+          {/* BLOQUE DE UBICACIÓN Y SEDE OFICIAL EN ALMERÍA */}
+          <div className="bg-gray-50 p-5 rounded-2xl border border-gray-200 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 text-xs">
+            <div className="flex items-start gap-3">
+              <div className="w-10 h-10 rounded-xl bg-red-100 text-red-600 flex items-center justify-center shrink-0">
+                <Building2 className="w-5 h-5" />
+              </div>
+              <div>
+                <h4 className="font-bold text-gray-900 text-sm">Sede e Instalaciones en Almería</h4>
+                <p className="text-gray-600 mt-0.5">
+                  <strong>Academias Péndulo</strong> — Centro Homologado Oficial Nº 0400030892<br />
+                  {CENTER_INFO.address}, {CENTER_INFO.postalCode} {CENTER_INFO.city} ({CENTER_INFO.province})<br />
+                  Horario de Atención: {CENTER_INFO.hours}
+                </p>
+              </div>
+            </div>
+            <a
+              href={`tel:${CENTER_INFO.phone.replace(/\s+/g, '')}`}
+              className="px-4 py-2 bg-white hover:bg-gray-100 text-gray-900 font-bold rounded-xl border border-gray-300 shrink-0 transition"
+            >
+              Llamar al {CENTER_INFO.phone}
+            </a>
+          </div>
+
+          {/* PREGUNTAS FRECUENTES DEL CURSO (SEO Y ASISTENCIA IA) */}
+          <div className="space-y-3 pt-1">
+            <h4 className="font-display font-bold text-gray-900 text-base flex items-center gap-2">
+              <HelpCircle className="w-4 h-4 text-red-600" />
+              Preguntas Frecuentes sobre {course.code}
+            </h4>
+            <div className="space-y-2 text-xs">
+              <details className="bg-gray-50 border border-gray-200 rounded-xl p-3.5 group cursor-pointer">
+                <summary className="font-bold text-gray-900 group-hover:text-red-600 transition">
+                  ¿Dónde se imparte la formación práctica de este curso?
+                </summary>
+                <p className="text-gray-600 mt-2 leading-relaxed">
+                  Se imparte en las instalaciones y talleres homologados de Academias Péndulo en Carrera Doctoral 26, Almería. Disponemos de elevadores, equipos de diagnosis multimarca y bancos de prueba específicos.
+                </p>
+              </details>
+              <details className="bg-gray-50 border border-gray-200 rounded-xl p-3.5 group cursor-pointer">
+                <summary className="font-bold text-gray-900 group-hover:text-red-600 transition">
+                  ¿Puedo solicitar información si la matrícula está cerrada?
+                </summary>
+                <p className="text-gray-600 mt-2 leading-relaxed">
+                  Sí. Cuando una convocatoria está cerrada, la ficha informativa del curso sigue publicada y disponible. Puedes solicitar información o contactar con secretaría para incorporarte a la lista de reserva prioritaria.
+                </p>
+              </details>
+              <details className="bg-gray-50 border border-gray-200 rounded-xl p-3.5 group cursor-pointer">
+                <summary className="font-bold text-gray-900 group-hover:text-red-600 transition">
+                  ¿Qué titulación o acreditación oficial se obtiene?
+                </summary>
+                <p className="text-gray-600 mt-2 leading-relaxed">
+                  Este curso corresponde a una especialidad oficial autorizada (Centro Nº 0400030892) por la Junta de Andalucía y el SEPE, con validez curricular y profesional en todo el territorio nacional.
+                </p>
+              </details>
+            </div>
           </div>
 
         </div>

@@ -22,7 +22,10 @@ import {
   AlertTriangle,
   ArrowUp,
   ArrowDown,
-  Unlock
+  Unlock,
+  Globe,
+  ExternalLink,
+  Eye
 } from 'lucide-react';
 import { Course } from '../../types';
 import { formatCoursePrice } from '../../services/courseService';
@@ -53,6 +56,12 @@ interface AdminCourseData {
   fecha_cierre_inscripcion: string | null;
   estado_publicacion: 'BORRADOR' | 'PUBLICADO' | 'NO_DISPONIBLE' | 'ARCHIVADO';
   orden_visualizacion?: number;
+  slug?: string;
+  meta_title?: string;
+  meta_description?: string;
+  alt_text?: string;
+  og_image?: string;
+  indexable?: number | boolean;
   modificado_por_admin?: string;
   actualizado_en?: string;
 }
@@ -70,12 +79,13 @@ export const CampusCommercialCatalog: React.FC = () => {
   const [enrollmentTypeFilter, setEnrollmentTypeFilter] = useState<string>('ALL');
   const [publicationFilter, setPublicationFilter] = useState<string>('ALL');
 
-  // Modal State for "CONFIGURACIÓN COMERCIAL"
+  // Modal State for "CONFIGURACIÓN COMERCIAL Y SEO"
   const [editingCourse, setEditingCourse] = useState<AdminCourseData | null>(null);
+  const [modalTab, setModalTab] = useState<'COMMERCIAL' | 'SEO'>('COMMERCIAL');
   const [saving, setSaving] = useState<boolean>(false);
   const [formErrors, setFormErrors] = useState<string[]>([]);
 
-  // Form Fields State
+  // Form Fields State - Commercial
   const [formPrecioBase, setFormPrecioBase] = useState<string>('');
   const [formTipoIva, setFormTipoIva] = useState<string>('EXENTO');
   const [formTipoInscripcion, setFormTipoInscripcion] = useState<'COMPRA_DIRECTA' | 'SOLICITUD_APROBACION'>('SOLICITUD_APROBACION');
@@ -87,6 +97,17 @@ export const CampusCommercialCatalog: React.FC = () => {
   const [formEstadoPublicacion, setFormEstadoPublicacion] = useState<'BORRADOR' | 'PUBLICADO' | 'NO_DISPONIBLE' | 'ARCHIVADO'>('PUBLICADO');
   const [formOrdenVisualizacion, setFormOrdenVisualizacion] = useState<string>('0');
   const [actionLoadingCourseId, setActionLoadingCourseId] = useState<string | null>(null);
+
+  // Form Fields State - SEO & Posicionamiento (Modificación 10)
+  const [formSlug, setFormSlug] = useState<string>('');
+  const [formMetaTitle, setFormMetaTitle] = useState<string>('');
+  const [formMetaDescription, setFormMetaDescription] = useState<string>('');
+  const [formAltText, setFormAltText] = useState<string>('');
+  const [formOgImage, setFormOgImage] = useState<string>('');
+  const [formIndexable, setFormIndexable] = useState<boolean>(true);
+  const [savingSeo, setSavingSeo] = useState<boolean>(false);
+  const [seoSuccessMsg, setSeoSuccessMsg] = useState<string>('');
+  const [seoErrorMsg, setSeoErrorMsg] = useState<string>('');
 
   // Load courses from backend
   const fetchCourses = async () => {
@@ -126,7 +147,12 @@ export const CampusCommercialCatalog: React.FC = () => {
   // Open modal & populate fields
   const handleEditCourse = (course: AdminCourseData) => {
     setEditingCourse(course);
+    setModalTab('COMMERCIAL');
     setFormErrors([]);
+    setSeoSuccessMsg('');
+    setSeoErrorMsg('');
+
+    // Commercial
     setFormPrecioBase(course.precio_base !== null && course.precio_base !== undefined ? String(course.precio_base) : '');
     setFormTipoIva(course.tipo_iva || 'EXENTO');
     setFormTipoInscripcion(course.tipo_inscripcion || 'SOLICITUD_APROBACION');
@@ -137,6 +163,73 @@ export const CampusCommercialCatalog: React.FC = () => {
     setFormFechaCierre(course.fecha_cierre_inscripcion ? course.fecha_cierre_inscripcion.slice(0, 10) : '');
     setFormEstadoPublicacion(course.estado_publicacion || 'PUBLICADO');
     setFormOrdenVisualizacion(course.orden_visualizacion !== undefined && course.orden_visualizacion !== null ? String(course.orden_visualizacion) : '0');
+
+    // SEO
+    setFormSlug(course.slug || '');
+    setFormMetaTitle(course.meta_title || `${course.nombre} en Almería | Academias Péndulo`);
+    setFormMetaDescription(course.meta_description || course.descripcion || '');
+    setFormAltText(course.alt_text || `Taller de formación de ${course.nombre} en Academias Péndulo Almería`);
+    setFormOgImage(course.og_image || 'https://res.cloudinary.com/dj3wfhav2/image/upload/v1788989687/Modern_car_in_calibration_bay_202609092333_srugod.jpg');
+    setFormIndexable(course.indexable !== 0 && course.indexable !== false);
+  };
+
+  // Generate clean slug from title
+  const handleGenerateSlug = () => {
+    if (!editingCourse) return;
+    const clean = editingCourse.nombre
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-z0-9-]/g, '-')
+      .replace(/-+/g, '-')
+      .replace(/^-|-$/g, '');
+    setFormSlug(clean);
+  };
+
+  // Save SEO Configuration
+  const handleSaveSeoConfig = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingCourse) return;
+
+    if (!formSlug.trim()) {
+      setSeoErrorMsg('La URL amigable (slug) es obligatoria.');
+      return;
+    }
+
+    setSavingSeo(true);
+    setSeoSuccessMsg('');
+    setSeoErrorMsg('');
+
+    try {
+      const token = localStorage.getItem('token') || sessionStorage.getItem('token') || '';
+      const res = await fetch(`/api/admin/courses/${editingCourse.id}/seo`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          slug: formSlug,
+          meta_title: formMetaTitle,
+          meta_description: formMetaDescription,
+          alt_text: formAltText,
+          og_image: formOgImage,
+          indexable: formIndexable ? 1 : 0
+        })
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Error al guardar la configuración SEO.');
+
+      setSeoSuccessMsg('Configuración SEO y posicionamiento guardada correctamente.');
+      setSuccessToast(`SEO actualizado para "${editingCourse.nombre}".`);
+      setTimeout(() => setSuccessToast(''), 4000);
+      await fetchCourses();
+    } catch (err: any) {
+      setSeoErrorMsg(err.message || 'Error de conexión.');
+    } finally {
+      setSavingSeo(false);
+    }
   };
 
   // 1-Click Toggle Course Enrollment Status (ABIERTA / CERRADA)
@@ -720,8 +813,41 @@ export const CampusCommercialCatalog: React.FC = () => {
               </button>
             </div>
 
-            {/* Modal Form */}
-            <form onSubmit={handleSaveCommercialConfig} className="p-6 overflow-y-auto space-y-6 flex-1 text-xs">
+            {/* Modal Tabs Bar */}
+            <div className="flex border-b border-zinc-800 bg-zinc-950 px-5 gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={() => setModalTab('COMMERCIAL')}
+                className={`py-3 px-4 font-bold text-xs flex items-center gap-2 border-b-2 transition cursor-pointer ${
+                  modalTab === 'COMMERCIAL'
+                    ? 'border-red-500 text-white bg-zinc-900/40'
+                    : 'border-transparent text-zinc-400 hover:text-zinc-200'
+                }`}
+              >
+                <DollarSign className="w-4 h-4 text-emerald-400" />
+                Configuración Comercial y Precios
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setModalTab('SEO')}
+                className={`py-3 px-4 font-bold text-xs flex items-center gap-2 border-b-2 transition cursor-pointer ${
+                  modalTab === 'SEO'
+                    ? 'border-red-500 text-white bg-zinc-900/40'
+                    : 'border-transparent text-zinc-400 hover:text-zinc-200'
+                }`}
+              >
+                <Globe className="w-4 h-4 text-blue-400" />
+                SEO Y POSICIONAMIENTO
+                <span className="bg-red-950 text-red-300 text-[10px] px-1.5 py-0.5 rounded font-mono border border-red-800/40">
+                  Google / IA
+                </span>
+              </button>
+            </div>
+
+            {/* TAB 1: CONFIGURACIÓN COMERCIAL */}
+            {modalTab === 'COMMERCIAL' && (
+              <form onSubmit={handleSaveCommercialConfig} className="p-6 overflow-y-auto space-y-6 flex-1 text-xs">
               {/* Validation errors alert */}
               {formErrors.length > 0 && (
                 <div className="bg-red-950/80 border border-red-800 text-red-200 p-3.5 rounded-xl space-y-1">
@@ -1030,9 +1156,272 @@ export const CampusCommercialCatalog: React.FC = () => {
                 </button>
               </div>
             </form>
-          </div>
+          )}
+
+          {/* TAB 2: SEO Y POSICIONAMIENTO (MODIFICACIÓN 10) */}
+          {modalTab === 'SEO' && (
+            <form onSubmit={handleSaveSeoConfig} className="p-6 overflow-y-auto space-y-6 flex-1 text-xs">
+              {/* Alerts */}
+              {seoSuccessMsg && (
+                <div className="bg-emerald-950/80 border border-emerald-500 text-emerald-200 p-3.5 rounded-xl flex items-center gap-2.5">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                  <span>{seoSuccessMsg}</span>
+                </div>
+              )}
+              {seoErrorMsg && (
+                <div className="bg-red-950/80 border border-red-500 text-red-200 p-3.5 rounded-xl flex items-center gap-2.5">
+                  <AlertTriangle className="w-4 h-4 text-red-400 shrink-0" />
+                  <span>{seoErrorMsg}</span>
+                </div>
+              )}
+
+              {/* VISTA PREVIA ORIENTATIVA DE RESULTADO DE BÚSQUEDA EN GOOGLE (SERP PREVIEW) */}
+              <div className="bg-zinc-900/80 border border-zinc-800 rounded-xl p-4 space-y-3">
+                <div className="flex items-center justify-between border-b border-zinc-800 pb-2">
+                  <h4 className="font-bold text-sm text-white flex items-center gap-2 font-heading">
+                    <Eye className="w-4 h-4 text-blue-400" />
+                    Vista Previa Orientativa en Google / ChatGPT Search
+                  </h4>
+                  <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-zinc-800 text-zinc-300">
+                    Snippet SERP Simulado
+                  </span>
+                </div>
+
+                <div className="bg-white p-4 rounded-xl border border-gray-200 text-left font-sans shadow-sm">
+                  <div className="flex items-center gap-2 text-xs text-gray-700 mb-1">
+                    <div className="w-4 h-4 rounded-full bg-red-600 text-white flex items-center justify-center text-[10px] font-bold">P</div>
+                    <span className="font-medium text-gray-800">academiaspendulo.com</span>
+                    <span className="text-gray-400">&gt; cursos &gt; {formSlug || 'slug-del-curso'}</span>
+                  </div>
+
+                  <div className="text-blue-700 hover:underline text-base font-medium leading-snug cursor-pointer">
+                    {formMetaTitle || `${editingCourse.nombre} en Almería | Academias Péndulo`}
+                  </div>
+
+                  <p className="text-gray-600 text-xs mt-1 leading-relaxed line-clamp-2">
+                    {formMetaDescription || editingCourse.descripcion || 'Conoce el curso oficial de formación profesional en Almería. Consulta el temario, las horas lectivas, la modalidad y la disponibilidad de matrícula.'}
+                  </p>
+
+                  <div className="mt-2 pt-2 border-t border-gray-100 flex items-center gap-3 text-[11px] text-gray-500 font-medium">
+                    <span>Modalidad: {editingCourse.modalidad || 'Presencial'}</span>
+                    <span>•</span>
+                    <span>Duración: {editingCourse.horas_totales || 40}h</span>
+                    <span>•</span>
+                    <span className={formIndexable ? 'text-emerald-700 font-bold' : 'text-amber-700 font-bold'}>
+                      {formIndexable ? '✓ Indexable (Googlebot, Bingbot, OAI-SearchBot)' : '✕ Bloqueado (noindex, nofollow)'}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* CAMPOS SEO */}
+              <div className="bg-zinc-900/70 border border-zinc-800/80 rounded-xl p-4 space-y-4">
+                <div className="border-b border-zinc-800 pb-2">
+                  <h4 className="font-bold text-sm text-white flex items-center gap-2 font-heading">
+                    <Globe className="w-4 h-4 text-blue-400" />
+                    Metadatos y Parámetros de Indexación
+                  </h4>
+                </div>
+
+                {/* Título SEO */}
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-zinc-300 font-semibold">
+                      Título SEO (&lt;title&gt;):
+                    </label>
+                    <span className={`text-[11px] font-mono ${formMetaTitle.length > 65 ? 'text-amber-400' : 'text-zinc-400'}`}>
+                      {formMetaTitle.length}/65 carácteres recomendados
+                    </span>
+                  </div>
+                  <input
+                    type="text"
+                    value={formMetaTitle}
+                    onChange={(e) => setFormMetaTitle(e.target.value)}
+                    placeholder="Ej: Curso de Introducción a la Automoción en Almería | Academias Péndulo"
+                    className="w-full bg-zinc-950 border border-zinc-700 rounded-xl px-3 py-2 text-white font-medium focus:border-red-500 focus:outline-none"
+                  />
+                  <p className="text-[10px] text-zinc-400 mt-1">
+                    Aparece como encabezado azul en resultados de Google. Debe ser único, descriptivo e incorporar únicamente características reales.
+                  </p>
+                </div>
+
+                {/* Meta Descripción */}
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-zinc-300 font-semibold">
+                      Meta Descripción (&lt;meta name="description"&gt;):
+                    </label>
+                    <span className={`text-[11px] font-mono ${formMetaDescription.length > 160 ? 'text-amber-400' : 'text-zinc-400'}`}>
+                      {formMetaDescription.length}/160 carácteres recomendados
+                    </span>
+                  </div>
+                  <textarea
+                    rows={3}
+                    value={formMetaDescription}
+                    onChange={(e) => setFormMetaDescription(e.target.value)}
+                    placeholder="Conoce el curso oficial de Introducción a la Automoción de Academias Péndulo en Almería..."
+                    className="w-full bg-zinc-950 border border-zinc-700 rounded-xl p-3 text-white focus:border-red-500 focus:outline-none leading-relaxed"
+                  />
+                  <p className="text-[10px] text-zinc-400 mt-1">
+                    Resumen interpretado por usuarios y rastreadores con IA (ChatGPT Search, Bing, Google).
+                  </p>
+                </div>
+
+                {/* URL Amigable / Slug */}
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-zinc-300 font-semibold">
+                      URL Amigable / Slug Permanente:
+                    </label>
+                    <button
+                      type="button"
+                      onClick={handleGenerateSlug}
+                      className="text-[11px] text-red-400 hover:text-red-300 underline cursor-pointer"
+                    >
+                      Generar desde Nombre Oficial
+                    </button>
+                  </div>
+                  <div className="flex items-center">
+                    <span className="bg-zinc-800 text-zinc-400 px-3 py-2 rounded-l-xl border border-r-0 border-zinc-700 font-mono text-[11px] select-none">
+                      /cursos/
+                    </span>
+                    <input
+                      type="text"
+                      value={formSlug}
+                      onChange={(e) => setFormSlug(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '-'))}
+                      placeholder="ejemplo-slug-curso"
+                      className="w-full bg-zinc-950 border border-zinc-700 rounded-r-xl px-3 py-2 text-white font-mono focus:border-red-500 focus:outline-none"
+                    />
+                  </div>
+                  <p className="text-[10px] text-zinc-400 mt-1">
+                    Identificador permanente para la ficha individual del curso. Debe ser único y estable en minúsculas y guiones.
+                  </p>
+                </div>
+
+                {/* Texto alternativo de imagen (Alt) */}
+                <div>
+                  <label className="block text-zinc-300 font-semibold mb-1">
+                    Texto Alternativo de Imagen (Atributo Alt):
+                  </label>
+                  <input
+                    type="text"
+                    value={formAltText}
+                    onChange={(e) => setFormAltText(e.target.value)}
+                    placeholder="Ej: Alumno diagnosticando motor de vehículo con osciloscopio en taller de Almería"
+                    className="w-full bg-zinc-950 border border-zinc-700 rounded-xl px-3 py-2 text-white focus:border-red-500 focus:outline-none"
+                  />
+                </div>
+
+                {/* Imagen para Redes y Open Graph */}
+                <div>
+                  <label className="block text-zinc-300 font-semibold mb-1">
+                    URL de Imagen para Compartir (Open Graph / Twitter Card):
+                  </label>
+                  <div className="flex gap-2">
+                    <input
+                      type="url"
+                      value={formOgImage}
+                      onChange={(e) => setFormOgImage(e.target.value)}
+                      placeholder="https://res.cloudinary.com/..."
+                      className="w-full bg-zinc-950 border border-zinc-700 rounded-xl px-3 py-2 text-white font-mono text-xs focus:border-red-500 focus:outline-none"
+                    />
+                    {formOgImage && (
+                      <div className="w-10 h-10 rounded-xl overflow-hidden shrink-0 border border-zinc-700">
+                        <img src={formOgImage} alt="Preview" className="w-full h-full object-cover" />
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Control de Indexación en Buscadores */}
+                <div className="pt-2">
+                  <label className="block text-zinc-300 font-semibold mb-2">
+                    Estado de Indexación en Buscadores y Motores de IA:
+                  </label>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <label className={`p-3 rounded-xl border cursor-pointer transition ${formIndexable ? 'bg-emerald-950/40 border-emerald-500 text-white' : 'bg-zinc-950 border-zinc-800 text-zinc-400'}`}>
+                      <input
+                        type="radio"
+                        name="indexable"
+                        checked={formIndexable}
+                        onChange={() => setFormIndexable(true)}
+                        className="sr-only"
+                      />
+                      <div className="font-bold text-xs text-emerald-300 flex items-center gap-2 mb-0.5">
+                        <CheckCircle2 className="w-4 h-4" />
+                        Permitir Indexación (index, follow)
+                      </div>
+                      <p className="text-[11px] text-zinc-400">
+                        El curso aparecerá en el mapa del sitio XML, en Google, Bing y en búsquedas de IA (ChatGPT Search).
+                      </p>
+                    </label>
+
+                    <label className={`p-3 rounded-xl border cursor-pointer transition ${!formIndexable ? 'bg-amber-950/40 border-amber-500 text-white' : 'bg-zinc-950 border-zinc-800 text-zinc-400'}`}>
+                      <input
+                        type="radio"
+                        name="indexable"
+                        checked={!formIndexable}
+                        onChange={() => setFormIndexable(false)}
+                        className="sr-only"
+                      />
+                      <div className="font-bold text-xs text-amber-300 flex items-center gap-2 mb-0.5">
+                        <AlertTriangle className="w-4 h-4" />
+                        No Indexar (noindex, nofollow)
+                      </div>
+                      <p className="text-[11px] text-zinc-400">
+                        Se envía la cabecera X-Robots-Tag: noindex y se retira del sitemap.xml.
+                      </p>
+                    </label>
+                  </div>
+                </div>
+              </div>
+
+              {/* Botones de Acción SEO */}
+              <div className="flex items-center justify-between pt-4 border-t border-zinc-800">
+                <a
+                  href={`/cursos/${formSlug || editingCourse.slug}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center gap-1.5 text-xs text-zinc-400 hover:text-white transition"
+                >
+                  <ExternalLink className="w-3.5 h-3.5 text-red-400" />
+                  Abrir ficha pública en nueva pestaña
+                </a>
+
+                <div className="flex items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setEditingCourse(null)}
+                    disabled={savingSeo}
+                    className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 font-semibold rounded-xl transition cursor-pointer"
+                  >
+                    Cerrar
+                  </button>
+
+                  <button
+                    type="submit"
+                    disabled={savingSeo}
+                    className="inline-flex items-center gap-2 px-6 py-2.5 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-xl transition shadow-lg shadow-blue-900/30 cursor-pointer"
+                  >
+                    {savingSeo ? (
+                      <>
+                        <RefreshCw className="w-4 h-4 animate-spin" />
+                        Guardando SEO...
+                      </>
+                    ) : (
+                      <>
+                        <Save className="w-4 h-4" />
+                        Guardar Configuración SEO
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+            </form>
+          )}
         </div>
-      )}
+      </div>
+    )}
     </div>
   );
 };

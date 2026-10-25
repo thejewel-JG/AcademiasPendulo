@@ -19,6 +19,7 @@ import { InscriptionRequestFormModal } from './components/InscriptionRequestForm
 import { AssistantChatWidget } from './components/AssistantChatWidget';
 import { COURSES } from './data/coursesData';
 import { Course } from './types';
+import { generateSlug, fetchCourseBySlug } from './services/courseService';
 
 import { CampusProvider, useCampus } from './context/CampusContext';
 
@@ -59,16 +60,65 @@ function MainAppContent() {
 
   const { isCampusRoute, currentUser, currentView, navigateTo, campusTheme } = useCampus();
 
+  const handleOpenCourse = (course: Course) => {
+    setSelectedCourse(course);
+    const slug = course.slug || generateSlug(course.title);
+    if (window.location.pathname !== `/cursos/${slug}`) {
+      window.history.pushState(null, '', `/cursos/${slug}`);
+    }
+    document.title = course.meta_title || `${course.title} en Almería | Academias Péndulo`;
+  };
+
+  const handleCloseCourse = () => {
+    setSelectedCourse(null);
+    if (window.location.pathname.startsWith('/cursos/')) {
+      window.history.pushState(null, '', '/cursos');
+    }
+    document.title = 'Academias Péndulo - Centro de Formación Profesional Almería';
+  };
+
   const handleSelectCourseById = (courseId: string) => {
-    const course = COURSES.find((c) => c.id === courseId);
+    const course = COURSES.find((c) => c.id.toLowerCase() === courseId.toLowerCase() || c.code.toLowerCase() === courseId.toLowerCase());
     if (course) {
-      setSelectedCourse(course);
+      handleOpenCourse(course);
+    } else {
+      fetchCourseBySlug(courseId).then(found => {
+        if (found) handleOpenCourse(found);
+      });
     }
   };
 
   useEffect(() => {
     const handleLocation = () => {
       const path = window.location.pathname;
+
+      // Public course deep-linking support
+      if (path === '/cursos' || path === '/cursos/') {
+        const specEl = document.getElementById('especialidades');
+        if (specEl) {
+          specEl.scrollIntoView({ behavior: 'smooth' });
+        }
+      } else if (path.startsWith('/cursos/')) {
+        const slug = path.replace('/cursos/', '').replace(/\/$/, '').toLowerCase();
+        if (slug) {
+          const directMatch = COURSES.find(c => 
+            (c.slug && c.slug.toLowerCase() === slug) || 
+            generateSlug(c.title) === slug || 
+            c.id.toLowerCase() === slug || 
+            c.code.toLowerCase() === slug
+          );
+          if (directMatch) {
+            handleOpenCourse(directMatch);
+          } else {
+            fetchCourseBySlug(slug).then(found => {
+              if (found) {
+                handleOpenCourse(found);
+              }
+            });
+          }
+        }
+      }
+
       if (path === '/solicitud-inscripcion') {
         setIsInscriptionModalOpen(true);
       }
@@ -192,7 +242,7 @@ function MainAppContent() {
 
         {/* 3. Grid of Specialties & Accordion Courses */}
         <SpecialtiesGrid
-          onSelectCourse={(course) => setSelectedCourse(course)}
+          onSelectCourse={handleOpenCourse}
           onOpenConsultation={() => setIsConsultationOpen(true)}
           onOpenInscription={(course) => {
             setInscriptionCourseTitle(course.title);
@@ -239,7 +289,7 @@ function MainAppContent() {
       {selectedCourse && (
         <CourseDetailModal
           course={selectedCourse}
-          onClose={() => setSelectedCourse(null)}
+          onClose={handleCloseCourse}
           onOpenConsultation={() => setIsConsultationOpen(true)}
           onOpenInscription={(course) => {
             setInscriptionCourseTitle(course.title);
