@@ -26,8 +26,8 @@ export const CampusVirtualModal: React.FC<CampusVirtualModalProps> = ({ isOpen, 
   if (!isOpen) return null;
 
   const [isDemoMode, setIsDemoMode] = useState(false);
-  const [username, setUsername] = useState('alumno.demo@pendulo.es');
-  const [password, setPassword] = useState('••••••••');
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [isLoggingIn, setIsLoggingIn] = useState(false);
 

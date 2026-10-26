@@ -7472,10 +7472,10 @@ app.put('/api/admin/courses/:id', requireAuth, requireNoTempPassword, async (req
       ? estado_publicacion
       : currentCourse.estado_publicacion;
 
-    // 7. Commercial rule: Cannot publish for online direct sale without configured price
-    if (cleanTipoInscripcion === 'COMPRA_DIRECTA' && cleanPublicacion === 'PUBLICADO' && cleanEstadoPrecio !== 'CONFIGURADO') {
+    // 7. Commercial rule: Cannot publish for online direct sale without configured price when enrollment is open
+    if (cleanTipoInscripcion === 'COMPRA_DIRECTA' && cleanPublicacion === 'PUBLICADO' && cleanEstadoPrecio !== 'CONFIGURADO' && cleanDisponibilidad === 'ABIERTA') {
       return res.status(400).json({
-        error: 'No se puede publicar un curso con venta online directa sin haber establecido su precio comercial oficial.'
+        error: 'No se puede publicar un curso con venta online directa con matrícula abierta sin haber establecido su precio comercial oficial.'
       });
     }
 

@@ -4,28 +4,14 @@ import { LogIn, ShieldAlert, KeyRound, UserCheck, ArrowLeft, Lock, Mail, Sun, Mo
 
 export const CampusLogin: React.FC = () => {
   const { login, authError, navigateTo, campusTheme, toggleCampusTheme } = useCampus();
-  const [email, setEmail] = useState('admin@academiaspendulo.com');
-  const [password, setPassword] = useState('Wattpad_3317');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [showForgotMsg, setShowForgotMsg] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     await login(email, password);
-  };
-
-  const setDemoAccount = (role: 'alumno' | 'profesor' | 'admin') => {
-    if (role === 'admin') {
-      setEmail('admin@academiaspendulo.com');
-      setPassword('Wattpad_3317');
-    } else if (role === 'profesor') {
-      setEmail('profesor@pendulo.es');
-      setPassword('123456');
-    } else {
-      setEmail('alumno@pendulo.es');
-      setPassword('123456');
-    }
-    setShowForgotMsg(false);
   };
 
   return (
@@ -92,47 +78,6 @@ export const CampusLogin: React.FC = () => {
           </div>
         </div>
 
-        {/* Demo Access Selector Pills */}
-        <div className="mt-6 bg-zinc-900/90 border border-zinc-800 p-2 rounded-xl">
-          <div className="text-[11px] font-semibold text-zinc-400 uppercase tracking-wider text-center mb-2">
-            Probar cuentas de demostración:
-          </div>
-          <div className="grid grid-cols-3 gap-1.5 text-xs font-medium">
-            <button
-              type="button"
-              onClick={() => setDemoAccount('alumno')}
-              className={`py-2 px-2 rounded-lg border text-center transition-all ${
-                email === 'alumno@pendulo.es'
-                  ? 'bg-red-600/20 border-red-500/50 text-red-400 font-bold'
-                  : 'bg-zinc-800/50 border-zinc-700/50 text-zinc-300 hover:bg-zinc-800'
-              }`}
-            >
-              Alumno
-            </button>
-            <button
-              type="button"
-              onClick={() => setDemoAccount('profesor')}
-              className={`py-2 px-2 rounded-lg border text-center transition-all ${
-                email === 'profesor@pendulo.es'
-                  ? 'bg-red-600/20 border-red-500/50 text-red-400 font-bold'
-                  : 'bg-zinc-800/50 border-zinc-700/50 text-zinc-300 hover:bg-zinc-800'
-              }`}
-            >
-              Profesor
-            </button>
-            <button
-              type="button"
-              onClick={() => setDemoAccount('admin')}
-              className={`py-2 px-2 rounded-lg border text-center transition-all ${
-                email === 'admin@academiaspendulo.com' || email === 'info.academiaspendulo@gmail.com'
-                  ? 'bg-red-600/20 border-red-500/50 text-red-400 font-bold'
-                  : 'bg-zinc-800/50 border-zinc-700/50 text-zinc-300 hover:bg-zinc-800'
-              }`}
-            >
-              Admin
-            </button>
-          </div>
-        </div>
 
         {/* Login Form Container */}
         <div className="mt-6 bg-zinc-900 border border-zinc-800 rounded-2xl shadow-2xl p-6 sm:p-8 relative">

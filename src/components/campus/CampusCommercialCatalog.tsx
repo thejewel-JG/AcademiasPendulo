@@ -116,8 +116,9 @@ export const CampusCommercialCatalog: React.FC = () => {
     try {
       const token = localStorage.getItem('token') || sessionStorage.getItem('token') || '';
       const res = await fetch('/api/admin/courses', {
+        credentials: 'include',
         headers: {
-          'Authorization': `Bearer ${token}`
+          ...(token ? { 'Authorization': `Bearer ${token}` } : {})
         }
       });
       if (!res.ok) {
@@ -204,9 +205,10 @@ export const CampusCommercialCatalog: React.FC = () => {
       const token = localStorage.getItem('token') || sessionStorage.getItem('token') || '';
       const res = await fetch(`/api/admin/courses/${editingCourse.id}/seo`, {
         method: 'PUT',
+        credentials: 'include',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
+          ...(token ? { 'Authorization': `Bearer ${token}` } : {})
         },
         body: JSON.stringify({
           slug: formSlug,
@@ -241,9 +243,10 @@ export const CampusCommercialCatalog: React.FC = () => {
       const newStatus = course.estado_disponibilidad === 'ABIERTA' ? 'CERRADA' : 'ABIERTA';
       const res = await fetch(`/api/admin/courses/${course.id}/enrollment-status`, {
         method: 'PUT',
+        credentials: 'include',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
+          ...(token ? { 'Authorization': `Bearer ${token}` } : {})
         },
         body: JSON.stringify({ estado_disponibilidad: newStatus })
       });
@@ -268,9 +271,10 @@ export const CampusCommercialCatalog: React.FC = () => {
       const token = localStorage.getItem('token') || sessionStorage.getItem('token') || '';
       const res = await fetch('/api/admin/courses/reorder', {
         method: 'POST',
+        credentials: 'include',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
+          ...(token ? { 'Authorization': `Bearer ${token}` } : {})
         },
         body: JSON.stringify({ courseId, direction })
       });
@@ -355,10 +359,10 @@ export const CampusCommercialCatalog: React.FC = () => {
     }
 
     // 4. Commercial publication rule
-    // Cannot publish for online direct sale without configured price
-    if (formTipoInscripcion === 'COMPRA_DIRECTA' && formEstadoPublicacion === 'PUBLICADO') {
+    // Cannot publish for online direct sale without configured price only if open for enrollment
+    if (formTipoInscripcion === 'COMPRA_DIRECTA' && formEstadoPublicacion === 'PUBLICADO' && formEstadoDisponibilidad === 'ABIERTA') {
       if (formPrecioBase.trim() === '' || isNaN(parseFloat(formPrecioBase)) || parseFloat(formPrecioBase) <= 0) {
-        errors.push('No se puede publicar un curso para venta online directa sin haber configurado previamente su precio comercial oficial.');
+        errors.push('No se puede publicar un curso para venta online directa con matrícula abierta sin haber configurado previamente su precio comercial oficial.');
       }
     }
 
@@ -395,9 +399,10 @@ export const CampusCommercialCatalog: React.FC = () => {
 
       const res = await fetch(`/api/admin/courses/${editingCourse.id}`, {
         method: 'PUT',
+        credentials: 'include',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
+          ...(token ? { 'Authorization': `Bearer ${token}` } : {})
         },
         body: JSON.stringify(payload)
       });
@@ -1125,6 +1130,21 @@ export const CampusCommercialCatalog: React.FC = () => {
                   ))}
                 </div>
               </div>
+
+              {/* Validation errors alert directly above save button */}
+              {formErrors.length > 0 && (
+                <div className="bg-red-950/80 border border-red-800 text-red-200 p-3.5 rounded-xl space-y-1">
+                  <div className="flex items-center gap-2 font-bold text-red-300">
+                    <AlertTriangle className="w-4 h-4 shrink-0" />
+                    Atención: No se ha podido guardar la configuración comercial:
+                  </div>
+                  <ul className="list-disc list-inside space-y-0.5 pl-1 text-[11px] text-red-300/90">
+                    {formErrors.map((err, i) => (
+                      <li key={i}>{err}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
 
               {/* Action Buttons */}
               <div className="flex items-center justify-end gap-3 pt-4 border-t border-zinc-800">

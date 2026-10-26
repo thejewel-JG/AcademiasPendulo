@@ -353,6 +353,11 @@ export const CampusProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         return false;
       }
 
+      if (data.token) {
+        localStorage.setItem('token', data.token);
+        sessionStorage.setItem('token', data.token);
+      }
+
       const userProfile: UserProfile = {
         id: data.user.id,
         nombre: data.user.nombre,
@@ -402,6 +407,8 @@ export const CampusProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       setEmailThreads([]);
       setCompletedLessonIds([]);
 
+      localStorage.removeItem('token');
+      sessionStorage.removeItem('token');
       localStorage.removeItem('pendulo_campus_user');
       navigateTo('login');
     }
