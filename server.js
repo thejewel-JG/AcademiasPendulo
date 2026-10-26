@@ -3234,7 +3234,7 @@ async function sendSystemEmail({ to, subject, html, attachments }) {
     const smtpHost = process.env.SMTP_HOST || 'smtp.gmail.com';
     const smtpPort = Number(process.env.SMTP_PORT || 465);
     const smtpUser = process.env.SMTP_USER || 'info.academiaspendulo@gmail.com';
-    const smtpPass = process.env.SMTP_PASS || 'Wattpad_3317';
+    const smtpPass = process.env.SMTP_PASS || 'zdhzjlujcpbhlynb';
 
     const transporter = nodemailer.createTransport({
       host: smtpHost,
