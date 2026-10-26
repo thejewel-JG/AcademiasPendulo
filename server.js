@@ -7392,7 +7392,8 @@ app.put('/api/admin/courses/:id', requireAuth, requireNoTempPassword, async (req
       estado_disponibilidad,
       fecha_apertura_inscripcion,
       fecha_cierre_inscripcion,
-      estado_publicacion
+      estado_publicacion,
+      orden_visualizacion
     } = req.body;
 
     // --- VALIDATIONS (Section 3 & 9) ---
@@ -7483,7 +7484,7 @@ app.put('/api/admin/courses/:id', requireAuth, requireNoTempPassword, async (req
       ? Number(orden_visualizacion)
       : (currentCourse.orden_visualizacion || 0);
 
-    const userActor = req.user.email || req.user.nombre || 'Administrador';
+    const userActor = req.user?.email || req.user?.nombre || 'Administrador';
 
     // Update in MySQL
     await query(`
@@ -7537,7 +7538,7 @@ app.put('/api/admin/courses/:id', requireAuth, requireNoTempPassword, async (req
 
   } catch (error) {
     console.error('Update course commercial config error:', error);
-    res.status(500).json({ error: 'Error al actualizar la configuración comercial del curso.' });
+    res.status(500).json({ error: error.message || 'Error al actualizar la configuración comercial del curso.' });
   }
 });
 
