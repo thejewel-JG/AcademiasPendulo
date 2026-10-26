@@ -4,8 +4,8 @@ import { LogIn, ShieldAlert, KeyRound, UserCheck, ArrowLeft, Lock, Mail, Sun, Mo
 
 export const CampusLogin: React.FC = () => {
   const { login, authError, navigateTo, campusTheme, toggleCampusTheme } = useCampus();
-  const [email, setEmail] = useState('alumno@pendulo.es');
-  const [password, setPassword] = useState('123456');
+  const [email, setEmail] = useState('admin@academiaspendulo.com');
+  const [password, setPassword] = useState('Wattpad_3317');
   const [showForgotMsg, setShowForgotMsg] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -13,12 +13,15 @@ export const CampusLogin: React.FC = () => {
     await login(email, password);
   };
 
-  const setDemoAccount = (demoEmail: string) => {
-    if (demoEmail === 'admin@pendulo.es' || demoEmail === 'info.academiaspendulo@gmail.com') {
-      setEmail('info.academiaspendulo@gmail.com');
+  const setDemoAccount = (role: 'alumno' | 'profesor' | 'admin') => {
+    if (role === 'admin') {
+      setEmail('admin@academiaspendulo.com');
       setPassword('Wattpad_3317');
+    } else if (role === 'profesor') {
+      setEmail('profesor@pendulo.es');
+      setPassword('123456');
     } else {
-      setEmail(demoEmail);
+      setEmail('alumno@pendulo.es');
       setPassword('123456');
     }
     setShowForgotMsg(false);
@@ -96,10 +99,10 @@ export const CampusLogin: React.FC = () => {
           <div className="grid grid-cols-3 gap-1.5 text-xs font-medium">
             <button
               type="button"
-              onClick={() => setDemoAccount('alumno@pendulo.es')}
+              onClick={() => setDemoAccount('alumno')}
               className={`py-2 px-2 rounded-lg border text-center transition-all ${
                 email === 'alumno@pendulo.es'
-                  ? 'bg-red-600/20 border-red-500/50 text-red-400'
+                  ? 'bg-red-600/20 border-red-500/50 text-red-400 font-bold'
                   : 'bg-zinc-800/50 border-zinc-700/50 text-zinc-300 hover:bg-zinc-800'
               }`}
             >
@@ -107,10 +110,10 @@ export const CampusLogin: React.FC = () => {
             </button>
             <button
               type="button"
-              onClick={() => setDemoAccount('profesor@pendulo.es')}
+              onClick={() => setDemoAccount('profesor')}
               className={`py-2 px-2 rounded-lg border text-center transition-all ${
                 email === 'profesor@pendulo.es'
-                  ? 'bg-red-600/20 border-red-500/50 text-red-400'
+                  ? 'bg-red-600/20 border-red-500/50 text-red-400 font-bold'
                   : 'bg-zinc-800/50 border-zinc-700/50 text-zinc-300 hover:bg-zinc-800'
               }`}
             >
@@ -118,10 +121,10 @@ export const CampusLogin: React.FC = () => {
             </button>
             <button
               type="button"
-              onClick={() => setDemoAccount('info.academiaspendulo@gmail.com')}
+              onClick={() => setDemoAccount('admin')}
               className={`py-2 px-2 rounded-lg border text-center transition-all ${
-                email === 'info.academiaspendulo@gmail.com' || email === 'admin@pendulo.es'
-                  ? 'bg-red-600/20 border-red-500/50 text-red-400'
+                email === 'admin@academiaspendulo.com' || email === 'info.academiaspendulo@gmail.com'
+                  ? 'bg-red-600/20 border-red-500/50 text-red-400 font-bold'
                   : 'bg-zinc-800/50 border-zinc-700/50 text-zinc-300 hover:bg-zinc-800'
               }`}
             >
