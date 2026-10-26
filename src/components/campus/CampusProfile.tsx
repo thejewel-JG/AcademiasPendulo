@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useCampus } from '../../context/CampusContext';
-import { User, KeyRound, ShieldAlert, CheckCircle2, Lock, Mail, Phone, BookOpen } from 'lucide-react';
+import { User, KeyRound, ShieldAlert, CheckCircle2, Lock, Mail, Phone, BookOpen, Eye, EyeOff } from 'lucide-react';
 
 interface CampusProfileProps {
   initialTab?: 'datos' | 'seguridad';
@@ -24,6 +24,9 @@ export const CampusProfile: React.FC<CampusProfileProps> = ({ initialTab = 'dato
   const [currentPass, setCurrentPass] = useState('');
   const [newPass, setNewPass] = useState('');
   const [confirmPass, setConfirmPass] = useState('');
+  const [showCurrent, setShowCurrent] = useState(false);
+  const [showNew, setShowNew] = useState(false);
+  const [showConfirm, setShowConfirm] = useState(false);
 
   const [loadingPass, setLoadingPass] = useState(false);
   const [successMsg, setSuccessMsg] = useState('');
@@ -258,39 +261,69 @@ export const CampusProfile: React.FC<CampusProfileProps> = ({ initialTab = 'dato
           <form onSubmit={handleChangePassword} className="space-y-4 text-xs">
             <div>
               <label className="block text-zinc-400 font-semibold mb-1">Contraseña actual</label>
-              <input
-                type="password"
-                required
-                value={currentPass}
-                onChange={(e) => setCurrentPass(e.target.value)}
-                placeholder="••••••••"
-                className="w-full bg-zinc-950 border border-zinc-800 rounded-xl p-3 text-white focus:outline-none focus:border-red-500"
-              />
+              <div className="relative">
+                <input
+                  type={showCurrent ? 'text' : 'password'}
+                  required
+                  value={currentPass}
+                  onChange={(e) => setCurrentPass(e.target.value)}
+                  placeholder="••••••••"
+                  className="w-full bg-zinc-950 border border-zinc-800 rounded-xl p-3 pr-10 text-white focus:outline-none focus:border-red-500"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowCurrent(!showCurrent)}
+                  className="absolute inset-y-0 right-0 pr-3 flex items-center text-zinc-400 hover:text-white transition-colors cursor-pointer"
+                  title={showCurrent ? 'Ocultar' : 'Ver'}
+                >
+                  {showCurrent ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
+              </div>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label className="block text-zinc-400 font-semibold mb-1">Nueva contraseña (mínimo 8 caracteres)</label>
-                <input
-                  type="password"
-                  required
-                  value={newPass}
-                  onChange={(e) => setNewPass(e.target.value)}
-                  placeholder="••••••••"
-                  className="w-full bg-zinc-950 border border-zinc-800 rounded-xl p-3 text-white focus:outline-none focus:border-red-500"
-                />
+                <div className="relative">
+                  <input
+                    type={showNew ? 'text' : 'password'}
+                    required
+                    value={newPass}
+                    onChange={(e) => setNewPass(e.target.value)}
+                    placeholder="••••••••"
+                    className="w-full bg-zinc-950 border border-zinc-800 rounded-xl p-3 pr-10 text-white focus:outline-none focus:border-red-500"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowNew(!showNew)}
+                    className="absolute inset-y-0 right-0 pr-3 flex items-center text-zinc-400 hover:text-white transition-colors cursor-pointer"
+                    title={showNew ? 'Ocultar' : 'Ver'}
+                  >
+                    {showNew ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
               </div>
 
               <div>
                 <label className="block text-zinc-400 font-semibold mb-1">Confirmar nueva contraseña</label>
-                <input
-                  type="password"
-                  required
-                  value={confirmPass}
-                  onChange={(e) => setConfirmPass(e.target.value)}
-                  placeholder="••••••••"
-                  className="w-full bg-zinc-950 border border-zinc-800 rounded-xl p-3 text-white focus:outline-none focus:border-red-500"
-                />
+                <div className="relative">
+                  <input
+                    type={showConfirm ? 'text' : 'password'}
+                    required
+                    value={confirmPass}
+                    onChange={(e) => setConfirmPass(e.target.value)}
+                    placeholder="••••••••"
+                    className="w-full bg-zinc-950 border border-zinc-800 rounded-xl p-3 pr-10 text-white focus:outline-none focus:border-red-500"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowConfirm(!showConfirm)}
+                    className="absolute inset-y-0 right-0 pr-3 flex items-center text-zinc-400 hover:text-white transition-colors cursor-pointer"
+                    title={showConfirm ? 'Ocultar' : 'Ver'}
+                  >
+                    {showConfirm ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
               </div>
             </div>
 

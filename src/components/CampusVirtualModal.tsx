@@ -11,7 +11,9 @@ import {
   Lock, 
   Download,
   Clock,
-  CheckCircle2
+  CheckCircle2,
+  Eye,
+  EyeOff
 } from 'lucide-react';
 import { CENTER_INFO } from '../data/coursesData';
 
@@ -26,6 +28,7 @@ export const CampusVirtualModal: React.FC<CampusVirtualModalProps> = ({ isOpen, 
   const [isDemoMode, setIsDemoMode] = useState(false);
   const [username, setUsername] = useState('alumno.demo@pendulo.es');
   const [password, setPassword] = useState('••••••••');
+  const [showPassword, setShowPassword] = useState(false);
   const [isLoggingIn, setIsLoggingIn] = useState(false);
 
   const handleLogin = (e: React.FormEvent) => {
@@ -93,14 +96,25 @@ export const CampusVirtualModal: React.FC<CampusVirtualModalProps> = ({ isOpen, 
                     ¿Olvidaste tu contraseña?
                   </a>
                 </div>
-                <input
-                  type="password"
-                  id="campus-password"
-                  required
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  className="w-full px-3.5 py-2.5 bg-gray-50 border border-gray-300 rounded-xl text-xs sm:text-sm focus:ring-2 focus:ring-red-500 outline-none"
-                />
+                <div className="relative">
+                  <input
+                    type={showPassword ? 'text' : 'password'}
+                    id="campus-password"
+                    required
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    className="w-full pl-3.5 pr-10 py-2.5 bg-gray-50 border border-gray-300 rounded-xl text-xs sm:text-sm focus:ring-2 focus:ring-red-500 outline-none"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-gray-700 transition-colors cursor-pointer"
+                    title={showPassword ? 'Ocultar contraseña' : 'Ver contraseña'}
+                    aria-label={showPassword ? 'Ocultar contraseña' : 'Ver contraseña'}
+                  >
+                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
               </div>
 
               <div className="pt-2 flex flex-col gap-2.5">

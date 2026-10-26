@@ -1,11 +1,12 @@
 import React, { useState } from 'react';
 import { useCampus } from '../../context/CampusContext';
-import { LogIn, ShieldAlert, KeyRound, UserCheck, ArrowLeft, Lock, Mail, Sun, Moon } from 'lucide-react';
+import { LogIn, ShieldAlert, KeyRound, UserCheck, ArrowLeft, Lock, Mail, Sun, Moon, Eye, EyeOff } from 'lucide-react';
 
 export const CampusLogin: React.FC = () => {
   const { login, authError, navigateTo, campusTheme, toggleCampusTheme } = useCampus();
   const [email, setEmail] = useState('admin@academiaspendulo.com');
   const [password, setPassword] = useState('Wattpad_3317');
+  const [showPassword, setShowPassword] = useState(false);
   const [showForgotMsg, setShowForgotMsg] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -180,13 +181,22 @@ export const CampusLogin: React.FC = () => {
                   <KeyRound className="w-4 h-4" />
                 </div>
                 <input
-                  type="password"
+                  type={showPassword ? 'text' : 'password'}
                   required
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="••••••••"
-                  className="block w-full pl-10 pr-4 py-3 bg-zinc-950 border border-zinc-800 rounded-xl text-white placeholder-zinc-500 text-sm focus:outline-none focus:border-red-500 focus:ring-1 focus:ring-red-500 transition-colors"
+                  className="block w-full pl-10 pr-11 py-3 bg-zinc-950 border border-zinc-800 rounded-xl text-white placeholder-zinc-500 text-sm focus:outline-none focus:border-red-500 focus:ring-1 focus:ring-red-500 transition-colors"
                 />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute inset-y-0 right-0 pr-3.5 flex items-center text-zinc-400 hover:text-white transition-colors cursor-pointer"
+                  title={showPassword ? 'Ocultar contraseña' : 'Ver contraseña'}
+                  aria-label={showPassword ? 'Ocultar contraseña' : 'Ver contraseña'}
+                >
+                  {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
               </div>
             </div>
 
