@@ -7157,7 +7157,7 @@ app.get('/api/public/courses', async (req, res) => {
     res.json(rows || []);
   } catch (error) {
     console.error('Error fetching public courses catalog:', error);
-    res.status(500).json({ error: 'Error al consultar el catálogo de cursos.' });
+    res.status(500).json({ error: 'Error al consultar el catálogo de cursos.', details: error.message, code: error.code });
   }
 });
 
@@ -7662,7 +7662,7 @@ app.get('/sitemap.xml', async (req, res) => {
     res.send(xml);
   } catch (error) {
     console.error('Error generating sitemap.xml:', error);
-    res.status(500).type('text/plain').send('Error al generar el mapa del sitio XML.');
+    res.status(500).type('text/plain').send('Error al generar el mapa del sitio XML: ' + error.message);
   }
 });
 
