@@ -7161,6 +7161,16 @@ app.get('/api/public/courses', async (req, res) => {
   }
 });
 
+// Diagnostic endpoint to check current database
+app.get('/api/diag', async (req, res) => {
+  try {
+    const rows = await query('SELECT DATABASE() as db, USER() as user, @@hostname as host');
+    res.json(rows[0] || {});
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // Alias for academic specialties
 app.get('/api/academic/specialties', async (req, res) => {
   try {
