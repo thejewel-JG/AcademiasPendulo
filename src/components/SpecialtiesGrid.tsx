@@ -334,7 +334,7 @@ export const SpecialtiesGrid: React.FC<SpecialtiesGridProps> = ({
                         </div>
                         <div>
                           <span className="text-[10px] text-gray-500 uppercase font-bold block">Horas Totales</span>
-                          <span className="text-xs font-bold text-gray-900">{course.totalHours}h</span>
+                          <span className="text-xs font-bold text-gray-900">{course.totalHours && course.totalHours > 0 ? `${course.totalHours}h` : '—'}</span>
                         </div>
                         <div>
                           <span className="text-[10px] text-gray-500 uppercase font-bold block">Inscripción</span>

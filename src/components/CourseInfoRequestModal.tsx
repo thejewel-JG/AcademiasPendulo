@@ -179,7 +179,7 @@ export const CourseInfoRequestModal: React.FC<CourseInfoRequestModalProps> = ({
                     {course.code}
                   </span>
                   <span className="text-[11px] font-semibold text-gray-500">
-                    {course.totalHours} horas • {course.modality}
+                    {course.totalHours && course.totalHours > 0 ? `${course.totalHours} horas • ` : ''}{course.modality}
                   </span>
                 </div>
                 <h4 className="font-bold text-sm text-gray-900 truncate mt-0.5">

@@ -644,7 +644,7 @@ export const CampusCommercialCatalog: React.FC = () => {
                             {course.codigo}
                           </span>
                           <span className="text-[11px] text-zinc-400">
-                            {course.horas_totales || 0}h • {course.modalidad || 'Presencial'}
+                            {course.horas_totales && course.horas_totales > 0 ? `${course.horas_totales}h` : '—'} • {course.modalidad || 'Presencial'}
                           </span>
                         </div>
                       </td>
@@ -1205,7 +1205,7 @@ export const CampusCommercialCatalog: React.FC = () => {
                   <div className="mt-2 pt-2 border-t border-gray-100 flex items-center gap-3 text-[11px] text-gray-500 font-medium">
                     <span>Modalidad: {editingCourse.modalidad || 'Presencial'}</span>
                     <span>•</span>
-                    <span>Duración: {editingCourse.horas_totales || 40}h</span>
+                    <span>Duración: {editingCourse.horas_totales && editingCourse.horas_totales > 0 ? `${editingCourse.horas_totales}h` : '— (A determinar)'}</span>
                     <span>•</span>
                     <span className={formIndexable ? 'text-emerald-700 font-bold' : 'text-amber-700 font-bold'}>
                       {formIndexable ? '✓ Indexable (Googlebot, Bingbot, OAI-SearchBot)' : '✕ Bloqueado (noindex, nofollow)'}

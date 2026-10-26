@@ -585,7 +585,7 @@ export const InscriptionRequestFormModal: React.FC<InscriptionRequestFormModalPr
                           >
                             {COURSES.map(c => (
                               <option key={c.id} value={c.title}>
-                                {c.title} ({c.totalHours}h - {c.modality})
+                                {c.title} {c.totalHours && c.totalHours > 0 ? `(${c.totalHours}h - ${c.modality})` : `(Próximamente - ${c.modality})`}
                               </option>
                             ))}
                           </select>
@@ -634,7 +634,7 @@ export const InscriptionRequestFormModal: React.FC<InscriptionRequestFormModalPr
                         </div>
                         <div>
                           <span className="text-[10px] uppercase font-bold text-gray-400 block">Duración Total</span>
-                          <span className="font-extrabold text-gray-800">{selCourse.totalHours} h ({selCourse.practiceHours}h prácticas)</span>
+                          <span className="font-extrabold text-gray-800">{selCourse.totalHours && selCourse.totalHours > 0 ? `${selCourse.totalHours} h` : '— (Próximamente)'} {selCourse.practiceHours && selCourse.practiceHours > 0 ? `(${selCourse.practiceHours}h prácticas)` : ''}</span>
                         </div>
                         <div>
                           <span className="text-[10px] uppercase font-bold text-gray-400 block">Precio Vigente</span>

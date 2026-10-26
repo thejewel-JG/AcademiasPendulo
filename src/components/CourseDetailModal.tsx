@@ -243,11 +243,11 @@ export const CourseDetailModal: React.FC<CourseDetailModalProps> = ({
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-gray-50 p-4 rounded-2xl border border-gray-200 text-center">
             <div>
               <span className="text-[10px] text-gray-500 uppercase font-bold block">Horas Totales</span>
-              <span className="text-sm font-extrabold text-gray-900">{course.totalHours} horas</span>
+              <span className="text-sm font-extrabold text-gray-900">{course.totalHours && course.totalHours > 0 ? `${course.totalHours} horas` : '— (Próximamente)'}</span>
             </div>
             <div>
               <span className="text-[10px] text-gray-500 uppercase font-bold block">Prácticas en Taller</span>
-              <span className="text-sm font-extrabold text-red-600">{course.practiceHours} horas</span>
+              <span className="text-sm font-extrabold text-red-600">{course.practiceHours && course.practiceHours > 0 ? `${course.practiceHours} horas` : '—'}</span>
             </div>
             <div>
               <span className="text-[10px] text-gray-500 uppercase font-bold block">Modalidad</span>

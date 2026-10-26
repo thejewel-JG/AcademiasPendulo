@@ -130,7 +130,7 @@ export const InlineCourseDropdown: React.FC<InlineCourseDropdownProps> = ({
                           {course.code}
                         </span>
                         <span className="text-[10px] font-bold text-red-600 uppercase tracking-wider">
-                          {course.totalHours}h · Formación Especializada
+                          {course.totalHours && course.totalHours > 0 ? `${course.totalHours}h · Formación Especializada` : 'Próximamente · Formación Especializada'}
                         </span>
                       </div>
                       <p className="text-xs font-bold text-gray-900 leading-snug break-words">
@@ -162,7 +162,7 @@ export const InlineCourseDropdown: React.FC<InlineCourseDropdownProps> = ({
         <option value="">-- Selecciona una especialidad (33 disponibles) --</option>
         {COURSES.map(c => (
           <option key={c.id} value={c.id}>
-            [{c.code}] {c.title} ({c.totalHours}h)
+            [{c.code}] {c.title} {c.totalHours && c.totalHours > 0 ? `(${c.totalHours}h)` : ''}
           </option>
         ))}
       </select>

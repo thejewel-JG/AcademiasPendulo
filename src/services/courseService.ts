@@ -52,6 +52,8 @@ export function mergeCourseWithCommercialData(staticCourse: Course, dbData?: any
 
   return {
     ...staticCourse,
+    totalHours: dbData.horas_totales !== null && dbData.horas_totales !== undefined ? Number(dbData.horas_totales) : (staticCourse.code === 'TMVG0109' ? 380 : staticCourse.code === 'TMVG0209' ? 520 : 0),
+    practiceHours: dbData.horas_practicas !== null && dbData.horas_practicas !== undefined ? Number(dbData.horas_practicas) : (staticCourse.code === 'TMVG0109' || staticCourse.code === 'TMVG0209' ? staticCourse.practiceHours : 0),
     precio_base: precioBaseNum,
     moneda: dbData.moneda || 'EUR',
     tipo_iva: dbData.tipo_iva || 'EXENTO',
