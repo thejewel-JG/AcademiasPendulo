@@ -251,7 +251,7 @@ export async function syncMailbox(cuentaId) {
         pass: password
       },
       tls: {
-        rejectUnauthorized: true
+        rejectUnauthorized: false
       },
       logger: false
     });

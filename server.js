@@ -2709,7 +2709,7 @@ app.get('/api/admin/mail/accounts', requireAuth, requireNoTempPassword, async (r
              s.fecha_sincronizacion as ultima_sincronizacion, s.ultimo_error
       FROM cuentas_correo c
       LEFT JOIN sincronizacion_correo s ON s.cuenta_id = c.id AND s.carpeta = 'INBOX'
-      ORDER BY c.creado_en ASC
+      ORDER BY (c.estado = 'ACTIVA') DESC, (c.buzon = 'info.academiaspendulo@gmail.com') DESC, c.creado_en DESC
     `);
 
     // Parse JSON configuracion without returning secrets

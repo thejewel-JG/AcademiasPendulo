@@ -127,8 +127,9 @@ export const CampusAdminInbox: React.FC = () => {
       if (accRes.ok) {
         const accData = await accRes.json();
         setAccounts(accData);
-        if (accData.length > 0 && !configBuzon) {
-          setConfigBuzon(accData[0].buzon);
+        const primeAcc = accData.find((a: any) => a.estado === 'ACTIVA') || accData[0];
+        if (primeAcc && !configBuzon) {
+          setConfigBuzon(primeAcc.buzon);
         }
       }
 
@@ -317,7 +318,7 @@ export const CampusAdminInbox: React.FC = () => {
   }
 
   const selectedThread = threads.find((t) => t.id === selectedThreadId);
-  const activeAccount = accounts[0];
+  const activeAccount = accounts.find((a) => a.estado === 'ACTIVA') || accounts.find((a) => a.buzon.includes('info.academiaspendulo')) || accounts[0];
   const pendingCount = threads.filter((t) => t.status === 'PENDIENTE').length;
 
   return (
