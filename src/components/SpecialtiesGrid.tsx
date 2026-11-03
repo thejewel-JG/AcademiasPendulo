@@ -840,26 +840,42 @@ export const SpecialtiesGrid: React.FC<SpecialtiesGridProps> = ({
           </div>
         )}
 
-        {/* Bottom Banner for Prospective Students */}
-        <div className="mt-10 bg-white rounded-3xl p-8 border-2 border-red-100 flex flex-col md:flex-row items-center justify-between gap-6 shadow-lg">
-          <div className="space-y-2 text-center md:text-left">
-            <span className="text-xs font-bold uppercase tracking-wider text-red-600">
-              ¿Dudas sobre qué itinerario formativo elegir?
+        {/* Bottom Banner: Guaranteed Dealership Internships in Almería */}
+        <div className="mt-10 bg-white rounded-3xl p-8 border-2 border-red-100 flex flex-col lg:flex-row items-center justify-between gap-6 shadow-lg">
+          <div className="space-y-3 text-center lg:text-left">
+            <span className="inline-flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-red-600">
+              <ShieldCheck className="w-4 h-4 text-red-600" />
+              Convenios de Colaboración Empresarial e Inserción Laboral
             </span>
-            <h3 className="font-display text-2xl font-bold text-gray-900">
-              Asesoramiento Académico y Comercial Personalizado
+            <h3 className="font-display text-xl sm:text-2xl font-extrabold text-gray-900 leading-snug">
+              Prácticas Profesionales Garantizadas en los Concesionarios Oficiales de Referencia en Almería
             </h3>
-            <p className="text-sm text-gray-600 max-w-xl">
-              Nuestro equipo docente y de secretaría analiza tu formación previa, objetivos y disponibilidad horaria para recomendarte la especialidad y modalidad más conveniente.
+            <p className="text-sm text-gray-600 max-w-3xl leading-relaxed">
+              Contamos con acuerdos directos con los principales grupos de concesionarios oficiales, servicios de posventa y complejos electromecánicos de la provincia de Almería, garantizando tu formación práctica en entornos reales de vanguardia y tu incorporación prioritaria a nuestra bolsa activa de empleo.
             </p>
+            <div className="flex flex-wrap items-center justify-center lg:justify-start gap-2.5 pt-1">
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl bg-gray-50 border border-gray-200 text-xs font-bold text-gray-800">
+                <Building2 className="w-3.5 h-3.5 text-red-600" />
+                Concesionarios Oficiales en Almería
+              </span>
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl bg-gray-50 border border-gray-200 text-xs font-bold text-gray-800">
+                <CheckCircle className="w-3.5 h-3.5 text-red-600" />
+                100% Prácticas Reales Garantizadas
+              </span>
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl bg-gray-50 border border-gray-200 text-xs font-bold text-gray-800">
+                <Award className="w-3.5 h-3.5 text-red-600" />
+                Acceso Directo a Bolsa de Empleo
+              </span>
+            </div>
           </div>
           <button
             type="button"
             onClick={onOpenConsultation}
             id="btn-asesoramiento-gratuito"
-            className="px-6 py-3.5 rounded-xl bg-red-600 hover:bg-red-700 text-white font-bold text-sm shrink-0 btn-hover shadow-md shadow-red-600/20 cursor-pointer"
+            className="px-6 py-3.5 rounded-xl bg-red-600 hover:bg-red-700 text-white font-bold text-sm shrink-0 btn-hover shadow-md shadow-red-600/20 cursor-pointer flex items-center gap-2"
           >
-            Hablar con un Asesor Ahora
+            <span>Consultar Convenios y Plazas</span>
+            <ChevronRight className="w-4 h-4" />
           </button>
         </div>
 
