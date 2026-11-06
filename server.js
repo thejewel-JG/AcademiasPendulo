@@ -27,6 +27,13 @@ import {
 import { generateInscriptionPDF } from './pdfInscriptionGenerator.js';
 import PDFDocument from 'pdfkit';
 import { renderCoursePage, renderCatalogPage, renderSitemapXml, renderRobotsTxt, CENTER_INFO } from './seoRenderer.js';
+import {
+  DEFAULT_AUTOREPLY_TEMPLATE,
+  startWhatsappBot,
+  disconnectWhatsappBot,
+  sendTestAutoReplyMessage,
+  getWhatsappBotState
+} from './whatsappBotService.js';
 
 dotenv.config();
 
@@ -4082,15 +4089,23 @@ app.get('/api/admin/whatsapp-config', requireAuth, requireNoTempPassword, async 
       : true;
     const plantilla = sanitizeWhatsappTemplate(config.whatsapp_plantilla);
     const configured = Boolean(activo && phoneCheck.valid && phoneCheck.normalized);
+    const autorespuestaActiva = config.whatsapp_autorespuesta_activa !== undefined && config.whatsapp_autorespuesta_activa !== null
+      ? Boolean(Number(config.whatsapp_autorespuesta_activa))
+      : true;
+    const plantillaRespuesta = config.whatsapp_plantilla_respuesta || DEFAULT_AUTOREPLY_TEMPLATE;
 
     res.json({
       whatsapp_numero: phoneCheck.valid ? phoneCheck.normalized : (config.whatsapp_numero || ''),
       whatsapp_activo: activo,
       whatsapp_plantilla: plantilla,
       default_template: DEFAULT_WHATSAPP_TEMPLATE,
+      whatsapp_autorespuesta_activa: autorespuestaActiva,
+      whatsapp_plantilla_respuesta: plantillaRespuesta,
+      default_autoreply_template: DEFAULT_AUTOREPLY_TEMPLATE,
       whatsapp_actualizado_por: config.whatsapp_actualizado_por || config.actualizado_por || null,
       whatsapp_actualizado_en: config.whatsapp_actualizado_en || config.actualizado_en || null,
       configured,
+      botState: getWhatsappBotState(),
       aviso_sin_configurar: !phoneCheck.valid
         ? 'El número de WhatsApp aún no está configurado. Mientras tanto, los botones públicos "Solicitar información" utilizarán el formulario de contacto alternativo.'
         : (!activo ? 'Las consultas por WhatsApp están desactivadas actualmente. Se mostrará el método de contacto alternativo.' : null)
@@ -4109,8 +4124,15 @@ app.put('/api/admin/whatsapp-config', requireAuth, requireNoTempPassword, async 
       return res.status(403).json({ error: 'Acceso restringido a personal de administración autorizado.' });
     }
 
-    const { whatsapp_numero, whatsapp_activo, whatsapp_plantilla } = req.body || {};
+    const {
+      whatsapp_numero,
+      whatsapp_activo,
+      whatsapp_plantilla,
+      whatsapp_autorespuesta_activa,
+      whatsapp_plantilla_respuesta
+    } = req.body || {};
     const activo = whatsapp_activo !== undefined ? Boolean(whatsapp_activo) : true;
+    const autorespuestaActiva = whatsapp_autorespuesta_activa !== undefined ? Boolean(whatsapp_autorespuesta_activa) : true;
     const rawNum = whatsapp_numero !== undefined && whatsapp_numero !== null ? String(whatsapp_numero).trim() : '';
 
     if (whatsapp_plantilla !== undefined && whatsapp_plantilla !== null) {
@@ -4137,6 +4159,9 @@ app.put('/api/admin/whatsapp-config', requireAuth, requireNoTempPassword, async 
     }
 
     const cleanTemplate = sanitizeWhatsappTemplate(whatsapp_plantilla);
+    const cleanReplyTemplate = whatsapp_plantilla_respuesta && String(whatsapp_plantilla_respuesta).trim()
+      ? String(whatsapp_plantilla_respuesta).replace(/<script[\s\S]*?>[\s\S]*?<\/script>/gi, '').trim().substring(0, 2500)
+      : DEFAULT_AUTOREPLY_TEMPLATE;
     const userActor = req.user.email || req.user.nombre || 'Administración';
 
     await query(`
@@ -4145,10 +4170,12 @@ app.put('/api/admin/whatsapp-config', requireAuth, requireNoTempPassword, async 
         whatsapp_numero = ?,
         whatsapp_activo = ?,
         whatsapp_plantilla = ?,
+        whatsapp_autorespuesta_activa = ?,
+        whatsapp_plantilla_respuesta = ?,
         whatsapp_actualizado_por = ?,
         whatsapp_actualizado_en = NOW()
       WHERE id = 1
-    `, [finalPhone, activo ? 1 : 0, cleanTemplate, userActor]);
+    `, [finalPhone, activo ? 1 : 0, cleanTemplate, autorespuestaActiva ? 1 : 0, cleanReplyTemplate, userActor]);
 
     await query(`
       INSERT INTO auditoria (actor_id, accion_administrativa, recurso, recurso_id, diff_cambios, ip, creado_en)
@@ -4158,27 +4185,175 @@ app.put('/api/admin/whatsapp-config', requireAuth, requireNoTempPassword, async 
       JSON.stringify({
         whatsapp_numero: finalPhone || null,
         whatsapp_activo: activo,
-        whatsapp_plantilla: cleanTemplate
+        whatsapp_plantilla: cleanTemplate,
+        whatsapp_autorespuesta_activa: autorespuestaActiva
       }),
       req.ip || null
     ]);
 
     res.json({
       success: true,
-      message: 'Configuración de WhatsApp actualizada correctamente.',
+      message: 'Configuración de WhatsApp y respuesta automática actualizada correctamente.',
       config: {
         whatsapp_numero: finalPhone || '',
         whatsapp_activo: activo,
         whatsapp_plantilla: cleanTemplate,
         default_template: DEFAULT_WHATSAPP_TEMPLATE,
+        whatsapp_autorespuesta_activa: autorespuestaActiva,
+        whatsapp_plantilla_respuesta: cleanReplyTemplate,
+        default_autoreply_template: DEFAULT_AUTOREPLY_TEMPLATE,
         whatsapp_actualizado_por: userActor,
         whatsapp_actualizado_en: new Date().toISOString(),
-        configured: Boolean(activo && finalPhone)
+        configured: Boolean(activo && finalPhone),
+        botState: getWhatsappBotState()
       }
     });
   } catch (error) {
     console.error('Update whatsapp config error:', error);
     res.status(500).json({ error: 'Error al guardar la configuración de WhatsApp.' });
+  }
+});
+
+// QUICK PAIRING PAGE & STATUS FOR WHATSAPP QR BOT
+app.get('/api/whatsapp-bot/live-status', async (req, res) => {
+  res.json(getWhatsappBotState());
+});
+
+app.post('/api/whatsapp-bot/live-test', async (req, res) => {
+  try {
+    const { phone, course } = req.body || {};
+    const result = await sendTestAutoReplyMessage(phone || '34633977320', course || 'Introducción a la Automoción');
+    res.json(result);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.get('/whatsapp-qr', async (req, res) => {
+  await startWhatsappBot();
+  res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  res.send(`<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Vincular WhatsApp — Respuesta Automática Academias Péndulo</title>
+  <style>
+    body { margin: 0; font-family: system-ui, -apple-system, sans-serif; background: #09090b; color: #fff; display: flex; align-items: center; justify-content: center; min-height: 100vh; padding: 20px; }
+    .card { background: #18181b; border: 2px solid #065f46; border-radius: 24px; max-width: 520px; width: 100%; padding: 32px; text-align: center; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.6); }
+    .badge { display: inline-block; padding: 6px 14px; border-radius: 999px; font-size: 12px; font-weight: 800; text-transform: uppercase; background: #064e3b; color: #6ee7b7; margin-bottom: 12px; }
+    h1 { font-size: 22px; margin: 0 0 8px; }
+    p { font-size: 14px; color: #a1a1aa; line-height: 1.5; margin: 0 0 20px; }
+    .qr-box { background: #fff; padding: 16px; border-radius: 20px; display: inline-block; margin: 12px 0; }
+    .qr-box img { width: 260px; height: 260px; display: block; }
+    .steps { text-align: left; background: #09090b; border: 1px solid #27272a; border-radius: 16px; padding: 16px 20px; font-size: 13px; color: #d4d4d8; line-height: 1.7; margin-top: 16px; }
+    .btn { background: #10b981; color: #fff; border: none; padding: 14px 24px; border-radius: 14px; font-weight: 800; font-size: 14px; cursor: pointer; margin-top: 16px; width: 100%; }
+    .btn:hover { background: #059669; }
+    .status-ok { color: #34d399; font-weight: 800; font-size: 18px; margin: 16px 0; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <span class="badge">Respuesta Automática Inteligente por Curso</span>
+    <h1>Vincular WhatsApp (Academias Péndulo)</h1>
+    <p>Escanea el código QR con tu WhatsApp para que cada alumno que pulse "Solicitar información" reciba al instante la ficha y datos reales del curso.</p>
+    <div id="viewport">Cargando código QR...</div>
+    <div class="steps">
+      <strong>Cómo vincularlo en 10 segundos:</strong><br/>
+      1. Abre <strong>WhatsApp</strong> en tu móvil (633 977 320).<br/>
+      2. Toca <strong>Menú (⋮) / Ajustes → Dispositivos vinculados</strong>.<br/>
+      3. Pulsa <strong>Vincular un dispositivo</strong> y apunta al código QR de arriba.
+    </div>
+  </div>
+  <script>
+    async function poll() {
+      try {
+        const res = await fetch('/api/whatsapp-bot/live-status');
+        const data = await res.json();
+        const vp = document.getElementById('viewport');
+        if (data.status === 'CONNECTED') {
+          vp.innerHTML = '<div class="status-ok">✅ WHATSAPP VINCULADO Y ACTIVO (+' + (data.connectedPhone || '') + ')</div>' +
+            '<p style="color:#d4d4d8">El sistema ya está respondiendo automáticamente a las solicitudes de cursos.</p>' +
+            '<button class="btn" onclick="sendTest()">Enviar Respuesta Automática de Prueba a mi WhatsApp</button>' +
+            '<div id="test-msg" style="margin-top:12px;font-size:13px;color:#6ee7b7;"></div>';
+        } else if (data.status === 'QR_READY' && data.qrDataUrl) {
+          vp.innerHTML = '<div class="qr-box"><img src="' + data.qrDataUrl + '" alt="QR WhatsApp" /></div>';
+        } else {
+          vp.innerHTML = '<p style="color:#fbbf24;font-weight:700;margin:24px 0;">Generando código QR seguro... espera 2 segundos.</p>';
+        }
+      } catch (e) {}
+    }
+    async function sendTest() {
+      const el = document.getElementById('test-msg');
+      el.textContent = 'Enviando respuesta automática de prueba...';
+      const res = await fetch('/api/whatsapp-bot/live-test', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phone: '34633977320', course: 'Introducción a la Automoción' })
+      });
+      const data = await res.json();
+      if (data.success) {
+        el.textContent = '¡Enviado! Revisa tu WhatsApp (+' + data.to + ').';
+      } else {
+        el.textContent = 'Error: ' + (data.error || 'No se pudo enviar');
+      }
+    }
+    poll();
+    setInterval(poll, 2000);
+  </script>
+</body>
+</html>`);
+});
+
+// ADMIN: Get WhatsApp Bot QR & connection status
+app.get('/api/admin/whatsapp-bot/status', requireAuth, requireNoTempPassword, async (req, res) => {
+  const userRoles = req.user.roles || [];
+  if (!userRoles.some(r => ['ADMINISTRADOR', 'ADMIN', 'SECRETARIA', 'DIRECCION'].includes(r))) {
+    return res.status(403).json({ error: 'Acceso restringido.' });
+  }
+  res.json(getWhatsappBotState());
+});
+
+// ADMIN: Start WhatsApp Bot & generate QR code
+app.post('/api/admin/whatsapp-bot/connect', requireAuth, requireNoTempPassword, async (req, res) => {
+  try {
+    const userRoles = req.user.roles || [];
+    if (!userRoles.some(r => ['ADMINISTRADOR', 'ADMIN', 'SECRETARIA', 'DIRECCION'].includes(r))) {
+      return res.status(403).json({ error: 'Acceso restringido.' });
+    }
+    const state = await startWhatsappBot();
+    res.json(state);
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'Error iniciando vinculación QR.' });
+  }
+});
+
+// ADMIN: Disconnect / unlink WhatsApp Bot
+app.post('/api/admin/whatsapp-bot/disconnect', requireAuth, requireNoTempPassword, async (req, res) => {
+  try {
+    const userRoles = req.user.roles || [];
+    if (!userRoles.some(r => ['ADMINISTRADOR', 'ADMIN', 'SECRETARIA', 'DIRECCION'].includes(r))) {
+      return res.status(403).json({ error: 'Acceso restringido.' });
+    }
+    const state = await disconnectWhatsappBot();
+    res.json(state);
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'Error al desvincular WhatsApp.' });
+  }
+});
+
+// ADMIN: Send test automatic course reply
+app.post('/api/admin/whatsapp-bot/test-autoreply', requireAuth, requireNoTempPassword, async (req, res) => {
+  try {
+    const userRoles = req.user.roles || [];
+    if (!userRoles.some(r => ['ADMINISTRADOR', 'ADMIN', 'SECRETARIA', 'DIRECCION'].includes(r))) {
+      return res.status(403).json({ error: 'Acceso restringido.' });
+    }
+    const { phone, course } = req.body || {};
+    const result = await sendTestAutoReplyMessage(phone, course);
+    res.json(result);
+  } catch (err) {
+    res.status(400).json({ error: err.message || 'No se pudo enviar la respuesta automática de prueba.' });
   }
 });
 
