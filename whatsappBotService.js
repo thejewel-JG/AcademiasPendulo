@@ -71,7 +71,7 @@ function toTitleCaseSpanish(rawTitle) {
 }
 
 export async function matchCourseFromText(incomingText) {
-  const courses = await query(`SELECT * FROM especialidades WHERE estado = 'ACTIVA'`);
+  const courses = await query(`SELECT * FROM especialidades`);
   if (!courses || courses.length === 0) return null;
 
   const normIncoming = normalizeForMatch(incomingText);
