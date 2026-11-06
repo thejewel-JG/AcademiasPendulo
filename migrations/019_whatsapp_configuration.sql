@@ -24,3 +24,4 @@ SET
   whatsapp_actualizado_por = COALESCE(whatsapp_actualizado_por, 'SYSTEM_MIGRATION_019'),
   whatsapp_actualizado_en = COALESCE(whatsapp_actualizado_en, NOW())
 WHERE id = 1;
+

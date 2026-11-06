@@ -474,3 +474,4 @@ export const CampusWhatsappConfigPanel: React.FC = () => {
     </div>
   );
 };
+
