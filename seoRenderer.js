@@ -5,7 +5,7 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const BASE_URL = process.env.PUBLIC_URL || 'https://academiaspendulo.com';
+const BASE_URL = process.env.PUBLIC_URL || 'https://penduloformacion.com';
 
 // Official Academy Information for Schema.org & SEO
 export const CENTER_INFO = {

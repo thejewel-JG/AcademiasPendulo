@@ -168,7 +168,7 @@ export const CampusWhatsappConfigPanel: React.FC = () => {
     )
     .replace(
       /\{\{\s*enlace_curso\s*\}\}/gi,
-      `https://academiaspendulo.com/cursos/${matchedPreviewCourse?.slug || 'introduccion-a-la-automocion'}`
+      `https://penduloformacion.com/cursos/${matchedPreviewCourse?.slug || 'introduccion-a-la-automocion'}`
     );
 
   const handleSave = async (e: React.FormEvent) => {

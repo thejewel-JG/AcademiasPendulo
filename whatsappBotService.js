@@ -114,7 +114,7 @@ export function buildAutoReplyText(course, customTemplate) {
       : DEFAULT_AUTOREPLY_TEMPLATE;
 
   if (!course) {
-    return `¡Hola! Gracias por contactar con *Academias Péndulo* (Centro Oficial Homologado Nº 0400030892 en Almería).\n\nHemos recibido tu consulta. Puedes consultar nuestras 33 especialidades oficiales de Automoción, Vehículo Eléctrico, Diagnosis y PRL en:\nhttps://academiaspendulo.com/#especialidades\n\nUn asesor de Secretaría te responderá personalmente en breve.\nHorario: Lunes a Viernes de 09:00 a 14:00 y de 16:00 a 20:00.`;
+    return `¡Hola! Gracias por contactar con *Academias Péndulo* (Centro Oficial Homologado Nº 0400030892 en Almería).\n\nHemos recibido tu consulta. Puedes consultar nuestras 33 especialidades oficiales de Automoción, Vehículo Eléctrico, Diagnosis y PRL en:\nhttps://penduloformacion.com/#especialidades\n\nUn asesor de Secretaría te responderá personalmente en breve.\nHorario: Lunes a Viernes de 09:00 a 14:00 y de 16:00 a 20:00.`;
   }
 
   const nombreCurso = toTitleCaseSpanish(course.nombre || course.title || 'Especialidad Técnica');
@@ -138,7 +138,7 @@ export function buildAutoReplyText(course, customTemplate) {
       : 'Próxima convocatoria — Lista de reserva prioritaria abierta';
 
   const slug = course.slug || String(course.id || codigoCurso).toLowerCase();
-  const enlaceCurso = `https://academiaspendulo.com/cursos/${slug}`;
+  const enlaceCurso = `https://penduloformacion.com/cursos/${slug}`;
 
   return template
     .replace(/\{\{\s*nombre_curso\s*\}\}/gi, nombreCurso)
