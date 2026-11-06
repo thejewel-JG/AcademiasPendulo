@@ -24,6 +24,8 @@ import { UserRole } from '../../types/campus';
 import { CampusAdminRequests } from './CampusAdminRequests';
 import { PdfFileUploader } from './PdfFileUploader';
 import { CampusCommercialCatalog } from './CampusCommercialCatalog';
+import { CampusWhatsappConfigPanel } from './CampusWhatsappConfigPanel';
+import { WhatsappIcon } from '../WhatsappCourseButton';
 
 interface AdminGlobalProgress {
   alumno_id: string;
@@ -52,7 +54,7 @@ export const CampusAdminPanel: React.FC = () => {
     publishCourseResource,
   } = useCampus();
 
-  const [activeTab, setActiveTab] = useState<'solicitudes' | 'usuarios' | 'matriculas' | 'secretaria' | 'seguimiento' | 'catalogo'>('solicitudes');
+  const [activeTab, setActiveTab] = useState<'solicitudes' | 'usuarios' | 'matriculas' | 'secretaria' | 'seguimiento' | 'catalogo' | 'whatsapp'>('solicitudes');
 
   // Global Progress Analytics State
   const [globalProgress, setGlobalProgress] = useState<AdminGlobalProgress[]>([]);
@@ -293,6 +295,18 @@ export const CampusAdminPanel: React.FC = () => {
           Trámites Secretaría ({secretaryRequests.length})
         </button>
         <button
+          id="admin-tab-whatsapp"
+          onClick={() => setActiveTab('whatsapp')}
+          className={`pb-3 px-3 transition-all shrink-0 flex items-center gap-2 rounded-t-xl ${
+            activeTab === 'whatsapp'
+              ? 'text-emerald-300 border-b-2 border-emerald-500 font-heading bg-emerald-950/40 shadow-sm'
+              : 'text-emerald-400 hover:text-white bg-emerald-950/20 border border-emerald-900/40 hover:bg-emerald-900/30'
+          }`}
+        >
+          <WhatsappIcon className="w-4 h-4 text-[#25D366]" />
+          <span>Configuración → WhatsApp</span>
+        </button>
+                <button
           onClick={() => setActiveTab('seguimiento')}
           className={`pb-3 transition-colors shrink-0 flex items-center gap-1.5 ${
             activeTab === 'seguimiento'
@@ -304,6 +318,9 @@ export const CampusAdminPanel: React.FC = () => {
           Seguimiento Académico Global
         </button>
       </div>
+
+      {/* TAB WHATSAPP CONFIG */}
+      {activeTab === 'whatsapp' && <CampusWhatsappConfigPanel />}
 
       {/* TAB 0: CONTACT REQUESTS & LEADS */}
       {activeTab === 'solicitudes' && <CampusAdminRequests />}

@@ -24,7 +24,8 @@ export type CampusView =
   | 'admin-solicitudes'
   | 'admin-usuarios'
   | 'admin-correo'
-  | 'admin-certificados';
+  | 'admin-certificados'
+  | 'admin-whatsapp';
 
 export type SecretaryType =
   | 'Solicitud de certificado'

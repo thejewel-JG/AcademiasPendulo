@@ -29,6 +29,8 @@ import {
 } from 'lucide-react';
 import { Course } from '../../types';
 import { formatCoursePrice } from '../../services/courseService';
+import { CampusWhatsappConfigPanel } from './CampusWhatsappConfigPanel';
+import { WhatsappIcon } from '../WhatsappCourseButton';
 
 interface AdminCourseData {
   id: string;
@@ -71,6 +73,7 @@ export const CampusCommercialCatalog: React.FC = () => {
   const [loading, setLoading] = useState<boolean>(true);
   const [errorMsg, setErrorMsg] = useState<string>('');
   const [successToast, setSuccessToast] = useState<string>('');
+  const [showWhatsappConfig, setShowWhatsappConfig] = useState<boolean>(false);
 
   // Filters
   const [searchQuery, setSearchQuery] = useState<string>('');
@@ -494,15 +497,37 @@ export const CampusCommercialCatalog: React.FC = () => {
             </p>
           </div>
 
-          <button
-            onClick={fetchCourses}
-            disabled={loading}
-            className="self-start md:self-auto inline-flex items-center gap-2 px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs font-semibold rounded-xl transition border border-zinc-700 shrink-0"
-          >
-            <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
-            Actualizar Catálogo
-          </button>
+          <div className="flex flex-wrap items-center gap-2 self-start md:self-auto shrink-0">
+            <button
+              type="button"
+              id="btn-open-whatsapp-config-catalog"
+              onClick={() => setShowWhatsappConfig(!showWhatsappConfig)}
+              className={`inline-flex items-center gap-2 px-4 py-2 text-xs font-extrabold rounded-xl transition border cursor-pointer ${
+                showWhatsappConfig
+                  ? 'bg-emerald-600 text-white border-emerald-500 shadow-lg'
+                  : 'bg-emerald-950/70 hover:bg-emerald-900/80 text-emerald-300 border-emerald-700/60'
+              }`}
+            >
+              <WhatsappIcon className="w-4 h-4 text-[#25D366]" />
+              <span>Configuración → WhatsApp</span>
+            </button>
+
+            <button
+              onClick={fetchCourses}
+              disabled={loading}
+              className="inline-flex items-center gap-2 px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs font-semibold rounded-xl transition border border-zinc-700 shrink-0 cursor-pointer"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
+              Actualizar Catálogo
+            </button>
+          </div>
         </div>
+
+        {showWhatsappConfig && (
+          <div className="pt-2 border-b border-zinc-800 pb-6">
+            <CampusWhatsappConfigPanel />
+          </div>
+        )}
 
         {/* Commercial Overview KPI Cards */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">

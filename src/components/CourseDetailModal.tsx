@@ -23,6 +23,8 @@ import { Course } from '../types';
 import { CENTER_INFO } from '../data/coursesData';
 import { useCampus } from '../context/CampusContext';
 import { formatCoursePrice, getAvailabilityInfo } from '../services/courseService';
+import { useWhatsappConfig } from '../utils/whatsappUtils';
+import { WhatsappCourseButton } from './WhatsappCourseButton';
 
 interface CourseDetailModalProps {
   course: Course | null;
@@ -39,6 +41,7 @@ export const CourseDetailModal: React.FC<CourseDetailModalProps> = ({
   if (!course) return null;
 
   const { submitContactRequest } = useCampus();
+  const { whatsappConfig } = useWhatsappConfig();
 
   const [activeTab, setActiveTab] = useState<'temario' | 'salidas' | 'requisitos' | 'equipamiento'>('temario');
   const [downloading, setDownloading] = useState(false);
@@ -199,38 +202,76 @@ export const CourseDetailModal: React.FC<CourseDetailModalProps> = ({
             {/* BOTÓN SEGÚN TIPO DE INSCRIPCIÓN (SECCIÓN 5) */}
             <div className="pt-2">
               {!avail.isOpen ? (
-                <button
-                  disabled
-                  className="w-full py-3.5 px-6 rounded-2xl bg-zinc-800 text-zinc-400 text-sm font-bold flex items-center justify-center gap-2 cursor-not-allowed border border-zinc-700"
-                >
-                  <Clock className="w-4 h-4" />
-                  <span>Inscripciones cerradas para esta convocatoria</span>
-                </button>
-              ) : course.tipo_inscripcion === 'COMPRA_DIRECTA' ? (
                 <div className="space-y-2">
-                  <button
-                    onClick={() => setShowDirectBuyNotice(true)}
-                    className="w-full py-4 px-6 rounded-2xl bg-gradient-to-r from-emerald-600 via-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-sm sm:text-base font-black flex items-center justify-center gap-2.5 transition-all shadow-lg shadow-emerald-950/40 cursor-pointer transform hover:-translate-y-0.5 active:translate-y-0"
-                  >
-                    <CreditCard className="w-5 h-5 text-emerald-200" />
-                    <span>Matricularme ahora</span>
-                  </button>
+                  <WhatsappCourseButton
+                    id={`modal-btn-solicitar-info-${course.id}`}
+                    course={course}
+                    whatsappConfig={whatsappConfig}
+                    onFallbackClick={() => {
+                      const formEl = document.getElementById('modal-reserve-form');
+                      if (formEl) formEl.scrollIntoView({ behavior: 'smooth' });
+                    }}
+                    label="Solicitar información"
+                    iconClassName="w-5 h-5 shrink-0 text-[#25D366]"
+                    className="w-full py-4 px-6 rounded-2xl bg-zinc-900 hover:bg-zinc-800 text-white text-sm sm:text-base font-black flex items-center justify-center gap-2.5 transition-all shadow-lg border border-zinc-700 cursor-pointer"
+                  />
+                  <p className="text-[11px] text-zinc-400 text-center">
+                    Matrícula cerrada actualmente. Consulta por WhatsApp próximas fechas, precios y reserva prioritaria.
+                  </p>
+                </div>
+              ) : course.tipo_inscripcion === 'COMPRA_DIRECTA' ? (
+                <div className="space-y-2.5">
+                  <div className="flex flex-col sm:flex-row gap-2.5">
+                    <button
+                      onClick={() => setShowDirectBuyNotice(true)}
+                      className="flex-1 py-4 px-6 rounded-2xl bg-gradient-to-r from-emerald-600 via-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-sm sm:text-base font-black flex items-center justify-center gap-2.5 transition-all shadow-lg shadow-emerald-950/40 cursor-pointer transform hover:-translate-y-0.5 active:translate-y-0"
+                    >
+                      <CreditCard className="w-5 h-5 text-emerald-200" />
+                      <span>Matricularme ahora</span>
+                    </button>
+                    <WhatsappCourseButton
+                      id={`modal-secondary-whatsapp-${course.id}`}
+                      course={course}
+                      whatsappConfig={whatsappConfig}
+                      onFallbackClick={() => {
+                        const formEl = document.getElementById('modal-reserve-form');
+                        if (formEl) formEl.scrollIntoView({ behavior: 'smooth' });
+                      }}
+                      label="Solicitar información"
+                      iconClassName="w-4 h-4 shrink-0 text-[#25D366]"
+                      className="py-4 px-5 rounded-2xl bg-zinc-900/90 hover:bg-zinc-800 text-white text-xs sm:text-sm font-bold flex items-center justify-center gap-2 border border-white/15 transition-all cursor-pointer shrink-0"
+                    />
+                  </div>
                   <p className="text-[11px] text-zinc-400 text-center">
                     * El pago de la matrícula no activa automáticamente el acceso al campus. Todo alumno requiere verificación administrativa manual de secretaría previa a la activación de sus credenciales.
                   </p>
                 </div>
               ) : (
-                <div className="space-y-2">
-                  <button
-                    onClick={() => {
-                      onClose();
-                      if (onOpenInscription) onOpenInscription(course);
-                    }}
-                    className="w-full py-4 px-6 rounded-2xl bg-gradient-to-r from-red-600 via-red-600 to-amber-600 hover:from-red-500 hover:to-amber-500 text-white text-sm sm:text-base font-black flex items-center justify-center gap-2.5 transition-all shadow-lg shadow-red-950/40 cursor-pointer transform hover:-translate-y-0.5 active:translate-y-0"
-                  >
-                    <Sparkles className="w-5 h-5 text-amber-200" />
-                    <span>Solicitar plaza</span>
-                  </button>
+                <div className="space-y-2.5">
+                  <div className="flex flex-col sm:flex-row gap-2.5">
+                    <button
+                      onClick={() => {
+                        onClose();
+                        if (onOpenInscription) onOpenInscription(course);
+                      }}
+                      className="flex-1 py-4 px-6 rounded-2xl bg-gradient-to-r from-red-600 via-red-600 to-amber-600 hover:from-red-500 hover:to-amber-500 text-white text-sm sm:text-base font-black flex items-center justify-center gap-2.5 transition-all shadow-lg shadow-red-950/40 cursor-pointer transform hover:-translate-y-0.5 active:translate-y-0"
+                    >
+                      <Sparkles className="w-5 h-5 text-amber-200" />
+                      <span>Solicitar plaza</span>
+                    </button>
+                    <WhatsappCourseButton
+                      id={`modal-secondary-whatsapp-${course.id}`}
+                      course={course}
+                      whatsappConfig={whatsappConfig}
+                      onFallbackClick={() => {
+                        const formEl = document.getElementById('modal-reserve-form');
+                        if (formEl) formEl.scrollIntoView({ behavior: 'smooth' });
+                      }}
+                      label="Solicitar información"
+                      iconClassName="w-4 h-4 shrink-0 text-[#25D366]"
+                      className="py-4 px-5 rounded-2xl bg-zinc-900/90 hover:bg-zinc-800 text-white text-xs sm:text-sm font-bold flex items-center justify-center gap-2 border border-white/15 transition-all cursor-pointer shrink-0"
+                    />
+                  </div>
                   <p className="text-[11px] text-zinc-400 text-center">
                     * El alumno debe cumplimentar el formulario de admisión telemática con su información académica para que el equipo administrativo revise y autorice su matrícula.
                   </p>

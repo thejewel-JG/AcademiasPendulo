@@ -37,6 +37,7 @@ import { CampusTeacherDashboard } from './components/campus/CampusTeacherDashboa
 import { CampusAdminPanel } from './components/campus/CampusAdminPanel';
 import { CampusAdminRequests } from './components/campus/CampusAdminRequests';
 import { CampusCommercialCatalog } from './components/campus/CampusCommercialCatalog';
+import { CampusWhatsappConfigPanel } from './components/campus/CampusWhatsappConfigPanel';
 import { CampusUserManagement } from './components/campus/CampusUserManagement';
 import { CampusAdminInbox } from './components/campus/CampusAdminInbox';
 import { CampusForcedPasswordChangeModal } from './components/campus/CampusForcedPasswordChangeModal';
@@ -141,6 +142,8 @@ function MainAppContent() {
           navigateTo('admin-usuarios');
         } else if (path === '/admin/correo') {
           navigateTo('admin-correo');
+        } else if (path === '/admin/whatsapp' || path === '/campus/admin/whatsapp') {
+          navigateTo('admin-whatsapp');
         } else if (path === '/admin') {
           navigateTo('admin-panel');
         } else if (path === '/profesor') {
@@ -205,6 +208,11 @@ function MainAppContent() {
           {currentView === 'admin-catalogo' && (
             <div className="p-4 sm:p-8 max-w-7xl mx-auto">
               <CampusCommercialCatalog />
+            </div>
+          )}
+          {currentView === 'admin-whatsapp' && (
+            <div className="p-4 sm:p-8 max-w-7xl mx-auto">
+              <CampusWhatsappConfigPanel />
             </div>
           )}
           {currentView === 'admin-solicitudes' && <CampusAdminRequests />}

@@ -76,6 +76,7 @@ export const CampusSidebarNav: React.FC = () => {
   const adminNavItems = [
     { view: 'admin-panel' as CampusView, label: 'Panel Global Admin', icon: Shield },
     { view: 'admin-catalogo' as CampusView, label: 'Gestión Cursos y Precios', icon: DollarSign, badge: '33 Cursos', highlight: true },
+    { view: 'admin-whatsapp' as CampusView, label: 'Configuración → WhatsApp', icon: MessageSquare, badge: 'WhatsApp', highlight: true },
     { view: 'admin-solicitudes' as CampusView, label: 'Solicitudes y Leads', icon: FileText },
     { view: 'admin-usuarios' as CampusView, label: 'Usuarios e Invitaciones', icon: Users },
     { view: 'admin-correo' as CampusView, label: 'Bandeja de Correo', icon: Mail },

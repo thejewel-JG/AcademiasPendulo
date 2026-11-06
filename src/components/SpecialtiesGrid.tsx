@@ -36,6 +36,8 @@ import {
   fetchPublicCoursesWithCommercial 
 } from '../services/courseService';
 import { CourseInfoRequestModal } from './CourseInfoRequestModal';
+import { useWhatsappConfig } from '../utils/whatsappUtils';
+import { WhatsappCourseButton } from './WhatsappCourseButton';
 
 interface SpecialtiesGridProps {
   onSelectCourse: (course: Course) => void;
@@ -134,6 +136,7 @@ export const SpecialtiesGrid: React.FC<SpecialtiesGridProps> = ({
   const [cardTabs, setCardTabs] = useState<Record<string, CardTabType>>({});
   const [compareIds, setCompareIds] = useState<string[]>([]);
   const [isCompareModalOpen, setIsCompareModalOpen] = useState<boolean>(false);
+  const { whatsappConfig } = useWhatsappConfig();
 
   useEffect(() => {
     fetchPublicCoursesWithCommercial().then(data => {
@@ -678,15 +681,15 @@ export const SpecialtiesGrid: React.FC<SpecialtiesGridProps> = ({
                     </button>
 
                     {!avail.isOpen ? (
-                      <button
-                        type="button"
-                        onClick={() => setInfoRequestCourse(course)}
+                      <WhatsappCourseButton
                         id={`btn-solicitar-info-${course.id}`}
+                        course={course}
+                        whatsappConfig={whatsappConfig}
+                        onFallbackClick={() => setInfoRequestCourse(course)}
+                        label="Solicitar información"
+                        iconClassName="w-3.5 h-3.5 shrink-0 text-[#25D366]"
                         className="w-1/2 py-2.5 px-3 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-extrabold flex items-center justify-center gap-1.5 transition-all cursor-pointer min-h-[42px]"
-                      >
-                        <HelpCircle className="w-3.5 h-3.5 text-zinc-300" />
-                        <span>Solicitar info</span>
-                      </button>
+                      />
                     ) : course.tipo_inscripcion === 'COMPRA_DIRECTA' ? (
                       <button
                         type="button"
@@ -770,17 +773,28 @@ export const SpecialtiesGrid: React.FC<SpecialtiesGridProps> = ({
                     >
                       Ficha
                     </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (!avail.isOpen) setInfoRequestCourse(course);
-                        else if (onOpenInscription) onOpenInscription(course);
-                        else onSelectCourse(course);
-                      }}
-                      className="px-3.5 py-1.5 rounded-xl bg-red-600 hover:bg-red-700 text-white text-xs font-extrabold cursor-pointer"
-                    >
-                      {avail.isOpen ? 'Solicitar plaza' : 'Solicitar info'}
-                    </button>
+                    {!avail.isOpen ? (
+                      <WhatsappCourseButton
+                        id={`btn-table-solicitar-info-${course.id}`}
+                        course={course}
+                        whatsappConfig={whatsappConfig}
+                        onFallbackClick={() => setInfoRequestCourse(course)}
+                        label="Solicitar información"
+                        iconClassName="w-3.5 h-3.5 shrink-0 text-[#25D366]"
+                        className="px-3.5 py-1.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-extrabold cursor-pointer inline-flex items-center gap-1.5"
+                      />
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (onOpenInscription) onOpenInscription(course);
+                          else onSelectCourse(course);
+                        }}
+                        className="px-3.5 py-1.5 rounded-xl bg-red-600 hover:bg-red-700 text-white text-xs font-extrabold cursor-pointer"
+                      >
+                        {course.tipo_inscripcion === 'COMPRA_DIRECTA' ? 'Matricularme' : 'Solicitar plaza'}
+                      </button>
+                    )}
                   </div>
                 </div>
               );
@@ -1013,18 +1027,31 @@ export const SpecialtiesGrid: React.FC<SpecialtiesGridProps> = ({
                         >
                           Ver Ficha
                         </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setIsCompareModalOpen(false);
-                            if (!avail.isOpen) setInfoRequestCourse(c);
-                            else if (onOpenInscription) onOpenInscription(c);
-                            else onSelectCourse(c);
-                          }}
-                          className="w-1/2 py-2 rounded-xl bg-red-600 hover:bg-red-700 text-white text-xs font-extrabold cursor-pointer"
-                        >
-                          {avail.isOpen ? 'Solicitar plaza' : 'Solicitar info'}
-                        </button>
+                        {!avail.isOpen ? (
+                          <WhatsappCourseButton
+                            course={c}
+                            whatsappConfig={whatsappConfig}
+                            onFallbackClick={() => {
+                              setIsCompareModalOpen(false);
+                              setInfoRequestCourse(c);
+                            }}
+                            label="Solicitar información"
+                            iconClassName="w-3.5 h-3.5 shrink-0 text-[#25D366]"
+                            className="w-1/2 py-2 px-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-extrabold cursor-pointer flex items-center justify-center gap-1.5"
+                          />
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setIsCompareModalOpen(false);
+                              if (onOpenInscription) onOpenInscription(c);
+                              else onSelectCourse(c);
+                            }}
+                            className="w-1/2 py-2 rounded-xl bg-red-600 hover:bg-red-700 text-white text-xs font-extrabold cursor-pointer"
+                          >
+                            {c.tipo_inscripcion === 'COMPRA_DIRECTA' ? 'Matricularme' : 'Solicitar plaza'}
+                          </button>
+                        )}
                       </div>
                     </div>
                   );

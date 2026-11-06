@@ -3975,6 +3975,213 @@ app.put('/api/admin/bank-details', requireAuth, requireNoTempPassword, async (re
   }
 });
 
+// ==========================================
+// CONFIGURACIÓN DE WHATSAPP BUSINESS (MOD 13)
+// ==========================================
+
+const DEFAULT_WHATSAPP_TEMPLATE = 'Hola, buenas. Estoy interesado/a en el curso de {{nombre_curso}} de Academias Péndulo. Me gustaría recibir información sobre el precio, las próximas fechas y cómo puedo apuntarme. ¡Gracias!';
+
+function normalizeWhatsappNumber(rawInput) {
+  if (rawInput === null || rawInput === undefined) {
+    return { valid: false, normalized: '', empty: true };
+  }
+  const str = String(rawInput).trim();
+  if (!str) {
+    return { valid: false, normalized: '', empty: true };
+  }
+  let cleaned = str.replace(/[\s\-\.\(\)]+/g, '');
+  if (cleaned.startsWith('+')) {
+    cleaned = cleaned.slice(1);
+  } else if (cleaned.startsWith('00')) {
+    cleaned = cleaned.slice(2);
+  }
+  if (!/^\d+$/.test(cleaned)) {
+    return {
+      valid: false,
+      normalized: '',
+      empty: false,
+      error: 'El número de WhatsApp solo puede contener dígitos numéricos (sin letras ni símbolos no válidos).'
+    };
+  }
+  if (cleaned.length === 9 && /^[6789]\d{8}$/.test(cleaned)) {
+    cleaned = '34' + cleaned;
+  }
+  if (cleaned.startsWith('34')) {
+    if (!/^34[6789]\d{8}$/.test(cleaned)) {
+      return {
+        valid: false,
+        normalized: '',
+        empty: false,
+        error: 'Para España (prefijo 34), el número debe tener 11 dígitos en total (34 seguido de los 9 dígitos comenzando por 6, 7, 8 o 9).'
+      };
+    }
+  } else if (cleaned.length < 10 || cleaned.length > 15) {
+    return {
+      valid: false,
+      normalized: '',
+      empty: false,
+      error: 'El número internacional debe tener entre 10 y 15 dígitos (incluyendo el código de país, ej. 34600000000).'
+    };
+  }
+  return { valid: true, normalized: cleaned, empty: false };
+}
+
+function sanitizeWhatsappTemplate(rawTemplate) {
+  if (rawTemplate === null || rawTemplate === undefined || String(rawTemplate).trim() === '') {
+    return DEFAULT_WHATSAPP_TEMPLATE;
+  }
+  let text = String(rawTemplate)
+    .replace(/<script[\s\S]*?>[\s\S]*?<\/script>/gi, '')
+    .replace(/<[^>]*>/g, '')
+    .replace(/javascript:/gi, '')
+    .trim();
+  if (!text) {
+    return DEFAULT_WHATSAPP_TEMPLATE;
+  }
+  if (text.length > 1000) {
+    text = text.substring(0, 1000);
+  }
+  return text;
+}
+
+// PUBLIC: Get active WhatsApp configuration for course inquiry buttons
+app.get('/api/public/whatsapp-config', async (req, res) => {
+  try {
+    const config = await getBankConfiguration();
+    const phoneCheck = normalizeWhatsappNumber(config.whatsapp_numero);
+    const activo = config.whatsapp_activo !== undefined && config.whatsapp_activo !== null
+      ? Boolean(Number(config.whatsapp_activo))
+      : true;
+    const plantilla = sanitizeWhatsappTemplate(config.whatsapp_plantilla);
+    const configured = Boolean(activo && phoneCheck.valid && phoneCheck.normalized);
+
+    res.json({
+      whatsapp_numero: configured ? phoneCheck.normalized : (phoneCheck.valid ? phoneCheck.normalized : ''),
+      whatsapp_activo: activo,
+      whatsapp_plantilla: plantilla,
+      default_template: DEFAULT_WHATSAPP_TEMPLATE,
+      configured
+    });
+  } catch (error) {
+    console.error('Fetch public whatsapp config error:', error);
+    res.status(500).json({ error: 'Error al consultar la configuración de WhatsApp.' });
+  }
+});
+
+// ADMIN: Get WhatsApp configuration
+app.get('/api/admin/whatsapp-config', requireAuth, requireNoTempPassword, async (req, res) => {
+  try {
+    const userRoles = req.user.roles || [];
+    if (!userRoles.some(r => ['ADMINISTRADOR', 'ADMIN', 'SECRETARIA', 'DIRECCION'].includes(r))) {
+      return res.status(403).json({ error: 'Acceso restringido a personal de administración autorizado.' });
+    }
+    const config = await getBankConfiguration();
+    const phoneCheck = normalizeWhatsappNumber(config.whatsapp_numero);
+    const activo = config.whatsapp_activo !== undefined && config.whatsapp_activo !== null
+      ? Boolean(Number(config.whatsapp_activo))
+      : true;
+    const plantilla = sanitizeWhatsappTemplate(config.whatsapp_plantilla);
+    const configured = Boolean(activo && phoneCheck.valid && phoneCheck.normalized);
+
+    res.json({
+      whatsapp_numero: phoneCheck.valid ? phoneCheck.normalized : (config.whatsapp_numero || ''),
+      whatsapp_activo: activo,
+      whatsapp_plantilla: plantilla,
+      default_template: DEFAULT_WHATSAPP_TEMPLATE,
+      whatsapp_actualizado_por: config.whatsapp_actualizado_por || config.actualizado_por || null,
+      whatsapp_actualizado_en: config.whatsapp_actualizado_en || config.actualizado_en || null,
+      configured,
+      aviso_sin_configurar: !phoneCheck.valid
+        ? 'El número de WhatsApp aún no está configurado. Mientras tanto, los botones públicos "Solicitar información" utilizarán el formulario de contacto alternativo.'
+        : (!activo ? 'Las consultas por WhatsApp están desactivadas actualmente. Se mostrará el método de contacto alternativo.' : null)
+    });
+  } catch (error) {
+    console.error('Fetch admin whatsapp config error:', error);
+    res.status(500).json({ error: 'Error al consultar la configuración de WhatsApp.' });
+  }
+});
+
+// ADMIN: Update WhatsApp configuration
+app.put('/api/admin/whatsapp-config', requireAuth, requireNoTempPassword, async (req, res) => {
+  try {
+    const userRoles = req.user.roles || [];
+    if (!userRoles.some(r => ['ADMINISTRADOR', 'ADMIN', 'SECRETARIA', 'DIRECCION'].includes(r))) {
+      return res.status(403).json({ error: 'Acceso restringido a personal de administración autorizado.' });
+    }
+
+    const { whatsapp_numero, whatsapp_activo, whatsapp_plantilla } = req.body || {};
+    const activo = whatsapp_activo !== undefined ? Boolean(whatsapp_activo) : true;
+    const rawNum = whatsapp_numero !== undefined && whatsapp_numero !== null ? String(whatsapp_numero).trim() : '';
+
+    if (whatsapp_plantilla !== undefined && whatsapp_plantilla !== null) {
+      const rawTpl = String(whatsapp_plantilla);
+      if (/<script/i.test(rawTpl) || /javascript:/i.test(rawTpl) || /on\w+\s*=/i.test(rawTpl)) {
+        return res.status(400).json({ error: 'La plantilla contiene código o atributos no permitidos por seguridad.' });
+      }
+      if (rawTpl.length > 1000) {
+        return res.status(400).json({ error: 'La plantilla de mensaje no puede superar los 1000 caracteres.' });
+      }
+    }
+
+    let finalPhone = null;
+    if (rawNum !== '') {
+      const phoneCheck = normalizeWhatsappNumber(rawNum);
+      if (!phoneCheck.valid) {
+        return res.status(400).json({ error: phoneCheck.error || 'Formato de número de WhatsApp no válido.' });
+      }
+      finalPhone = phoneCheck.normalized;
+    } else if (activo) {
+      return res.status(400).json({
+        error: 'Para mantener activas las consultas por WhatsApp debe introducir un número válido en formato internacional (ej. 34620351622).'
+      });
+    }
+
+    const cleanTemplate = sanitizeWhatsappTemplate(whatsapp_plantilla);
+    const userActor = req.user.email || req.user.nombre || 'Administración';
+
+    await query(`
+      UPDATE configuracion_bancaria
+      SET
+        whatsapp_numero = ?,
+        whatsapp_activo = ?,
+        whatsapp_plantilla = ?,
+        whatsapp_actualizado_por = ?,
+        whatsapp_actualizado_en = NOW()
+      WHERE id = 1
+    `, [finalPhone, activo ? 1 : 0, cleanTemplate, userActor]);
+
+    await query(`
+      INSERT INTO auditoria (actor_id, accion_administrativa, recurso, recurso_id, diff_cambios, ip, creado_en)
+      VALUES (?, 'UPDATE_WHATSAPP_CONFIG', 'configuracion_bancaria', '1', ?, ?, NOW())
+    `, [
+      req.user.id,
+      JSON.stringify({
+        whatsapp_numero: finalPhone || null,
+        whatsapp_activo: activo,
+        whatsapp_plantilla: cleanTemplate
+      }),
+      req.ip || null
+    ]);
+
+    res.json({
+      success: true,
+      message: 'Configuración de WhatsApp actualizada correctamente.',
+      config: {
+        whatsapp_numero: finalPhone || '',
+        whatsapp_activo: activo,
+        whatsapp_plantilla: cleanTemplate,
+        default_template: DEFAULT_WHATSAPP_TEMPLATE,
+        whatsapp_actualizado_por: userActor,
+        whatsapp_actualizado_en: new Date().toISOString(),
+        configured: Boolean(activo && finalPhone)
+      }
+    });
+  } catch (error) {
+    console.error('Update whatsapp config error:', error);
+    res.status(500).json({ error: 'Error al guardar la configuración de WhatsApp.' });
+  }
+});
+
 // PUBLIC: Student uploads bank transfer receipt (Private storage)
 app.post('/api/public/inscriptions/:requestNumber/upload-receipt', async (req, res) => {
   try {
