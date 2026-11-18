@@ -50,7 +50,7 @@ Horario de atención: Lunes a Viernes de 09:00 a 14:00 y de 16:00 a 20:00.`;
   await conn.query(`
     UPDATE configuracion_bancaria
     SET
-      whatsapp_numero = '34633977320',
+      whatsapp_numero = '34620351622',
       whatsapp_activo = 1,
       whatsapp_plantilla = ?,
       whatsapp_actualizado_por = 'ADMIN_GUILLERMINA',

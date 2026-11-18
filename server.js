@@ -4222,7 +4222,7 @@ app.get('/api/whatsapp-bot/live-status', async (req, res) => {
 app.post('/api/whatsapp-bot/live-test', async (req, res) => {
   try {
     const { phone, course } = req.body || {};
-    const result = await sendTestAutoReplyMessage(phone || '34633977320', course || 'Introducción a la Automoción');
+    const result = await sendTestAutoReplyMessage(phone || '34620351622', course || 'Introducción a la Automoción');
     res.json(result);
   } catch (err) {
     res.status(400).json({ error: err.message });
@@ -4260,7 +4260,7 @@ app.get('/whatsapp-qr', async (req, res) => {
     <div id="viewport">Cargando código QR...</div>
     <div class="steps">
       <strong>Cómo vincularlo en 10 segundos:</strong><br/>
-      1. Abre <strong>WhatsApp</strong> en tu móvil (633 977 320).<br/>
+      1. Abre <strong>WhatsApp</strong> en el móvil de la empresa (620 351 622).<br/>
       2. Toca <strong>Menú (⋮) / Ajustes → Dispositivos vinculados</strong>.<br/>
       3. Pulsa <strong>Vincular un dispositivo</strong> y apunta al código QR de arriba.
     </div>
@@ -4289,7 +4289,7 @@ app.get('/whatsapp-qr', async (req, res) => {
       const res = await fetch('/api/whatsapp-bot/live-test', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phone: '34633977320', course: 'Introducción a la Automoción' })
+        body: JSON.stringify({ phone: '34620351622', course: 'Introducción a la Automoción' })
       });
       const data = await res.json();
       if (data.success) {

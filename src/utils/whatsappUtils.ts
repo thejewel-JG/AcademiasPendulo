@@ -188,7 +188,7 @@ export async function fetchPublicWhatsappConfig(forceRefresh = false): Promise<W
   }
 
   const fallback: WhatsappConfig = {
-    whatsapp_numero: '34633977320',
+    whatsapp_numero: '34620351622',
     whatsapp_activo: true,
     whatsapp_plantilla: DEFAULT_WHATSAPP_TEMPLATE,
     default_template: DEFAULT_WHATSAPP_TEMPLATE,
@@ -216,7 +216,7 @@ export function notifyWhatsappConfigUpdated(newConfig?: Partial<WhatsappConfig>)
 export function useWhatsappConfig() {
   const [config, setConfig] = useState<WhatsappConfig>(
     cachedConfig || {
-      whatsapp_numero: '34633977320',
+      whatsapp_numero: '34620351622',
       whatsapp_activo: true,
       whatsapp_plantilla: DEFAULT_WHATSAPP_TEMPLATE,
       default_template: DEFAULT_WHATSAPP_TEMPLATE,
