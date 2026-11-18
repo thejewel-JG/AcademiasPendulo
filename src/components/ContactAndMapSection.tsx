@@ -10,11 +10,19 @@ import {
   BellRing,
   Sparkles,
   AlertCircle,
-  ChevronDown
+  ChevronDown,
+  Navigation,
+  ExternalLink,
+  Copy,
+  Check,
+  Layers
 } from 'lucide-react';
 import { CENTER_INFO, COURSES } from '../data/coursesData';
 import { InlineCourseDropdown } from './InlineCourseDropdown';
 import { useCampus } from '../context/CampusContext';
+
+const GOOGLE_MAPS_DIRECTIONS_URL = 'https://www.google.com/maps/dir/?api=1&destination=Carrera+Doctoral+26,+04005+Almer%C3%ADa,+Espa%C3%B1a';
+const GOOGLE_MAPS_SEARCH_URL = 'https://www.google.com/maps/search/?api=1&query=Carrera+Doctoral+26,+04005+Almer%C3%ADa,+Espa%C3%B1a';
 
 export const ContactAndMapSection: React.FC = () => {
   const [formSubmitted, setFormSubmitted] = useState(false);
@@ -24,6 +32,8 @@ export const ContactAndMapSection: React.FC = () => {
   const [timePreference, setTimePreference] = useState('manana');
   const [selectedCourseId, setSelectedCourseId] = useState('');
   const [message, setMessage] = useState('');
+  const [mapMode, setMapMode] = useState<'m' | 'h'>('m');
+  const [copiedAddress, setCopiedAddress] = useState(false);
 
   // Newsletter state
   const [newsletterEmail, setNewsletterEmail] = useState('');
@@ -106,7 +116,15 @@ export const ContactAndMapSection: React.FC = () => {
                   <MapPin className="w-5 h-5 text-red-600 shrink-0 mt-0.5" />
                   <div>
                     <strong className="block text-gray-900">Dirección Oficial:</strong>
-                    <span>{CENTER_INFO.address}, CP {CENTER_INFO.postalCode}, {CENTER_INFO.city} ({CENTER_INFO.province})</span>
+                    <a
+                      href={GOOGLE_MAPS_SEARCH_URL}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-gray-700 hover:text-red-600 transition-colors inline-flex items-center gap-1 group"
+                    >
+                      <span>{CENTER_INFO.address}, CP {CENTER_INFO.postalCode}, {CENTER_INFO.city} ({CENTER_INFO.province})</span>
+                      <ExternalLink className="w-3.5 h-3.5 text-red-600 opacity-80 group-hover:translate-x-0.5 transition-transform shrink-0" />
+                    </a>
                   </div>
                 </div>
 
@@ -150,18 +168,98 @@ export const ContactAndMapSection: React.FC = () => {
               </div>
             </div>
 
-            {/* Embedded Google Maps Container */}
-            <div className="rounded-3xl overflow-hidden border border-gray-200 shadow-sm h-72 w-full relative bg-gray-100">
-              <iframe 
-                src="https://maps.google.com/maps?q=Carrera%20Doctoral%2026%20Almer%C3%ADa&t=&z=16&ie=UTF8&iwloc=&output=embed" 
-                title="Ubicación Academias Péndulo en Almería"
-                className="w-full h-full border-0"
-                loading="lazy"
-                referrerPolicy="no-referrer-when-downgrade"
-              />
-              <div className="absolute bottom-3 left-3 bg-white/95 backdrop-blur-md px-3 py-1.5 rounded-xl shadow-md border border-gray-200 text-xs font-semibold text-gray-800 flex items-center gap-1.5">
-                <MapPin className="w-3.5 h-3.5 text-red-500" />
-                <span>Carrera Doctoral 26, Almería</span>
+            {/* Interactive Connected Google Maps Container */}
+            <div className="rounded-3xl overflow-hidden border border-gray-200 shadow-md bg-white flex flex-col">
+              {/* Top Map Controls Bar */}
+              <div className="px-4 py-3 bg-gray-950 text-white flex flex-wrap items-center justify-between gap-2 border-b border-gray-800">
+                <div className="flex items-center gap-2 min-w-0">
+                  <span className="w-2.5 h-2.5 rounded-full bg-red-500 animate-pulse shrink-0" />
+                  <span className="text-xs font-bold truncate">
+                    Google Maps · {CENTER_INFO.address}, {CENTER_INFO.postalCode} {CENTER_INFO.city}
+                  </span>
+                </div>
+
+                <div className="flex items-center gap-1 bg-gray-900 p-1 rounded-xl border border-gray-800 text-[11px] font-bold">
+                  <button
+                    type="button"
+                    onClick={() => setMapMode('m')}
+                    className={`px-2.5 py-1 rounded-lg transition-colors cursor-pointer ${
+                      mapMode === 'm' ? 'bg-red-600 text-white' : 'text-gray-400 hover:text-white'
+                    }`}
+                  >
+                    Mapa
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setMapMode('h')}
+                    className={`px-2.5 py-1 rounded-lg transition-colors cursor-pointer flex items-center gap-1 ${
+                      mapMode === 'h' ? 'bg-red-600 text-white' : 'text-gray-400 hover:text-white'
+                    }`}
+                  >
+                    <Layers className="w-3 h-3" />
+                    <span>Satélite</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Embedded Interactive Map */}
+              <div className="h-80 w-full relative bg-gray-100">
+                <iframe 
+                  src={`https://maps.google.com/maps?q=Carrera+Doctoral+26,+04005+Almer%C3%ADa,+Espa%C3%B1a&t=${mapMode}&z=17&hl=es&ie=UTF8&iwloc=B&output=embed`}
+                  title="Ubicación Oficial Academias Péndulo en Carrera Doctoral 26, Almería"
+                  className="w-full h-full border-0"
+                  allowFullScreen
+                  loading="lazy"
+                  referrerPolicy="no-referrer-when-downgrade"
+                />
+              </div>
+
+              {/* Bottom Direct GPS & Google Maps Action Bar */}
+              <div className="p-3.5 bg-white border-t border-gray-200 flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <a
+                    href={GOOGLE_MAPS_DIRECTIONS_URL}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-red-600 hover:bg-red-700 text-white text-xs font-extrabold shadow-xs transition-all cursor-pointer"
+                  >
+                    <Navigation className="w-3.5 h-3.5" />
+                    <span>Cómo llegar (Ruta GPS)</span>
+                  </a>
+
+                  <a
+                    href={GOOGLE_MAPS_SEARCH_URL}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-gray-100 hover:bg-gray-200 text-gray-800 text-xs font-bold transition-all cursor-pointer"
+                  >
+                    <ExternalLink className="w-3.5 h-3.5 text-red-600" />
+                    <span>Abrir en Google Maps</span>
+                  </a>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    navigator.clipboard?.writeText(`${CENTER_INFO.address}, ${CENTER_INFO.postalCode} ${CENTER_INFO.city}`);
+                    setCopiedAddress(true);
+                    setTimeout(() => setCopiedAddress(false), 2500);
+                  }}
+                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-gray-200 hover:border-gray-300 text-gray-600 hover:text-gray-900 text-xs font-semibold transition-all cursor-pointer"
+                  title="Copiar dirección postal"
+                >
+                  {copiedAddress ? (
+                    <>
+                      <Check className="w-3.5 h-3.5 text-emerald-600" />
+                      <span className="text-emerald-700 font-bold">¡Dirección copiada!</span>
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="w-3.5 h-3.5" />
+                      <span>Copiar dirección</span>
+                    </>
+                  )}
+                </button>
               </div>
             </div>
 

@@ -153,7 +153,14 @@ export const Footer: React.FC<FooterProps> = ({ onOpenCampus, onOpenConsultation
             <div className="space-y-2.5 text-gray-300 text-xs pt-1">
               <p className="flex items-center gap-2 min-h-[36px]">
                 <MapPin className="w-4 h-4 text-[#FF4D4D] shrink-0" />
-                <span>{CENTER_INFO.address}, {CENTER_INFO.city}</span>
+                <a
+                  href={CENTER_INFO.googleMapsUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="hover:text-white hover:underline transition-colors py-1"
+                >
+                  {CENTER_INFO.address}, {CENTER_INFO.city}
+                </a>
               </p>
               <p className="flex items-center gap-2 min-h-[36px]">
                 <Phone className="w-4 h-4 text-[#FF4D4D] shrink-0" />

@@ -12,7 +12,7 @@ export const CENTER_INFO: CenterInfo = {
   phoneAlt: "+34 620 35 16 22",
   email: "info.academiaspendulo@gmail.com",
   hours: "Lunes a Viernes: 08:30 - 20:30 h (Ininterrumpido)",
-  googleMapsUrl: "https://www.juntadeandalucia.es/empleoformacionytrabajoautonomo/formacion/web/buscador-de-centros-y-entidades/0400030892"
+  googleMapsUrl: "https://www.google.com/maps/search/?api=1&query=Carrera+Doctoral+26,+04005+Almer%C3%ADa,+Espa%C3%B1a"
 };
 
 export const CATEGORIES: SpecialtyCategory[] = [
