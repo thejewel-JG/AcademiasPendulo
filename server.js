@@ -243,58 +243,118 @@ function requireRole(roleCode) {
 }
 
 // Google Gemini AI Assistant Configuration for Voice & Text
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY || '';
+let cachedGeminiApiKey = process.env.GEMINI_API_KEY || '';
 
-const GEMINI_SYSTEM_INSTRUCTION = `
+async function resolveGeminiApiKey() {
+  if (process.env.GEMINI_API_KEY) return process.env.GEMINI_API_KEY;
+  if (cachedGeminiApiKey) return cachedGeminiApiKey;
+  try {
+    const rows = await query('SELECT gemini_api_key FROM configuracion_bancaria WHERE id = 1 LIMIT 1');
+    if (rows && rows[0] && rows[0].gemini_api_key) {
+      cachedGeminiApiKey = String(rows[0].gemini_api_key).trim();
+      return cachedGeminiApiKey;
+    }
+  } catch (e) {}
+  return '';
+}
+
+const BASE_GEMINI_SYSTEM_INSTRUCTION = `
 Eres la Inteligencia Artificial Oficial y Asistente Virtual de ACADEMIAS PÉNDULO en Almería.
-Tu misión es resolver dudas, orientar a futuros alumnos y atender tanto consultas por voz como por texto de forma totalmente natural, cercana, cálida, educada y profesional en español de España.
+Tu misión es informar de forma oficial, exacta, completa, cercana y profesional en español de España sobre todos los detalles de nuestros 33 cursos y especialidades oficiales (código oficial, temario, módulos, duración, modalidad, requisitos de acceso, equipamiento de taller, salidas profesionales, precios, estado de matrícula y cómo inscribirse).
 
 DATOS OFICIALES DE ACADEMIAS PÉNDULO:
 - Nombre Oficial: ACADEMIAS PÉNDULO (Centro Oficial de Formación Profesional para el Empleo).
-- Código Oficial de Centro: 0400030892 (Homologado por la Junta de Andalucía y el SEPE / Ministerio de Trabajo).
-- Dirección Física: Carrera Doctoral 26, Código Postal 04005, Almería (Capital).
-- Teléfono de Contacto: +34 620 35 16 22 (620 351 622)
-- Teléfono WhatsApp: +34 620 35 16 22 (620 351 622)
-- Correo Electrónico: info@academiaspendulo.com
+- Código Oficial de Centro Homologado: 0400030892 (Acreditado por la Junta de Andalucía y el SEPE / Ministerio de Trabajo).
+- Web Oficial: https://penduloformacion.com/
+- Dirección Física (Sede Oficial): Carrera Doctoral 26, Código Postal 04005, Almería (Capital).
+- Teléfono Oficial y WhatsApp de Atención al Alumno: 620 351 622 (+34 620 35 16 22)
+- Enlace directo de WhatsApp: https://wa.me/34620351622
+- Correo Electrónico Oficial: info.academiaspendulo@gmail.com
 - Horario de Atención: Lunes a Viernes de 08:30 a 20:30 h (Ininterrumpido).
 
-33 ESPECIALIDADES OFICIALES HOMOLOGADAS:
-- Área de Automoción y Electromecánica (TMV): Mecánica avanzada, diagnosis multimarca, vehículos híbridos y eléctricos de alta tensión, sistemas ADAS, chapa, pintura en cabina presurizada, motocicletas y maquinaria.
-- Formación Complementaria (FCO): Básico de Prevención de Riesgos Laborales PRL (FCOS02, 50h), carretillas elevadoras, plataformas elevadoras PEMP y seguridad industrial.
-- Otras áreas: Climatización, frío industrial, fontanería, energía solar térmica y fotovoltaica, soldadura TIG/MIG-MAG, gestión administrativa y logística.
+INSTALACIONES Y TALLERES HOMOLOGADOS EN ALMERÍA:
+- Taller Homologado de Electromecánica y Diagnosis (Carrera Doctoral 26, Almería): Equipado con elevadores hidráulicos homologados, equipos de diagnosis Bosch KTS, osciloscopios de 4 canales PicoScope, paneles de calibración ADAS multimarca (Bosch/Autel) y maquetas de vehículos híbridos y eléctricos con herramientas aisladas 1000V.
+- Taller de Motocicletas y Vehículos de Movilidad Personal (VMP): Bancos elevadores de motocicletas, comprobadores de baterías de litio y controladoras 36V/48V, bancos Park Tool y desmontadoras.
 
-MODELO DE FORMACIÓN PRIVADA Y PRECIOS:
-- Formación Profesional Especializada de carácter privado con catálogo oficial de 33 especialidades.
-- Precios transparentes en EUR con desglose fiscal (IVA) y opciones de financiación o bonificación FUNDAE para empresas y trabajadores.
-- Modalidad de matriculación: Compra directa o solicitud de admisión con revisión previa por Secretaría.
-- Acceso al campus: Requiere formalización administrativa y aprobación expresa de Secretaría (el pago y la activación son independientes).
-- Becas y ayudas de transporte, conciliación y discapacidad según convocatoria.
-- Prácticas no laborales (PNL) concertadas en empresas líderes de Almería con más del 85% de inserción laboral.
-- Requisitos de acceso: Nivel 1 (sin requisitos), Nivel 2 (ESO o equivalente), Nivel 3 (Bachiller o equivalente).
-
-PAUTAS DE COMUNICACIÓN (VOZ Y TEXTO):
-- Habla de manera natural y espontánea, como un asesor experto y simpático de secretaría.
-- Respuestas directas, bien estructuradas y comprensibles para ser leídas o escuchadas por voz.
-- Anima con simpatía a visitar la sede en Carrera Doctoral 26, llamar al 620 351 622 o escribir por WhatsApp al +34 620 35 16 22.
+NIVELES DE ACCESO, PRÁCTICAS Y PROCEDIMIENTO DE MATRÍCULA:
+- Nivel 1 (Certificados de Profesionalidad, ej. TMVG0109): Sin requisitos académicos ni profesionales previos.
+- Nivel 2 (Certificados de Profesionalidad, ej. TMVG0209, TMVG0309, TMVG0409, TMVG0110): Título de Graduado en ESO, 2º de BUP, FP Básica, Certificado de Nivel 1 de la misma familia o prueba de acceso superada.
+- Especialidades Formativas Autorizadas (TMVG / FCOS02): Cursos técnicos oficiales orientados a la capacitación práctica en taller.
+- Prácticas Reales y Empleo: Convenios de prácticas en concesionarios oficiales y talleres de referencia en Almería, con acceso directo a la Bolsa de Empleo activa del centro.
+- Cómo apuntarse:
+  * Cursos con "Matrícula abierta": el alumno puede pulsar "Matricularme" o "Solicitar plaza" en https://penduloformacion.com/ para inscribirse online.
+  * Cursos con "Matrícula cerrada": el alumno puede pulsar "Solicitar información" en la tarjeta del curso para abrir WhatsApp (+34 620 35 16 22) y recibir todos los detalles o reservar plaza para la próxima convocatoria.
 `;
+
+async function buildLiveGeminiSystemInstruction(clientKnowledge) {
+  try {
+    const dbCourses = await query(`
+      SELECT id, codigo, nombre, slug, categoria_id, nivel, horas_totales, horas_practicas,
+             modalidad, descripcion, precio_final, tipo_iva, estado_precio,
+             estado_disponibilidad, tipo_inscripcion, plazas_disponibles
+      FROM especialidades
+      ORDER BY CASE WHEN estado_disponibilidad = 'ABIERTA' THEN 0 ELSE 1 END, orden_visualizacion ASC, codigo ASC
+    `);
+
+    if (!dbCourses || dbCourses.length === 0) {
+      return clientKnowledge || BASE_GEMINI_SYSTEM_INSTRUCTION;
+    }
+
+    const catalogLines = dbCourses.map((c, idx) => {
+      const isOpen = c.estado_disponibilidad === 'ABIERTA';
+      const statusLabel = isOpen
+        ? 'MATRÍCULA ABIERTA (Plazas disponibles para inscripción online)'
+        : 'MATRÍCULA CERRADA (Solicitud de información y lista de reserva abierta por WhatsApp al +34 620 35 16 22)';
+
+      let priceLabel = 'Consultar condiciones en Secretaría';
+      if (c.estado_precio === 'CONFIGURADO' && c.precio_final && Number(c.precio_final) > 0) {
+        const formatted = Number(c.precio_final).toFixed(2).replace('.', ',');
+        const ivaText = c.tipo_iva === 'EXENTO' ? 'Exento de IVA' : 'IVA incluido';
+        priceLabel = `${formatted} € (${ivaText})`;
+      }
+
+      const slug = c.slug || String(c.id || c.codigo).toLowerCase();
+      const hoursText = c.horas_totales && Number(c.horas_totales) > 0 ? `${c.horas_totales} horas` : 'Horas oficiales según convocatoria';
+      const familyName = c.categoria_id === 'fco' ? 'Formación Complementaria (PRL)' : 'Transporte y Mantenimiento de Vehículos (Automoción)';
+
+      return [
+        `${idx + 1}. [${c.codigo}] ${c.nombre}`,
+        `   - Nivel / Tipo: ${c.nivel || 'Especialidad Oficial Autorizada'} | Familia: ${familyName}`,
+        `   - Estado actual: ${statusLabel}`,
+        `   - Precio oficial: ${priceLabel}`,
+        `   - Duración: ${hoursText} | Modalidad: ${c.modalidad || 'Presencial'}`,
+        c.descripcion ? `   - Descripción: ${c.descripcion}` : null,
+        `   - Ficha web oficial: https://penduloformacion.com/cursos/${slug}`
+      ].filter(Boolean).join('\n');
+    }).join('\n\n');
+
+    const extraKnowledge = clientKnowledge ? `\n\nDETALLE COMPLETO DE MÓDULOS, REQUISITOS, EQUIPAMIENTO DE TALLER Y SALIDAS LABORALES:\n${clientKnowledge}` : '';
+
+    return `${BASE_GEMINI_SYSTEM_INSTRUCTION}\n\nCATÁLOGO OFICIAL EN TIEMPO REAL (${dbCourses.length} ESPECIALIDADES EN BASE DE DATOS):\n${catalogLines}${extraKnowledge}\n\nPAUTAS DE COMUNICACIÓN:\n- Informa siempre con los datos oficiales exactos del catálogo superior (códigos, módulos, horas, equipamiento, requisitos, precios y estado de matrícula).\n- Habla de manera cercana, clara y profesional, invitando a contactar al 620 351 622 (llamada o WhatsApp), visitar Carrera Doctoral 26 (04005 Almería) o consultar https://penduloformacion.com/.`;
+  } catch (err) {
+    console.warn('Could not load live DB courses for Gemini prompt, using base instruction:', err.message);
+    return clientKnowledge || BASE_GEMINI_SYSTEM_INSTRUCTION;
+  }
+}
 
 // ==========================================
 // 0. AI CHAT ENDPOINT (GEMINI AI ENGINE)
 // ==========================================
 app.post('/api/chat', async (req, res) => {
   try {
-    const { messages } = req.body;
+    const { messages, systemKnowledge } = req.body;
     if (!messages || !Array.isArray(messages) || messages.length === 0) {
       return res.status(400).json({ error: 'Mensajes requeridos en el cuerpo de la petición.' });
     }
 
     const candidateModels = [
-      'gemini-3.5-flash',
-      'gemini-3.6-flash',
+      'gemini-3.5-flash-lite',
+      'gemini-flash-lite-latest',
       'gemini-3.1-flash-lite',
-      'gemini-3.7-flash',
-      'gemini-flash-latest'
+      'gemini-3.5-flash'
     ];
+
+    const systemInstructionText = await buildLiveGeminiSystemInstruction(systemKnowledge);
 
     // Format messages for Gemini API
     const geminiContents = messages.map(m => ({
@@ -302,22 +362,24 @@ app.post('/api/chat', async (req, res) => {
       parts: [{ text: m.content }]
     }));
 
+    const activeApiKey = await resolveGeminiApiKey();
     let reply = '';
     let lastError = null;
 
     for (const model of candidateModels) {
       try {
-        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_API_KEY}`, {
+        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${activeApiKey}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
+          signal: AbortSignal.timeout(8500),
           body: JSON.stringify({
             systemInstruction: {
-              parts: [{ text: GEMINI_SYSTEM_INSTRUCTION }]
+              parts: [{ text: systemInstructionText }]
             },
             contents: geminiContents,
             generationConfig: {
-              temperature: 0.7,
-              maxOutputTokens: 800
+              temperature: 0.5,
+              maxOutputTokens: 1000
             }
           })
         });

@@ -20,7 +20,10 @@ import {
 } from 'lucide-react';
 import { COURSES, CENTER_INFO } from '../data/coursesData';
 import { Course } from '../types';
-import { ACADEMIAS_PENDULO_KNOWLEDGE } from '../data/aiSystemKnowledge';
+import { 
+  buildAcademySystemKnowledge 
+} from '../data/aiSystemKnowledge';
+import { fetchPublicCoursesWithCommercial } from '../services/courseService';
 import { useWhatsappConfig } from '../utils/whatsappUtils';
 
 interface AssistantChatWidgetProps {
@@ -44,13 +47,22 @@ export const AssistantChatWidget: React.FC<AssistantChatWidgetProps> = ({
   const [isOpen, setIsOpen] = useState(false);
   const { whatsappConfig } = useWhatsappConfig();
   const [activeTab, setActiveTab] = useState<'ia' | 'quiz'>('ia');
+  const [liveCourses, setLiveCourses] = useState<Course[]>(COURSES);
+
+  useEffect(() => {
+    fetchPublicCoursesWithCommercial().then(data => {
+      if (data && data.length > 0) {
+        setLiveCourses(data);
+      }
+    }).catch(() => {});
+  }, []);
   
   // AI Chat state
   const [messages, setMessages] = useState<Message[]>([
     {
       id: 'welcome-msg',
       role: 'assistant',
-      content: '¡Hola! 👋 Soy la Inteligencia Artificial Oficial de **Academias Péndulo** en Almería.\n\nPuedes escribirme o hablarme por el **micrófono** 🎙️ sobre nuestros 33 cursos oficiales homologados por el SAE, becas y ayudas 100% gratuitas o visitarnos en Carrera Doctoral 26. ¿En qué te puedo asesorar hoy?',
+      content: '¡Hola! 👋 Soy la Inteligencia Artificial Oficial de **Academias Péndulo** en Almería (Centro Homologado Nº 0400030892).\n\nConozco al detalle nuestras **33 especialidades oficiales** (temarios, módulos, horas, precios, requisitos, prácticas en concesionarios y estado de matrícula). Puedes escribirme o hablarme por el **micrófono** 🎙️. ¿Sobre qué curso quieres que te informe hoy?',
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     }
   ]);
@@ -226,11 +238,13 @@ export const AssistantChatWidget: React.FC<AssistantChatWidgetProps> = ({
     setIsLoading(true);
 
     try {
+      const systemPrompt = buildAcademySystemKnowledge(liveCourses);
       const res = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          messages: updatedMessages.map(m => ({ role: m.role, content: m.content }))
+          messages: updatedMessages.map(m => ({ role: m.role, content: m.content })),
+          systemKnowledge: systemPrompt
         })
       });
 
