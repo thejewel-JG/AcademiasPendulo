@@ -21,7 +21,8 @@ import {
 import { COURSES, CENTER_INFO } from '../data/coursesData';
 import { Course } from '../types';
 import { 
-  buildAcademySystemKnowledge 
+  buildAcademySystemKnowledge,
+  generateOfficialAcademyReply
 } from '../data/aiSystemKnowledge';
 import { fetchPublicCoursesWithCommercial } from '../services/courseService';
 import { useWhatsappConfig } from '../utils/whatsappUtils';
@@ -238,22 +239,31 @@ export const AssistantChatWidget: React.FC<AssistantChatWidgetProps> = ({
     setIsLoading(true);
 
     try {
-      const systemPrompt = buildAcademySystemKnowledge(liveCourses);
-      const res = await fetch('/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          messages: updatedMessages.map(m => ({ role: m.role, content: m.content })),
-          systemKnowledge: systemPrompt
-        })
-      });
+      let reply = '';
+      try {
+        const systemPrompt = buildAcademySystemKnowledge(liveCourses);
+        const res = await fetch('/api/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            messages: updatedMessages.map(m => ({ role: m.role, content: m.content })),
+            systemKnowledge: systemPrompt
+          })
+        });
 
-      if (!res.ok) {
-        throw new Error(`Server returned ${res.status}`);
+        if (res.ok) {
+          const data = await res.json();
+          if (data && data.reply) {
+            reply = data.reply;
+          }
+        }
+      } catch (apiErr) {
+        console.warn('Using local official course knowledge engine:', apiErr);
       }
 
-      const data = await res.json();
-      const reply = data.reply || 'Disculpa, no he podido procesar la respuesta.';
+      if (!reply) {
+        reply = generateOfficialAcademyReply(query, liveCourses);
+      }
 
       const assistantMsgId = `reply-${Date.now()}`;
       const assistantMsg: Message = {
@@ -273,12 +283,13 @@ export const AssistantChatWidget: React.FC<AssistantChatWidgetProps> = ({
       }
     } catch (err) {
       console.error('Gemini Assistant error:', err);
+      const fallbackReply = generateOfficialAcademyReply(query, liveCourses);
       setMessages(prev => [
         ...prev,
         {
           id: `err-${Date.now()}`,
           role: 'assistant',
-          content: '¡Disculpa! Ha ocurrido un pequeño corte temporal con el servicio de IA. Puedes llamarnos directamente a secretaría al **620 351 622** o escribirnos por WhatsApp al **+34 620 35 16 22**.',
+          content: fallbackReply,
           timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
         }
       ]);
