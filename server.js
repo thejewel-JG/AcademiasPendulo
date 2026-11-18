@@ -243,19 +243,20 @@ function requireRole(roleCode) {
 }
 
 // Google Gemini AI Assistant Configuration for Voice & Text
-let cachedGeminiApiKey = process.env.GEMINI_API_KEY || '';
+let cachedGeminiApiKey = '';
 
 async function resolveGeminiApiKey() {
-  if (process.env.GEMINI_API_KEY) return process.env.GEMINI_API_KEY;
   if (cachedGeminiApiKey) return cachedGeminiApiKey;
   try {
     const rows = await query('SELECT gemini_api_key FROM configuracion_bancaria WHERE id = 1 LIMIT 1');
-    if (rows && rows[0] && rows[0].gemini_api_key) {
+    if (rows && rows[0] && rows[0].gemini_api_key && String(rows[0].gemini_api_key).trim().length > 10) {
       cachedGeminiApiKey = String(rows[0].gemini_api_key).trim();
       return cachedGeminiApiKey;
     }
-  } catch (e) {}
-  return '';
+  } catch (e) {
+    console.warn('Could not read gemini_api_key from DB:', e.message);
+  }
+  return process.env.GEMINI_API_KEY || '';
 }
 
 const BASE_GEMINI_SYSTEM_INSTRUCTION = `
